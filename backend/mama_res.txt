@@ -1,0 +1,313 @@
+event: delta_encoding
+data: "v1"
+
+data: {"type": "resume_conversation_token", "kind": "conduit", "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb25kdWl0X3V1aWQiOiIwNDVhNDQ5YjQwNjQ0NzBiYTY5NGFjNTZkMjI1MDNiZiIsImNvbmR1aXRfbG9jYXRpb24iOiIxMC4xMjguNDAuMTI6ODMwOCIsImNsdXN0ZXIiOiJ1bmlmaWVkLTk2IiwiaWF0IjoxNzc0Mjc5NzY2LCJleHAiOjE3NzQyODY5NjYsInR1cm5fdG9waWNfaWQiOm51bGx9.Tk41bIt3S4_SDSjS2OdBUa12Yu-AmhVd_CSYHcq1Gs5SsrfDfPATaAg9q70J_E-bmFqqz8QgsCI7btOczYbuJg", "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433"}
+
+data: {"type": "input_message", "input_message": {"id": "d29e2953-2403-4e51-aad7-6904e263d724", "author": {"role": "user", "name": null, "metadata": {}}, "create_time": 1774279765.627, "update_time": null, "content": {"content_type": "text", "parts": ["1. T\u00f4i s\u1ebd \u0111i ng\u1ee7 s\u1edbm \u0111\u1ec3 t\u00f4i c\u00f3 th\u1ec3 d\u1eady \u0111\u00fang gi\u1edd v\u00e0o ng\u00e0y mai.\r\n\u2192 I will sleep early so that I can get up on time tomorrow.\r\n\r\n\r\n\r\n\r\n2. T\u00f4i s\u1ebd c\u1ed1 g\u1eafng h\u1ebft s\u1ee9c h\u1ecdc h\u00e0nh ch\u0103m ch\u1ec9 \u0111\u1ec3 t\u00f4i c\u00f3 th\u1ec3 v\u01b0\u1ee3t qua k\u00ec thi.\r\n\u2192 I will try my best to study hard so that I can pass the exam.\r\n\r\n\r\n\r\n\r\n3. T\u00f4i h\u1ecdc ti\u1ebfng Anh \u0111\u1ec3 t\u00f4i c\u00f3 th\u1ec3 n\u00f3i chuy\u1ec7n v\u1edbi ng\u01b0\u1eddi n\u01b0\u1edbc ngo\u00e0i.\r\n\u2192 I study English so that I can talk to foreigners.\r\n\r\n\r\n\r\n\r\nDC adv ch\u1ec9 s\u1ef1 nh\u01b0\u1ee3ng b\u1ed9 (Although/ though\u2026)\r\n\r\n\r\n4. M\u1eb7c d\u00f9 tr\u1eddi m\u01b0a r\u1ea5t to, nh\u01b0ng h\u1ecd v\u1eabn ra ngo\u00e0i.\r\n\u2192 Although it rained very heavily, they still went outside.\r\n\r\n\r\n\r\n\r\n5. M\u1eb7c d\u00f9 anh \u1ea5y y\u00eau c\u00f4 \u1ea5y r\u1ea5t nhi\u1ec1u, nh\u01b0ng anh \u1ea5y kh\u00f4ng th\u1ec3 l\u00e0m b\u1ea5t c\u1ee9 \u0111i\u1ec1u g\u00ec cho c\u00f4 \u1ea5y. ^^\r\n\u2192 Although he loves her very much, he can\u2019t do anything for her.\r\n\r\n\r\n\r\n\r\n6. M\u1eb7c d\u00f9 anh \u1ea5y th\u1ef1c s\u1ef1 r\u1ea5t m\u1ec7t, nh\u01b0ng anh \u1ea5y v\u1eabn c\u1ed1 g\u1eafng c\u01b0\u1eddi.\r\n\u2192 Although he is really tired, he still tries to smile.\r\n\r\n\r\n\r\n\r\n\r\n\r\nCh\u00fa \u00fd: \u0110i\u1ec1u ki\u1ec7n kh\u00f4ng ra, th\u00ec ta l\u00f9i th\u00ec\r\n\u0110i\u1ec1u ki\u1ec7n lo\u1ea1i 1: C\u00f3 th\u1ec3 x\u1ea3y ra \u1edf hi\u1ec7n t\u1ea1i ho\u1eb7c t\u01b0\u01a1ng lai.\r\n7. N\u1ebfu t\u00f4i l\u00e0m xong b\u00e0i t\u1eadp, t\u00f4i s\u1ebd ra ngo\u00e0i.\r\n\u2192 If I finish my homework, I will go out.\r\n\r\n\r\n\r\n\r\n8. N\u1ebfu t\u00f4i c\u00f3 ti\u1ec1n, t\u00f4i s\u1ebd mua nh\u00e0 cho b\u1ed1 m\u1eb9 c\u1ee7a t\u00f4i.\r\n\u2192 If I have money, I will buy a house for my parents.\r\n\r\n\r\n\r\n\r\n9. N\u1ebfu t\u00f4i h\u1ecdc h\u00e0nh ch\u0103m ch\u1ec9, t\u00f4i s\u1ebd qua k\u00ec thi.\r\n\u2192 If I study hard, I will pass the exam.\r\n\r\n\r\n\r\n\r\n\u0110i\u1ec1u ki\u1ec7n lo\u1ea1i 2: Kh\u00f4ng th\u1ec3 x\u1ea3y ra \u1edf hi\u1ec7n t\u1ea1i ho\u1eb7c t\u01b0\u01a1ng lai.\r\n\r\n\r\n10. N\u1ebfu t\u00f4i l\u00e0 b\u1ea1n, t\u00f4i s\u1ebd l\u1ea5y anh \u1ea5y.\r\n\u2192 If I were you, I would marry him.\r\n\r\n\r\n\r\n\r\n11. N\u1ebfu t\u00f4i l\u00e0 b\u1ea1n, t\u00f4i s\u1ebd h\u1ecdc ti\u1ebfng Anh m\u1ed9t c\u00e1ch ch\u0103m ch\u1ec9.\r\n\u2192 If I were you, I would study English hard.\r\n\r\n\r\n\r\n\r\n12. N\u1ebfu l\u00e0 chim, t\u00f4i s\u1ebd l\u00e0 lo\u00e0i b\u1ed3 c\u00e2u tr\u1eafng.\r\n\u2192 If I were a bird, I would be a white dove.\r\nN\u1ebfu l\u00e0 hoa, t\u00f4i s\u1ebd l\u00e0 m\u1ed9t \u0111\u00f3a h\u01b0\u1edbng d\u01b0\u01a1ng.\r\n\u2192 If I were a flower, I would be a sunflower\r\n\r\n\r\n\r\n\r\n\u0110i\u1ec1u ki\u1ec7n lo\u1ea1i 3: Kh\u00f4ng x\u1ea3y ra trong qu\u00e1 kh\u1ee9\r\n\r\n\r\n13. N\u1ebfu t\u00f4i \u0111\u00e3 l\u00e0m xong b\u00e0i t\u1eadp h\u00f4m qua, t\u00f4i s\u1ebd \u0111i th\u0103m c\u00f4 \u1ea5y.\r\n\u2192 If I had finished my homework yesterday, I would have visited her.\r\n\r\n\r\n\r\n\r\n14. N\u1ebfu t\u00f4i g\u1eb7p c\u00f4 \u1ea5y h\u00f4m qua, t\u00f4i s\u1ebd \u00f4m c\u00f4 \u1ea5y.\r\n\u2192 If I had met her yesterday, I would have hugged her.\r\n\r\n\r\n\r\n\r\n15. N\u1ebfu t\u00f4i h\u1ecdc ti\u1ebfng Anh \u1edf SEC 1 n\u0103m tr\u01b0\u1edbc, t\u00f4i s\u1ebd n\u00f3i \u0111\u01b0\u1ee3c ti\u1ebfng Anh.\r\n\u2192 If I had studied English at SEC one year ago, I would have been able to speak English.\r\n\r\n\r\n\r\n\r\nDCadv gi\u1ea3n l\u01b0\u1ee3c (\u00e1p d\u1ee5ng: c\u00f3 be th\u00ec b\u1ecf be \u0111i, kh\u00f4ng be th\u00ec chuy\u1ec3n \u0111\u1ea7u th\u00e0nh Ving)\r\n\r\n\r\nV\u00ed d\u1ee5: While she was watching TV, she fell asleep.\r\n\u2192 While watching TV, she fell asleep.\r\n\r\n\r\n\r\n\r\n17. When I finish my work, I will meet you at the meeting.\r\n\u2192 Finishing my work, I will meet you at the meeting.\r\n\r\n\r\n\r\n\r\n18. Before I go to bed every day, I like to read a book.\r\n\u2192 Before going to bed every day, I like to read a book.\r\n\r\n\r\n\r\n\r\n19. When he was called, he answered quickly.\r\n\u2192 When called, he answered quickly.\r\n\r\n\r\n\r\n\r\n\r"]}, "status": "finished_successfully", "end_turn": null, "weight": 1.0, "metadata": {"selected_github_repos": [], "selected_all_github_repos": false, "serialization_metadata": {"custom_symbol_offsets": []}, "request_id": "8822a567-87c2-4f7f-9740-da8837804202", "message_source": null, "turn_exchange_id": "46ef5d11-5be5-4be4-be50-1674926e7d6d", "turn_trace_id": "41c733c0-fb67-490d-ba5a-b5a4f0c0cb5c", "useragent": {"client_type": "web", "is_mobile": false, "is_mobile_app": false, "is_desktop_app": false, "is_native_app": false, "is_native_app_apple": false, "is_mobile_app_ios": false, "is_desktop_app_macos": false, "is_aura_app_macos": false, "is_aura_web": false, "is_sora_ios": false, "is_agora_ios": false, "is_agora_android": false, "is_desktop_app_windows": false, "is_electron_app": false, "is_mobile_app_android": false, "is_mobile_web": false, "is_mobile_web_ios": false, "is_mobile_web_android": false, "is_ios": false, "is_android": false, "is_macos": false, "is_windows": true, "is_linux": false, "is_chatgpt_client": false, "is_sora_client": false, "is_agora_client": false, "is_browserbased_app": true, "is_chatgpt_api": false, "is_slack": false, "is_chatkit_web": false, "is_chatkit_synthetic": false, "is_kakao_talk": false, "is_codex_desktop": false, "is_offline_caching": false, "app_version": null, "build_number": null, "user_agent": "mozilla/5.0 (windows nt 10.0; win64; x64) applewebkit/537.36 (khtml, like gecko) chrome/146.0.0.0 safari/537.36", "app_environment": null, "os_version": null, "device_model": null, "user_client_type": "desktop_web"}, "paragen_stream_type": "default", "resolved_model_slug": "gpt-5-3", "parent_id": "83c9920d-47ca-4143-817c-6684b1d26677"}, "recipient": "all", "channel": null}, "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433"}
+
+event: delta
+data: {"p": "", "o": "add", "v": {"message": {"id": "f7835291-541e-4195-b455-60dcce669ee3", "author": {"role": "assistant", "name": null, "metadata": {}}, "create_time": 1774279765.929893, "update_time": null, "content": {"content_type": "text", "parts": [""]}, "status": "in_progress", "end_turn": null, "weight": 1.0, "metadata": {"citations": [], "content_references": [], "resolved_model_slug": "gpt-5-3", "gizmo_id": "g-687ee354ad6c81918d7cf8a7a28a2a98", "request_id": "8822a567-87c2-4f7f-9740-da8837804202", "message_type": "next", "turn_exchange_id": "46ef5d11-5be5-4be4-be50-1674926e7d6d", "model_slug": "gpt-5-3", "default_model_slug": "auto", "parent_id": "d29e2953-2403-4e51-aad7-6904e263d724", "token_count": 4, "model_switcher_deny": []}, "recipient": "all", "channel": "final"}, "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433", "error": null, "error_code": null}, "c": 0}       
+
+data: {"type": "message_marker", "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433", "message_id": "f7835291-541e-4195-b455-60dcce669ee3", "marker": "user_visible_token", "event": "first"}
+
+event: delta
+data: {"o": "patch", "v": [{"p": "/message/content/parts/0", "o": "append", "v": "| ST"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 5}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "T |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 7}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " C\u00e2u ti\u1ebfng Vi\u1ec7t"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 11}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | C\u00e2u ti\u1ebfng Anh sai"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 17}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | Ch\u1eefa b\u00e0i |\n| ---"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 24}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | -------------- | -----------------"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 30}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | -------- |\n| 1 |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 37}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " T\u00f4i s\u1ebd \u0111i ng\u1ee7 s\u1edbm \u0111\u1ec3 t\u00f4i"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 45}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " c\u00f3 th\u1ec3 d\u1eady \u0111\u00fang gi\u1edd"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 51}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " v\u00e0o ng\u00e0y mai. | I"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 57}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " will sleep early so that I"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 63}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " can get up on time tomorrow"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 69}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ". | \u2705 \u0110\u00fang |\n"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 75}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "| 2 | T\u00f4i s\u1ebd"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 81}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " c\u1ed1 g\u1eafng h\u1ebft s\u1ee9c h\u1ecdc"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 87}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " h\u00e0nh ch\u0103m ch\u1ec9 \u0111\u1ec3 t\u00f4i c\u00f3"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 93}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " th\u1ec3 v\u01b0\u1ee3t qua k\u00ec thi."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 100}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | I will try my best"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 106}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " to study hard so that I"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 112}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " can pass the"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 115}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " exam. | \u2705 \u0110\u00fang |\n| "}, {"p": "/message/metadata/token_count", "o": "replace", "v": 124}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "3 | T\u00f4i h\u1ecdc ti\u1ebfng Anh \u0111\u1ec3 t\u00f4i c\u00f3"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 133}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " th\u1ec3 n\u00f3i chuy\u1ec7n v\u1edbi ng\u01b0\u1eddi n\u01b0\u1edbc ngo\u00e0i. |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 142}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " I study English so that I"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 148}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " can talk to foreigners."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 153}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | \u2705 \u0110\u00fang |\n| "}, {"p": "/message/metadata/token_count", "o": "replace", "v": 160}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "4 | M\u1eb7c d\u00f9 tr\u1eddi"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 166}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " m\u01b0a r\u1ea5t to, nh\u01b0ng"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 172}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " h\u1ecd v\u1eabn ra ngo\u00e0i. |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 178}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " Although it rained very heavily"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 184}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ", they still went outside."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 190}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | Although it rained very"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 196}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " heavily, they went outside (**"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 202}]}     
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "b\u1ecf still**) (Although"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 208}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " kh\u00f4ng \u0111i v\u1edbi still/but"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 214}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ") |\n| 5 |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 220}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " M\u1eb7c d\u00f9 anh \u1ea5y y\u00eau"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 226}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " c\u00f4 \u1ea5y r\u1ea5t nhi\u1ec1u, nh\u01b0ng"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 232}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " anh \u1ea5y kh\u00f4ng th\u1ec3 l\u00e0m b\u1ea5t"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 238}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " c\u1ee9 \u0111i\u1ec1u g\u00ec cho c\u00f4 \u1ea5y."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 245}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | Although he loves her very much"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 252}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ", he can\u2019t do anything for"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 259}]}     
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " her. | \u2705 \u0110\u00fang |\n"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 266}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "| 6 | M\u1eb7c"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 272}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " d\u00f9 anh \u1ea5y th\u1ef1c s\u1ef1 r\u1ea5t"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 278}]}     
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " m\u1ec7t, nh\u01b0ng anh \u1ea5y"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 284}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " v\u1eabn c\u1ed1 g\u1eafng c\u01b0\u1eddi."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 291}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | Although he is really tired"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 297}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ", he still tries to smile"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 303}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ". | Although he is really"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 309}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " tired, he tries to smile (**b\u1ecf still**) (Although kh\u00f4ng \u0111i v\u1edbi still/but) |\n"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 330}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "| 7 | N\u1ebfu t\u00f4i l\u00e0m"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 337}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " xong b\u00e0i t\u1eadp, t\u00f4i"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 343}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " s\u1ebd ra ngo\u00e0i. |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 348}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " If I finish my homework,"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 354}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " I will go out."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 359}]}     
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | \u2705 \u0110\u00fang |\n| 8 |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 368}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " N\u1ebfu t\u00f4i c\u00f3 ti\u1ec1n, t\u00f4i"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 374}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " s\u1ebd mua nh\u00e0 cho b\u1ed1"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 379}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " m\u1eb9 c\u1ee7a t\u00f4i. | If"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 385}]}    
+
+: ping - 2026-03-23 15:29:41.908578+00:00
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " I"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 386}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " have money, I will buy a"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 393}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " house for my parents. | \u2705 \u0110\u00fang |\n|"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 404}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " 9 | N\u1ebfu t\u00f4i h\u1ecdc h\u00e0nh ch\u0103m ch\u1ec9"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 413}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ", t\u00f4i s\u1ebd qua k\u00ec thi. | If I study hard, I will pass the"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 431}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " exam. | \u2705 \u0110\u00fang |\n| 10 | N\u1ebfu t\u00f4i l\u00e0 b\u1ea1n, t\u00f4i s\u1ebd"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 449}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " l\u1ea5y anh \u1ea5y. | If I were you, I would marry him"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 463}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ". | \u2705 \u0110\u00fang |\n| 11 | N\u1ebfu t\u00f4i l\u00e0 b\u1ea1n, t\u00f4i s\u1ebd h\u1ecdc ti\u1ebfng"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 482}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " Anh m\u1ed9t c\u00e1ch ch\u0103m ch\u1ec9. | If I were you, I would study"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 497}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " English hard. | \u2705 \u0110\u00fang |\n| 12 | N\u1ebfu l\u00e0 chim, t\u00f4i s\u1ebd l\u00e0 lo\u00e0i b\u1ed3 c\u00e2u tr\u1eafng. | If I were a bird, I would be a white dove. | If I were a bird, I would be a white dove. / If I were a flower"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 557}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ", I would be a sunflower. (\u0110"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 566}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "\u00fang c\u1ea5u tr"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 569}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "\u00fac If + S + were \u2192 would)"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 578}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " |\n| 13 | N\u1ebfu t\u00f4i \u0111\u00e3 l\u00e0m xong b\u00e0i t\u1eadp"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 591}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " h\u00f4m qua, t\u00f4i s\u1ebd \u0111i th\u0103m c\u00f4 \u1ea5y. | If I"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 605}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " had finished my homework yesterday, I would have visited her."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 617}]}      
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | \u2705 \u0110\u00fang |\n| 14 |"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 626}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " N\u1ebfu t\u00f4i g\u1eb7p c\u00f4 \u1ea5y h\u00f4m qua, t\u00f4i s\u1ebd \u00f4"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 637}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "m c\u00f4 \u1ea5y. | If I had met her"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 647}]}       
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " yesterday, I would have hugged her"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 654}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ". | \u2705 \u0110\u00fang |\n| 15 | N\u1ebfu t\u00f4i h\u1ecdc ti\u1ebfng"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 668}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " Anh \u1edf SEC 1 n\u0103m tr\u01b0\u1edbc, t\u00f4i s\u1ebd n\u00f3i \u0111\u01b0\u1ee3c"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 680}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " ti\u1ebfng Anh. | If I had studied English at SEC"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 691}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " one year ago, I would have been able to"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 701}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " speak English. | \u2705 \u0110\u00fang |\n| 17 | Khi t\u00f4i l\u00e0m xong"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 718}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " c\u00f4ng vi\u1ec7c, t\u00f4i s\u1ebd g\u1eb7p b\u1ea1n \u1edf cu\u1ed9c h\u1ecdp"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 729}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ". | Finishing my work, I will meet"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 739}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " you at the meeting. | **When I finish** my"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 751}]} 
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " work, I will meet you at the meeting (Kh\u00f4ng r\u00fat"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 764}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " g\u1ecdn m\u1ec7nh \u0111\u1ec1 th\u1eddi gian n\u00e0y"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 772}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": ") |\n| 18 | Tr\u01b0\u1edbc khi t\u00f4i \u0111i ng\u1ee7 m\u1ed7i ng\u00e0y, t\u00f4i th\u00edch \u0111\u1ecdc s\u00e1ch. | Before going to bed"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 797}]}    
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " every day, I like to read a book. | \u2705 \u0110\u00fang |\n| 19 | Khi anh"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 818}]}
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " \u1ea5y \u0111\u01b0\u1ee3c g\u1ecdi, anh \u1ea5y tr\u1ea3 l\u1eddi nhanh. | When called, he answered quickly."}, {"p": "/message/metadata/token_count", "o": "replace", "v": 836}]}     
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " | \u2705 \u0110\u00fang |\n\n**C\u00e1c c\u00e2u c\u00f2n l\u1ea1i \u0111\u00fang r\u1ed3i em nha"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 850}]}  
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": "! Ti\u1ebfp t\u1ee5c gi\u1eef phong \u0111\u1ed9 n\u00e0y"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 858}]}   
+
+event: delta
+data: {"v": [{"p": "/message/content/parts/0", "o": "append", "v": " nh\u00e9! \ud83d\udcaf\ud83d\udd25**"}, {"p": "/message/metadata/token_count", "o": "replace", "v": 864}]}       
+
+event: delta
+data: {"v": [{"p": "/message/status", "o": "replace", "v": "finished_successfully"}, {"p": "/message/end_turn", "o": "replace", "v": true}, {"p": "/message/metadata/token_count", "o": "replace", "v": 865}, {"p": "/message/metadata", "o": "append", "v": {"is_complete": true, "can_save": true, "finish_details": {"type": "stop", "stop_tokens": [200002]}, "search_result_groups": []}}]}      
+
+data: {"type": "server_ste_metadata", "metadata": {"conduit_prewarmed": true, "plan_type": "free", "plan_type_bucket": "free", "user_agent": "web_desktop", "service": null, "tool_name": null, "tool_invoked": false, "fast_convo": true, "warmup_state": "warm", "is_first_turn": false, "cluster_region": "japanwest", "model_slug": "gpt-5-3", "region": null, "is_multimodal": false, "did_auto_switch_to_reasoning": false, "auto_switcher_race_winner": null, "is_autoswitcher_enabled": false, "is_search": null, "did_prompt_contain_image": false, "search_tool_call_count": null, "search_tool_query_types": null, "message_id": "f7835291-541e-4195-b455-60dcce669ee3", "request_id": "8822a567-87c2-4f7f-9740-da8837804202", "turn_exchange_id": "46ef5d11-5be5-4be4-be50-1674926e7d6d", "turn_trace_id": "41c733c0-fb67-490d-ba5a-b5a4f0c0cb5c", "otrace_id": "140572925567190738063021770486361236500", "a32e6ebcb": 7, "resume_with_websockets": false, "low_turn_topic_ttl": false, "streaming_async_status": false, "replace_stream_status": true, "temporal_conversation_turn": false, "turn_use_case": "text", "turn_mode": "gpts"}, "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433"}
+
+data: {"type": "message_stream_complete", "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433"}
+
+data: {"type": "conversation_detail_metadata", "banner_info": null, "blocked_features": [], "model_limits": [], "limits_progress": [{"feature_name": "deep_research", "remaining": 5, "reset_after": "2026-04-22T15:29:50.874638+00:00"}, {"feature_name": "file_upload", "remaining": 5, "reset_after": "2026-03-24T15:29:50.874676+00:00"}, {"feature_name": "paste_text_to_file", "remaining": 3, "reset_after": "2026-03-24T15:29:50.874700+00:00"}, {"feature_name": "image_gen", "remaining": 8, "reset_after": "2026-03-24T15:29:50.874721+00:00"}], "default_model_slug": "auto", "atlas_mode_enabled": null, "conversation_id": "69c15c02-8dd4-8324-9f3a-5b35a596d433"}
+
+data: [DONE]
+
