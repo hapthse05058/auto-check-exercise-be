@@ -111,93 +111,31 @@ app.post("/grade", async (req, res) => {
   const userContent = items
     .map((item) => item.question + "/r" + item.answer)
     .join("/r/r/r");
+    console.log(userContent);
 
   try {
     // Helper to call OpenAI with retries on 429 (quota / rate limit)
     async function callOpenAI(payload, maxRetries = 3) {
       // test fake response from openAI (local file), but do not send res here
-      const rawSSEPath = path.join(__dirname, "mama_res.txt");
-      const rawSSE = fs.readFileSync(rawSSEPath, "utf8");
+      // const rawSSEPath = path.join(__dirname, "mama_res.txt");
+      // const rawSSE = fs.readFileSync(rawSSEPath, "utf8");
+      // // const decoded = decodeSSEStream(rawSSE);
       // const decoded = decodeSSEStream(rawSSE);
-      const decoded = decodeSSEStream(rawSSE);
 
-      // Build a mock OpenAI-like response payload for local testing
-      const messageText =
-        extractMessageText(decoded) || JSON.stringify(decoded);
-      return {
-        data: {
-          choices: [
-            {
-              message: {
-                content: messageText,
-              },  
-            },
-          ],
-        },
+      // // Build a mock OpenAI-like response payload for local testing
+      // const messageText =
+      //   extractMessageText(decoded) || JSON.stringify(decoded);
+      // return {
+      //   data: {
+      //     choices: [
+      //       {
+      //         message: {
+      //           content: messageText,
+      //         },  
+      //       },
+      //     ],
+      //   },
       };
-
-      // real OpenAI call below
-      let attempt = 0;
-      let lastErr;
-      while (attempt <= maxRetries) {
-        try {
-          return await axios.post(
-            "https://api.openai.com/v1/chat/completions",
-            payload,
-            {
-              headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-                "Content-Type": "application/json",
-              },
-              timeout: 120000,
-            },
-          );
-        } catch (err) {
-          // lastErr = err;
-          // const status = err.response && err.response.status;
-          // // Retry only on 429 (rate limit / quota) and 503 (service unavailable)
-          // if ((status === 429 || status === 503) && attempt < maxRetries) {
-          //   const delay =
-          //     Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 1000);
-          //   await new Promise((r) => setTimeout(r, delay));
-          //   attempt++;
-          //   continue;
-          // }
-          throw err;
-        }
-      }
-      throw lastErr;
-    }
-
-    const systemPrompt = path.join(__dirname, "mama_prompt.txt");
-    const payload = {
-      model: process.env.OPENAI_MODEL || "gpt-5.4",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-      temperature: 0,
-    };
-
-    const resp = await callOpenAI(payload);
-    const text =
-      (resp.data.choices &&
-        resp.data.choices[0] &&
-        resp.data.choices[0].message &&
-        resp.data.choices[0].message.content) ||
-      "";
-    let jsonPart = text;
-    const m = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (m) jsonPart = m[0];
-    let parsed;
-    try {
-      // parsed = JSON.parse(jsonPart);
-      return res.status(200).json({raw: jsonPart});
-    } catch (e) {
-      return res.status(502).json({ error: "failed_parse_model", raw: text });
-    }
-
-    return res.json({ raw: text, parsed });
   } catch (err) {
     return res
       .status(500)
