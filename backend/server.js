@@ -4,6 +4,7 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
+const OpenAI = require("openai");
 
 const app = express();
 app.use(cors());
@@ -19,21 +20,6 @@ if (!OPENAI_API_KEY) {
     "WARNING: OPENAI_API_KEY not set. The service will fail until provided.",
   );
 }
-
-// app.get("/prompt", (req, res) => {
-//   res.json({ prompt: readPrompt() });
-// });
-
-// function writePrompt(text) {
-//   fs.writeFileSync(PROMPT_FILE, text, "utf8");
-// }
-
-// app.post("/prompt", (req, res) => {
-//   const { prompt } = req.body;
-//   if (!prompt) return res.status(400).json({ error: "no prompt provided" });
-//   writePrompt(prompt);
-//   res.json({ ok: true });
-// });
 
 app.post("/exchange-token", async (req, res) => {
   const { code, redirectUri, refreshToken, grantType } = req.body;
@@ -93,55 +79,116 @@ app.post("/exchange-token", async (req, res) => {
   }
 });
 
-app.post("/grade", async (req, res) => {
-  // return res.json({ raw: "Hong Ha test", parsed });
-  const items = req.body.items;
-  if (!Array.isArray(items) || items.length === 0)
-    return res.status(400).json({ error: "no_items" });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  // Fail early with a clear error if the OpenAI API key is not configured
-  if (!OPENAI_API_KEY) {
-    return res.status(500).json({
-      error: "openai_api_key_missing",
-      message:
-        "OPENAI_API_KEY not set. Copy .env.example to .env and set OPENAI_API_KEY, or export the variable in your environment.",
-    });
+app.post("/grade", async (req, res) => {
+  const items = req.body.items;
+  const assistantId = process.env.ASSISTANT_ID;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "no_items" });
   }
 
-  const userContent = items
-    .map((item) => item.question + "/r" + item.answer)
-    .join("/r/r/r");
-    console.log(userContent);
+  // Đọc nội dung file prompt (Nếu cần gửi kèm thêm hướng dẫn)
+  let systemInstructions = "";
+  try {
+    const promptPath = path.join(__dirname, "mama_prompt.txt");
+    systemInstructions = fs.readFileSync(promptPath, "utf8");
+  } catch (e) {
+    console.error("Không tìm thấy file mama_prompt.txt");
+  }
+
+  const studentExercises = items
+    .map((item) => `${item.question}\n${item.answer}`)
+    .join("\n\n");
 
   try {
-    // Helper to call OpenAI with retries on 429 (quota / rate limit)
-    async function callOpenAI(payload, maxRetries = 3) {
-      // test fake response from openAI (local file), but do not send res here
-      // const rawSSEPath = path.join(__dirname, "mama_res.txt");
-      // const rawSSE = fs.readFileSync(rawSSEPath, "utf8");
-      // // const decoded = decodeSSEStream(rawSSE);
-      // const decoded = decodeSSEStream(rawSSE);
+    // BƯỚC 1: Tạo một Thread
+    const thread = await openai.beta.threads.create();
 
-      // // Build a mock OpenAI-like response payload for local testing
-      // const messageText =
-      //   extractMessageText(decoded) || JSON.stringify(decoded);
-      // return {
-      //   data: {
-      //     choices: [
-      //       {
-      //         message: {
-      //           content: messageText,
-      //         },  
-      //       },
-      //     ],
-      //   },
-      };
+    // BƯỚC 2: Thêm bài tập của học sinh vào Thread
+    await openai.beta.threads.messages.create(thread.id, {
+      role: "user",
+      content: systemInstructions + "\n\nBÀI TẬP CẦN CHẤM:\n" + studentExercises,
+    });
+
+    // BƯỚC 3: Tạo một Run để Assistant xử lý
+    const run = await openai.beta.threads.runs.create(thread.id, {
+      assistant_id: assistantId,
+    });
+
+    // BƯỚC 4: Chờ kết quả (Polling)
+    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    
+    // Đợi tối đa (ví dụ 30s) cho đến khi hoàn thành
+    while (runStatus.status !== "completed") {
+      if (runStatus.status === "failed" || runStatus.status === "cancelled") {
+        throw new Error(`Run status: ${runStatus.status}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Nghỉ 1s
+      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    }
+
+    // BƯỚC 5: Lấy danh sách tin nhắn để lấy câu trả lời mới nhất
+    const messages = await openai.beta.threads.messages.list(thread.id);
+    const lastMessage = messages.data[0].content[0].text.value;
+
+    return res.json({
+      success: true,
+      assistantText: lastMessage,
+    });
+
   } catch (err) {
-    return res
-      .status(500)
-      .json({ error: err.message, details: err.response && err.response.data });
+    console.error("OpenAI request failed:", err.message);
+    return res.status(500).json({
+      error: "openai_request_failed",
+      details: err.message,
+    });
   }
 });
+
+
+function parseOpenAIResponseText(responseData) {
+  if (!responseData) return "";
+
+  // New assistant endpoint format
+  if (Array.isArray(responseData.output)) {
+    const texts = [];
+    for (const outputItem of responseData.output) {
+      if (Array.isArray(outputItem.content)) {
+        for (const content of outputItem.content) {
+          if (typeof content.text === "string") {
+            texts.push(content.text);
+          } else if (typeof content.output_text === "string") {
+            texts.push(content.output_text);
+          }
+        }
+      }
+    }
+    if (texts.length > 0) return texts.join("\n\n");
+  }
+
+  // Old response model format
+  if (Array.isArray(responseData.choices)) {
+    if (responseData.choices[0]?.message?.content) {
+      return responseData.choices[0].message.content;
+    }
+    if (typeof responseData.choices[0]?.text === "string") {
+      return responseData.choices[0].text;
+    }
+  }
+
+  if (typeof responseData.output_text === "string") {
+    return responseData.output_text;
+  }
+
+  if (typeof responseData.text === "string") {
+    return responseData.text;
+  }
+
+  return JSON.stringify(responseData);
+}
+
 
 function decodeSSEStream(rawText) {
   const lines = rawText.split("\n");
