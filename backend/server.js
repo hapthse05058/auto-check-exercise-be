@@ -86,18 +86,10 @@ app.post("/grade", async (req, res) => {
   const assistantId = process.env.ASSISTANT_ID;
 
   if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "no_items" });
+    return res.status(400).json({ error: "no_items_provided" });
   }
 
-  // Đọc nội dung file prompt (Nếu cần gửi kèm thêm hướng dẫn)
-  let systemInstructions = "";
-  try {
-    const promptPath = path.join(__dirname, "mama_prompt.txt");
-    systemInstructions = fs.readFileSync(promptPath, "utf8");
-  } catch (e) {
-    console.error("Không tìm thấy file mama_prompt.txt");
-  }
-
+  // Format student exercises into a single string
   const studentExercises = items
     .map((item) => `${item.question}\n${item.answer}`)
     .join("\n\n");
@@ -109,7 +101,7 @@ app.post("/grade", async (req, res) => {
     // BƯỚC 2: Thêm bài tập của học sinh vào Thread
     await openai.beta.threads.messages.create(thread.id, {
       role: "user",
-      content: systemInstructions + "\n\nBÀI TẬP CẦN CHẤM:\n" + studentExercises,
+      content: "\n\nBÀI TẬP CẦN CHẤM:\n" + studentExercises,
     });
 
     // BƯỚC 3: Tạo một Run để Assistant xử lý
@@ -123,9 +115,9 @@ app.post("/grade", async (req, res) => {
     // Đợi tối đa (ví dụ 30s) cho đến khi hoàn thành
     while (runStatus.status !== "completed") {
       if (runStatus.status === "failed" || runStatus.status === "cancelled") {
-        throw new Error(`Run status: ${runStatus.status}`);
+        throw new Error(runStatus);
       }
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // Nghỉ 1s
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // Nghỉ 1s
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
     }
 
@@ -139,14 +131,13 @@ app.post("/grade", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("OpenAI request failed:", err.message);
+    console.error("System error at /grade route:", err.message);
     return res.status(500).json({
-      error: "openai_request_failed",
-      details: err.message,
+      error: "internal_server_error",
+      details: err.last_error?.message,
     });
   }
 });
-
 
 function parseOpenAIResponseText(responseData) {
   if (!responseData) return "";
@@ -188,7 +179,6 @@ function parseOpenAIResponseText(responseData) {
 
   return JSON.stringify(responseData);
 }
-
 
 function decodeSSEStream(rawText) {
   const lines = rawText.split("\n");
