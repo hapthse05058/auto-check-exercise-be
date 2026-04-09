@@ -2,12 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "type": "pwa-node",
+      "type": "node",
       "request": "launch",
-      "name": "Debug Mama Agent",
+      "name": "Debug with Nodemon",
+      "runtimeExecutable": "nodemon",
       "program": "${workspaceFolder}/backend/server.js",
       "cwd": "${workspaceFolder}/backend",
+      "restart": true, // This tells VS Code to re-attach when nodemon restarts
       "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
       "skipFiles": ["<node_internals>/**"],
       "env": {
         "NODE_ENV": "development"

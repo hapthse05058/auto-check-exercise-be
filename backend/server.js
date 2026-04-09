@@ -80,7 +80,6 @@ app.post("/exchange-token", async (req, res) => {
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 app.post("/grade", async (req, res) => {
   const items = req.body.items;
   const assistantId = process.env.ASSISTANT_ID;
@@ -89,52 +88,65 @@ app.post("/grade", async (req, res) => {
     return res.status(400).json({ error: "no_items_provided" });
   }
 
-  // Format student exercises into a single string
   const studentExercises = items
     .map((item) => `${item.question}\n${item.answer}`)
     .join("\n\n");
 
   try {
-    // BƯỚC 1: Tạo một Thread
     const thread = await openai.beta.threads.create();
 
-    // BƯỚC 2: Thêm bài tập của học sinh vào Thread
     await openai.beta.threads.messages.create(thread.id, {
       role: "user",
-      content: "\n\nBÀI TẬP CẦN CHẤM:\n" + studentExercises,
+      content: "BÀI TẬP CẦN CHẤM:\n" + studentExercises,
     });
 
-    // BƯỚC 3: Tạo một Run để Assistant xử lý
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: assistantId,
     });
 
-    // BƯỚC 4: Chờ kết quả (Polling)
+    // POLLING LOGIC
     let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-    
-    // Đợi tối đa (ví dụ 30s) cho đến khi hoàn thành
-    while (runStatus.status !== "completed") {
-      if (runStatus.status === "failed" || runStatus.status === "cancelled") {
-        throw new Error(runStatus);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 2000)); // Nghỉ 1s
+    let attempts = 0;
+    const maxAttempts = 30; // Safety cap (approx 60 seconds)
+
+    while (runStatus.status === "in_progress" && attempts <= maxAttempts) {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      runStatus.status === "in_progress" ? await new Promise((resolve) => setTimeout(resolve, 5000)) : null;;
+      attempts++;
+    }
+    if (runStatus.status !== "completed") {
+      // Status can be "failed", "cancelled", "expired"
+      // Detailed error for your console
+      console.error("Run Failed Details:", JSON.stringify(runStatus.last_error, null, 2));
+      throw new Error(runStatus);
     }
 
-    // BƯỚC 5: Lấy danh sách tin nhắn để lấy câu trả lời mới nhất
+    // GET MESSAGES
     const messages = await openai.beta.threads.messages.list(thread.id);
-    const lastMessage = messages.data[0].content[0].text.value;
+    
+    // FIND THE CORRECT MESSAGE
+    // Filter to find the latest message where role is 'assistant'
+    const assistantMessage = messages.data.find(m => m.role === "assistant");
+    
+    if (!assistantMessage || !assistantMessage.content[0]) {
+      throw new Error("Assistant completed but no message was found.");
+    }
+
+    let finalResponse = assistantMessage.content[0].text.value;
+
+    // CLEANUP: Remove those annoying 【4:0†source】 tags
+    finalResponse = finalResponse.replace(/【.*?】/g, "");
 
     return res.json({
       success: true,
-      assistantText: lastMessage,
+      assistantText: finalResponse,
     });
 
   } catch (err) {
-    console.error("System error at /grade route:", err.message);
+    console.error("Detailed OpenAI Error:", JSON.stringify(err));
     return res.status(500).json({
-      error: "internal_server_error",
-      details: err.last_error?.message,
+      error: "openai_request_failed",
+      details: err.message || "Unknown Error",
     });
   }
 });
