@@ -107,12 +107,16 @@ app.post("/grade", async (req, res) => {
     // POLLING LOGIC
     let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
     let attempts = 0;
-    const maxAttempts = 30; // Safety cap (approx 60 seconds)
+    // const maxAttempts = 200; // Safety cap (approx 60 seconds)
 
-    while (runStatus.status === "in_progress" && attempts <= maxAttempts) {
+    while (["in_progress", "queued"].includes(runStatus.status)) {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
       runStatus.status === "in_progress" ? await new Promise((resolve) => setTimeout(resolve, 5000)) : null;;
       attempts++;
+    }
+    if (["failed", "cancelled", "expired"].includes(runStatus.status)) {
+      console.error("Run Failed Details:", JSON.stringify(runStatus));
+      throw new Error(runStatus);
     }
     if (runStatus.status !== "completed") {
       // Status can be "failed", "cancelled", "expired"
