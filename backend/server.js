@@ -5,26 +5,66 @@ const express = require("express");
 const axios = require("axios");
 const OpenAI = require("openai");
 
-const { OAuth2Client } = require('google-auth-library');
-const bodyParser = require('body-parser');
-const cors = require('cors');
+const { OAuth2Client } = require("google-auth-library");
+const cors = require("cors");
 const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
+const ALLOWED_EMAILS = ["phamhongha.innerpiece@gmail.com"];
 app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-
 if (!OPENAI_API_KEY) {
   console.warn(
     "WARNING: OPENAI_API_KEY not set. The service will fail until provided.",
   );
+}
+
+async function verifyGoogleToken(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  const secret_key = req.headers["x-api-key"];
+  if (secret_key !== EXTENSION_SECRET_KEY) {
+    return res.status(401).send('Invalid key');
+  }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).send('Missing Token');
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    // Gọi API của Google để xác thực token
+    const response = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`);
+    const userInfo = await response.json();
+
+    if (!userInfo.email) {
+      return res.status(401).send('Invalid Token');
+    }
+
+    const userEmail = userInfo.email.toLowerCase();
+
+    // KIỂM TRA WHITELIST
+    if (!ALLOWED_EMAILS.includes(userEmail)) {
+      console.log(`Từ chối truy cập từ: ${userEmail}`);
+      return res.status(403).json({ error: "Email không có trong danh sách cấp phép!" });
+    }
+
+    // Nếu hợp lệ, lưu email vào request để dùng sau này (nếu cần)
+    req.userEmail = userEmail;
+    next();
+  } catch (error) {
+    console.error('Lỗi xác thực Google:', error);
+    res.status(401).send('Unauthorized');
+  }
 }
 
 app.post("/exchange-token", async (req, res) => {
@@ -85,8 +125,11 @@ app.post("/exchange-token", async (req, res) => {
   }
 });
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-app.post("/grade", async (req, res) => {
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  project: process.env.OPENAI_PROJECT_ID,
+});
+app.post("/grade", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
   const assistantId = process.env.ASSISTANT_ID;
 
@@ -98,9 +141,8 @@ app.post("/grade", async (req, res) => {
     .map((item) => `${item.question}\n${item.answer}`)
     .join("\n\n");
 
+  const thread = await openai.beta.threads.create(); 
   try {
-    const thread = await openai.beta.threads.create();
-
     await openai.beta.threads.messages.create(thread.id, {
       role: "user",
       content: "BÀI TẬP CẦN CHẤM:\n" + studentExercises,
@@ -112,12 +154,10 @@ app.post("/grade", async (req, res) => {
 
     // POLLING LOGIC
     let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-    let attempts = 0;
-    // const maxAttempts = 200; // Safety cap (approx 60 seconds)
 
     while (["in_progress", "queued"].includes(runStatus.status)) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-      await new Promise((resolve) => setTimeout(resolve, 5000))
     }
     if (["failed", "cancelled", "expired"].includes(runStatus.status)) {
       console.error("Run Failed Details:", JSON.stringify(runStatus));
@@ -146,12 +186,15 @@ app.post("/grade", async (req, res) => {
 
     // CLEANUP: Remove those annoying 【4:0†source】 tags
     finalResponse = finalResponse.replace(/【.*?】/g, "");
+    await openai.beta.threads.del(thread.id); // Delete thread
 
     return res.json({
       success: true,
       assistantText: finalResponse,
     });
   } catch (err) {
+    if (thread && thread.id)
+      await openai.beta.threads.del(thread.id).catch(() => {});
     console.error("Detailed OpenAI Error:", JSON.stringify(err));
     return res.status(500).json({
       error: "openai_request_failed",
@@ -259,7 +302,8 @@ app.post("/auth/google", async (req, res) => {
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     // tokens sẽ chứa: access_token, refresh_token, expiry_date...
-    tokens.refresh_token_expires_date = Date.now() + tokens.refresh_token_expires_in * 1000;
+    tokens.refresh_token_expires_date =
+      Date.now() + tokens.refresh_token_expires_in * 1000;
     res.json(tokens);
   } catch (error) {
     console.error("Error exchanging code:", error);
@@ -271,7 +315,7 @@ app.post("/auth/google", async (req, res) => {
  * 2. Endpoint làm mới Access Token từ Refresh Token
  */
 app.post("/auth/refresh", async (req, res) => {
-  const { refreshToken } = req.body;
+  const { refreshToken } = req.body.refresh_token;
 
   if (!refreshToken) {
     return res.status(400).json({ error: "Refresh token is required" });
@@ -280,7 +324,7 @@ app.post("/auth/refresh", async (req, res) => {
   try {
     // Thiết lập refresh token vào client
     oAuth2Client.setCredentials({ refresh_token: refreshToken });
-
+ 
     // Yêu cầu Google cấp access token mới
     const response = await oAuth2Client.getAccessToken();
     const credentials = response.res.data;
@@ -290,7 +334,8 @@ app.post("/auth/refresh", async (req, res) => {
       access_token: credentials.access_token,
       expiry_date: credentials.expiry_date || 3600 * 1000 + Date.now(),
       refresh_token: credentials.refresh_token,
-      refresh_token_expires_date: Date.now() + tokens.refresh_token_expires_in * 1000,
+      refresh_token_expires_date:
+        Date.now() + tokens.refresh_token_expires_in * 1000,
     });
   } catch (error) {
     console.error("Error refreshing token:", error);
@@ -298,4 +343,6 @@ app.post("/auth/refresh", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`Mama agent backend listening on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}`);
+});
