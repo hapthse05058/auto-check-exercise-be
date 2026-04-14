@@ -17,7 +17,7 @@ const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
-const ALLOWED_EMAILS = ["phamhongha.innerpiece@gmail.com"];
+const ALLOWED_EMAILS = ["phamhongha.innerpiece@gmail.com", "linha6pct2017@gmail.com"];
 app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
