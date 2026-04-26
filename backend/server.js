@@ -141,7 +141,7 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
     .map((item) => `${item.question}\n${item.answer}`)
     .join("\n\n");
 
-  const thread = await openai.beta.threads.create(); 
+  const thread = await openai.beta.threads.create();
   try {
     await openai.beta.threads.messages.create(thread.id, {
       role: "user",
@@ -194,7 +194,7 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
     });
   } catch (err) {
     if (thread && thread.id)
-      await openai.beta.threads.del(thread.id).catch(() => {});
+      await openai.beta.threads.del(thread.id).catch(() => { });
     console.error("Detailed OpenAI Error:", JSON.stringify(err));
     return res.status(500).json({
       error: "openai_request_failed",
@@ -315,19 +315,18 @@ app.post("/auth/google", async (req, res) => {
  * 2. Endpoint làm mới Access Token từ Refresh Token
  */
 app.post("/auth/refresh", async (req, res) => {
-  const { refreshToken } = req.body.refresh_token;
+  const refreshToken = req.body.refresh_token;
 
   if (!refreshToken) {
     return res.status(400).json({ error: "Refresh token is required" });
   }
 
   try {
-    // Thiết lập refresh token vào client
+    // Thiết lập credentials
     oAuth2Client.setCredentials({ refresh_token: refreshToken });
- 
-    // Yêu cầu Google cấp access token mới
-    const response = await oAuth2Client.getAccessToken();
-    const credentials = response.res.data;
+
+    // 2. Dùng refreshAccessToken để ép Google cấp token mới
+    const { credentials } = await oAuth2Client.refreshAccessToken();
 
     // Trả về cho Extension
     res.json({
@@ -335,7 +334,7 @@ app.post("/auth/refresh", async (req, res) => {
       expiry_date: credentials.expiry_date || 3600 * 1000 + Date.now(),
       refresh_token: credentials.refresh_token,
       refresh_token_expires_date:
-        Date.now() + tokens.refresh_token_expires_in * 1000,
+        Date.now() + credentials.refresh_token_expires_in * 1000,
     });
   } catch (error) {
     console.error("Error refreshing token:", error);
