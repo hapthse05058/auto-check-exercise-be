@@ -401,6 +401,32 @@ app.get("/lessons", verifyGoogleToken, async (req, res) => {
 });
 
 /**
+ * Get current lesson for the selected class
+ */
+app.get("/current-lesson", verifyGoogleToken, async (req, res) => {
+  try {
+    const classId = req.query.classId;
+    if (!classId) {
+      return res.status(400).json({ error: "classId is required" });
+    }
+
+    const classRef = db.collection('classes').doc(classId);
+    const classDoc = await classRef.get();
+
+    if (!classDoc.exists) {
+      return res.status(404).json({ error: "Class not found" });
+    }
+
+    const classData = classDoc.data();
+    const currentLesson = classData?.currentLesson || null;
+    res.json({ currentLesson });
+  } catch (error) {
+    console.error("Error fetching current lesson:", error);
+    res.status(500).json({ error: "Failed to fetch current lesson" });
+  }
+});
+
+/**
  * Get students for the selected class
  */
 app.get("/students", verifyGoogleToken, async (req, res) => {
