@@ -426,6 +426,27 @@ app.get("/current-lesson", verifyGoogleToken, async (req, res) => {
   }
 });
 
+app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
+  try {
+    const { classId, currentLesson } = req.body;
+    if (!classId || !currentLesson) {
+      return res.status(400).json({ error: "classId and currentLesson are required" });
+    }
+
+    const classRef = db.collection('classes').doc(classId);
+    const classDoc = await classRef.get();
+    if (!classDoc.exists) {
+      return res.status(404).json({ error: "Class not found" });
+    }
+
+    await classRef.update({ currentLesson });
+    res.json({ success: true, currentLesson });
+  } catch (error) {
+    console.error("Error updating current lesson:", error);
+    res.status(500).json({ error: "Failed to update current lesson" });
+  }
+});
+
 /**
  * Get students for the selected class
  */
