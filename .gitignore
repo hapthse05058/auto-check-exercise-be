@@ -4,6 +4,7 @@ node_modules/
 # Local environment files (contains secrets/API keys)
 .env
 .env.local
+firebase-service-account.json
 
 # Build/Dist folders
 dist/
@@ -17,3 +18,4 @@ yarn-error.log*
 # Operating System files
 .DS_Store
 Thumbs.db
+

@@ -4,6 +4,7 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const OpenAI = require("openai");
+const admin = require("firebase-admin");
 
 const { OAuth2Client } = require("google-auth-library");
 const cors = require("cors");
@@ -22,6 +23,14 @@ app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+// Initialize Firebase Admin
+const serviceAccount = require("./firebase-service-account.json"); // Assuming the key file is in the backend directory
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: process.env.FIREBASE_DATABASE_URL, // Add this to .env
+});
+const db = admin.firestore();
 
 if (!OPENAI_API_KEY) {
   console.warn(
@@ -339,6 +348,83 @@ app.post("/auth/refresh", async (req, res) => {
   } catch (error) {
     console.error("Error refreshing token:", error);
     res.status(401).json({ error: "Invalid or expired refresh token" });
+  }
+});
+
+/**
+ * Get classes for the authenticated user
+ */
+app.get("/classes", verifyGoogleToken, async (req, res) => {
+  try {
+    const userEmail = req.userEmail;
+    const classesRef = db.collection('classes');
+    // const snapshot = await classesRef.where('userEmail', '==', userEmail).get();
+    const snapshot = await classesRef.get();
+    
+    const classes = [];
+    snapshot.forEach(doc => {
+      classes.push({ id: doc.id, ...doc.data() });
+    });
+    
+    res.json(classes);
+  } catch (error) {
+    console.error("Error fetching classes:", error);
+    res.status(500).json({ error: "Failed to fetch classes" });
+  }
+});
+
+/**
+ * Get lessons for the authenticated user and selected class
+ */
+app.get("/lessons", verifyGoogleToken, async (req, res) => {
+  try {
+    const userEmail = req.userEmail;
+    const classId = req.query.classId;
+    
+    if (!classId) {
+      return res.status(400).json({ error: "classId is required" });
+    }
+    
+    const lessonsRef = db.collection('lesson');
+    const snapshot = await lessonsRef.where('classId', '==', classId).get();
+    
+    const lessons = [];
+    snapshot.forEach(doc => {
+      lessons.push({ id: doc.id, ...doc.data() });
+    });
+    
+    res.json(lessons);
+  } catch (error) {
+    console.error("Error fetching lessons:", error);
+    res.status(500).json({ error: "Failed to fetch lessons" });
+  }
+});
+
+/**
+ * Get students for the selected class
+ */
+app.get("/students", verifyGoogleToken, async (req, res) => {
+  try {
+    // const userEmail = req.userEmail;
+    const classId = req.query.classId;
+    
+    if (!classId) {
+      return res.status(400).json({ error: "classId is required" });
+    }
+    
+    const studentsRef = db.collection('students');
+    // const studentsRef = db.collection('students-testing-table');
+    const snapshot = await studentsRef.where('classId', '==', classId).get();
+    
+    const students = [];
+    snapshot.forEach(doc => {
+      students.push({ id: doc.id, ...doc.data() });
+    });
+    
+    res.json(students);
+  } catch (error) {
+    console.error("Error fetching students:", error);
+    res.status(500).json({ error: "Failed to fetch students" });
   }
 });
 
