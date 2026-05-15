@@ -1,5 +1,5 @@
-// const fs = require("fs");
-// const path = require("path");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
@@ -25,11 +25,19 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 // Initialize Firebase Admin
-const serviceAccount = require("./firebase-service-account.json"); // Assuming the key file is in the backend directory
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_DATABASE_URL, // Add this to .env
-});
+// Use the Cloud Run path, or fallback to a local file for development
+const serviceAccountPath = process.env.NODE_ENV === 'production' 
+  ? '/secrets/firebase-service-account' 
+  : path.join(__dirname, 'firebase-service-account.json');
+
+if (fs.existsSync(serviceAccountPath)) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccountPath)
+  });
+} else {
+  console.error("Critical: Service account file not found!");
+}
+
 const db = admin.firestore();
 
 if (!OPENAI_API_KEY) {
@@ -459,8 +467,8 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "classId is required" });
     }
     
-    const studentsRef = db.collection('students');
-    // const studentsRef = db.collection('students-testing-table');
+    // const studentsRef = db.collection('students');
+    const studentsRef = db.collection('students-testing-table');
     const snapshot = await studentsRef.where('classId', '==', classId).get();
     
     const students = [];
