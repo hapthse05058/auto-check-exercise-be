@@ -366,8 +366,8 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
   try {
     const userEmail = req.userEmail;
     const classesRef = db.collection('classes');
-    // const snapshot = await classesRef.where('userEmail', '==', userEmail).get();
-    const snapshot = await classesRef.get();
+    const snapshot = await classesRef.where('gmail', '==', userEmail).get();
+    // const snapshot = await classesRef.get();
     
     const classes = [];
     snapshot.forEach(doc => {
@@ -456,7 +456,7 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
 });
 
 /**
- * Get students for the selected class
+ * Get  for the selected class
  */
 app.get("/students", verifyGoogleToken, async (req, res) => {
   try {
