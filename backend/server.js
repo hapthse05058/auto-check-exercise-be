@@ -352,20 +352,45 @@ app.post("/auth/refresh", async (req, res) => {
 });
 
 /**
+ * Get teacher info for the authenticated user
+ */
+app.get("/teacher-info", verifyGoogleToken, async (req, res) => {
+  try {
+    const userEmail = req.userEmail;
+    const teachersRef = db.collection('teachers');
+    const snapshot = await teachersRef.where('gmail', '==', userEmail).limit(1).get();
+
+    if (snapshot.empty) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+
+    const teacherDoc = snapshot.docs[0];
+    res.json({ id: teacherDoc.id, ...teacherDoc.data() });
+  } catch (error) {
+    console.error('Error fetching teacher info:', error);
+    res.status(500).json({ error: 'Failed to fetch teacher info' });
+  }
+});
+
+/**
  * Get classes for the authenticated user
  */
 app.get("/classes", verifyGoogleToken, async (req, res) => {
   try {
-    const userEmail = req.userEmail;
+    const teacherId = req.query.teacherId;
+    if (!teacherId) {
+      return res.status(400).json({ error: 'teacherId is required' });
+    }
     const classesRef = db.collection('classes');
-    // const snapshot = await classesRef.where('userEmail', '==', userEmail).get();
-    const snapshot = await classesRef.get();
-    
+    let snapshot = await classesRef.where('teacherId', 'array-contains', teacherId).get();
+    if (snapshot.empty) {
+      return res.status(403).json({ error: 'There are no classes associated with this teacher' });
+    }
     const classes = [];
     snapshot.forEach(doc => {
       classes.push({ id: doc.id, ...doc.data() });
     });
-    
+
     res.json(classes);
   } catch (error) {
     console.error("Error fetching classes:", error);
@@ -379,20 +404,20 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
 app.get("/lessons", verifyGoogleToken, async (req, res) => {
   try {
     const userEmail = req.userEmail;
-    const classId = req.query.classId;
-    
-    if (!classId) {
-      return res.status(400).json({ error: "classId is required" });
+    const classType = req.query.classType;
+
+    if (!classType) {
+      return res.status(400).json({ error: "classType is required" });
     }
-    
+
     const lessonsRef = db.collection('lesson');
-    const snapshot = await lessonsRef.where('classId', '==', classId).get();
-    
+    const snapshot = await lessonsRef.where('classType', '==', classType).get();
+
     const lessons = [];
     snapshot.forEach(doc => {
       lessons.push({ id: doc.id, ...doc.data() });
     });
-    
+
     res.json(lessons);
   } catch (error) {
     console.error("Error fetching lessons:", error);
@@ -454,20 +479,20 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
   try {
     // const userEmail = req.userEmail;
     const classId = req.query.classId;
-    
+
     if (!classId) {
       return res.status(400).json({ error: "classId is required" });
     }
-    
+
     const studentsRef = db.collection('students');
     // const studentsRef = db.collection('students-testing-table');
     const snapshot = await studentsRef.where('classId', '==', classId).get();
-    
+
     const students = [];
     snapshot.forEach(doc => {
       students.push({ id: doc.id, ...doc.data() });
     });
-    
+
     res.json(students);
   } catch (error) {
     console.error("Error fetching students:", error);
