@@ -18,7 +18,6 @@ const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
-const ALLOWED_EMAILS = ["phamhongha.innerpiece@gmail.com", "linha6pct2017@gmail.com"];
 app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
@@ -26,8 +25,8 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 // Initialize Firebase Admin
 // Use the Cloud Run path, or fallback to a local file for development
-const serviceAccountPath = process.env.NODE_ENV === 'production' 
-  ? '/secrets/firebase-service-account' 
+const serviceAccountPath = process.env.NODE_ENV === 'production'
+  ? '/secrets/firebase-service-account'
   : path.join(__dirname, 'firebase-service-account.json');
 
 if (fs.existsSync(serviceAccountPath)) {
@@ -44,6 +43,17 @@ if (!OPENAI_API_KEY) {
   console.warn(
     "WARNING: OPENAI_API_KEY not set. The service will fail until provided.",
   );
+}
+
+
+async function isClassNameDuplicated(newClassName) {
+  const snapshot = await db.collection('classes').get();
+  const classes = [];
+  snapshot.forEach(doc => {
+    classes.push({ id: doc.id, name: doc.data().name.toLowerCase() });
+  });
+  const duplicateClassSnapshot = classes.filter((cls) => cls.name === newClassName.toLowerCase());
+  return duplicateClassSnapshot.length > 0;
 }
 
 async function verifyGoogleToken(req, res, next) {
@@ -68,14 +78,11 @@ async function verifyGoogleToken(req, res, next) {
     }
 
     const userEmail = userInfo.email.toLowerCase();
-
-    // KIỂM TRA WHITELIST
-    if (!ALLOWED_EMAILS.includes(userEmail)) {
-      console.log(`Từ chối truy cập từ: ${userEmail}`);
-      return res.status(403).json({ error: "Email không có trong danh sách cấp phép!" });
+    //todo check this email to see if it exists in our teachers collection, if not return 403 Forbidden
+    const teacherDoc = await db.collection("teachers").where("gmail", "==", userEmail).get();
+    if (teacherDoc.empty) {
+      return res.status(403).json({ error: "Access denied. User is not a registered teacher." });
     }
-
-    // Nếu hợp lệ, lưu email vào request để dùng sau này (nếu cần)
     req.userEmail = userEmail;
     next();
   } catch (error) {
@@ -380,6 +387,173 @@ app.get("/teacher-info", verifyGoogleToken, async (req, res) => {
   }
 });
 
+app.post("/teacher-signup", verifyGoogleToken, async (req, res) => {
+  try {
+    const userEmail = req.userEmail;
+    const { name, phone, dob, address = '', notes = '' } = req.body;
+
+    if (!name || !phone || !dob) {
+      return res.status(400).json({ error: 'Missing required fields: name, phone, dob' });
+    }
+
+    const teachersRef = db.collection('teachers');
+    const existingSnapshot = await teachersRef.where('gmail', '==', userEmail).limit(1).get();
+    if (!existingSnapshot.empty) {
+      return res.status(409).json({ error: 'Teacher already exists' });
+    }
+
+    const teacherData = {
+      gmail: userEmail,
+      name,
+      phone,
+      dob,
+      address,
+      notes,
+      classIds: [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const newDocRef = await teachersRef.add(teacherData);
+    res.status(201).json({ id: newDocRef.id, ...teacherData });
+  } catch (error) {
+    console.error('Error creating teacher:', error);
+    res.status(500).json({ error: 'Failed to create teacher record' });
+  }
+});
+
+app.post("/classes", verifyGoogleToken, async (req, res) => {
+  try {
+    const teacherId = req.teacherId;
+    const { name, classType = 'basic', currentLesson = null } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Missing required field: name' });
+    }
+
+    // const teacherSnapshot = await db.collection('teachers')
+    //   .where('gmail', '==', userEmail)
+    //   .limit(1)
+    //   .get();
+
+    // if (teacherSnapshot.empty) {
+    //   return res.status(403).json({ error: 'Teacher account not found' });
+    // }
+
+    // const teacherId = teacherSnapshot.docs[0].id;
+    // const duplicateClassSnapshot = await db.collection('classes')
+    //   .where('name', '==', name)
+    //   .where('teacherId', 'array-contains', teacherId)
+    //   .limit(1)
+    //   .get();
+    const isDuplicated = await isClassNameDuplicated(name);
+
+    if (isDuplicated) {
+      return res.status(409).json({ error: 'Class name already exists for this teacher' });
+    }
+
+    const classData = {
+      name,
+      classType,
+      currentLesson: currentLesson || null,
+      teacherId: [teacherId],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const classRef = await db.collection('classes').add(classData);
+    res.status(201).json({ id: classRef.id, ...classData });
+  } catch (error) {
+    console.error('Error creating class:', error);
+    res.status(500).json({ error: 'Failed to create class' });
+  }
+});
+
+app.get("/classes/check-name", verifyGoogleToken, async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name) {
+      return res.status(400).json({ error: 'Class name is required' });
+    }
+
+    // const userEmail = req.userEmail;
+    // const teacherSnapshot = await db.collection('teachers')
+    //   .where('gmail', '==', userEmail)
+    //   .limit(1)
+    //   .get();
+
+    // if (teacherSnapshot.empty) {
+    //   return res.status(403).json({ error: 'Teacher account not found' });
+    // }
+
+    // const teacherId = teacherSnapshot.docs[0].id;
+    // const snapshot = await db.collection('classes').get();
+
+    // const classes = [];
+    // snapshot.forEach(doc => {
+    //   classes.push({ id: doc.id, name: doc.data().name.toLowerCase() });
+    // });
+    const isDuplicated = await isClassNameDuplicated(name);
+    res.json({ exists: isDuplicated});
+  } catch (error) {
+    console.error('Error checking class name:', error);
+    res.status(500).json({ error: 'Failed to verify class name' });
+  }
+});
+
+app.post("/students", verifyGoogleToken, async (req, res) => {
+  try {
+    const userEmail = req.userEmail;
+    const { classId, students } = req.body;
+
+    if (!classId || !Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields: classId, students' });
+    }
+
+    const teacherSnapshot = await db.collection('teachers')
+      .where('gmail', '==', userEmail)
+      .limit(1)
+      .get();
+
+    if (teacherSnapshot.empty) {
+      return res.status(403).json({ error: 'Teacher account not found' });
+    }
+
+    const teacherId = teacherSnapshot.docs[0].id;
+    const classDoc = await db.collection('classes').doc(classId).get();
+    if (!classDoc.exists) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    const classData = classDoc.data();
+    if (!Array.isArray(classData.teacherId) || !classData.teacherId.includes(teacherId)) {
+      return res.status(403).json({ error: 'Teacher does not own this class' });
+    }
+
+    const batch = db.batch();
+    const studentsToSave = students
+      .map((student) => ({
+        gmail: student.gmail?.trim(),
+        name: student.name?.trim(),
+        ggDocLink: student.ggDocLink?.trim() || '',
+      }))
+      .filter((student) => student.gmail && student.name);
+
+    studentsToSave.forEach((student) => {
+      const docRef = db.collection('students').doc();
+      batch.set(docRef, {
+        ...student,
+        classId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+    res.status(201).json({ inserted: studentsToSave.length });
+  } catch (error) {
+    console.error('Error saving students:', error);
+    res.status(500).json({ error: 'Failed to save students' });
+  }
+});
+
 /**
  * Get classes for the authenticated user
  */
@@ -392,7 +566,7 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
     const classesRef = db.collection('classes');
     let snapshot = await classesRef.where('teacherId', 'array-contains', teacherId).get();
     if (snapshot.empty) {
-      return res.status(403).json({ error: 'There are no classes associated with this teacher' });
+      return res.json([]);
     }
     const classes = [];
     snapshot.forEach(doc => {
