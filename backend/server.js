@@ -423,8 +423,7 @@ app.post("/teacher-signup", verifyGoogleToken, async (req, res) => {
 
 app.post("/classes", verifyGoogleToken, async (req, res) => {
   try {
-    const teacherId = req.teacherId;
-    const { name, classType = 'basic', currentLesson = null } = req.body;
+    const { name, classType = 'basic', currentLesson = null, teacherId } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Missing required field: name' });
@@ -538,7 +537,8 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
       .filter((student) => student.gmail && student.name);
 
     studentsToSave.forEach((student) => {
-      const docRef = db.collection('students').doc();
+      // const docRef = db.collection('students').doc();
+      const docRef = db.collection('students-testing-table').doc();
       batch.set(docRef, {
         ...student,
         classId,
