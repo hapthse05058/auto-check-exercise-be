@@ -583,6 +583,23 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
 /**
  * Get lessons for the authenticated user and selected class
  */
+app.get("/class-types", verifyGoogleToken, async (req, res) => {
+  try {
+    const classTypeRef = db.collection('classType');
+    const snapshot = await classTypeRef.get();
+
+    const classTypes = [];
+    snapshot.forEach((doc) => {
+      classTypes.push({ id: doc.id, ...doc.data() });
+    });
+
+    res.json(classTypes);
+  } catch (error) {
+    console.error("Error fetching class types:", error);
+    res.status(500).json({ error: "Failed to fetch class types" });
+  }
+});
+
 app.get("/lessons", verifyGoogleToken, async (req, res) => {
   try {
     const userEmail = req.userEmail;
@@ -593,7 +610,7 @@ app.get("/lessons", verifyGoogleToken, async (req, res) => {
     }
 
     const lessonsRef = db.collection('lesson');
-    const snapshot = await lessonsRef.where('classType', '==', classType).get();
+    const snapshot = await lessonsRef.where('classType', 'array-contains', classType).get();
 
     const lessons = [];
     snapshot.forEach(doc => {
