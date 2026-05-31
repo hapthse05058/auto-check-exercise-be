@@ -155,7 +155,7 @@ const openai = new OpenAI({
 });
 app.post("/grade", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
-  const assistantId = process.env.ASSISTANT_ID;
+  const model = process.env.OPENAI_MODEL || "gpt-5.4-nano";
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
@@ -163,62 +163,34 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
 
   const studentExercises = items
     .map((item) => `${item.question}\n${item.answer}`)
-    .join("\n\n");
+ 
+  
+  ?fd
 
-  const thread = await openai.beta.threads.create();
-  try {
-    await openai.beta.threads.messages.create(thread.id, {
-      role: "user",
-      content: "BÀI TẬP CẦN CHẤM:\n" + studentExercises,
+   fc 
+` `  try {
+    const response = await openai.responses.create({
+      model,
+      input: "BÀI TẬP CẦN CHẤM:\n" + studentExercises,
+      store: false
     });
 
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: assistantId,
-    });
+    const assistantText = response.output
+      ?.flatMap((message) =>
+        message.content?.map((contentItem) => contentItem?.text || "") || [],
+      )
+      .join("")
+      .trim();
 
-    // POLLING LOGIC
-    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-
-    while (["in_progress", "queued"].includes(runStatus.status)) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    if (!assistantText) {
+      throw new Error("Assistant returned no output.");
     }
-    if (["failed", "cancelled", "expired"].includes(runStatus.status)) {
-      console.error("Run Failed Details:", JSON.stringify(runStatus));
-      throw new Error(runStatus);
-    }
-    if (runStatus.status !== "completed") {
-      // Status can be "failed", "cancelled", "expired"
-      // Detailed error for your console
-      console.error(
-        "Run Failed Details:",
-        JSON.stringify(runStatus.last_error, null, 2),
-      );
-      throw new Error(runStatus);
-    }
-
-    // GET MESSAGES
-    const messages = await openai.beta.threads.messages.list(thread.id);
-    // FIND THE CORRECT MESSAGE
-    // Filter to find the latest message where role is 'assistant'
-    const assistantMessage = messages.data.find((m) => m.role === "assistant");
-    if (!assistantMessage || !assistantMessage.content[0]) {
-      throw new Error("Assistant completed but no message was found.");
-    }
-
-    let finalResponse = assistantMessage.content[0].text.value;
-
-    // CLEANUP: Remove those annoying 【4:0†source】 tags
-    finalResponse = finalResponse.replace(/【.*?】/g, "");
-    await openai.beta.threads.del(thread.id); // Delete thread
 
     return res.json({
       success: true,
-      assistantText: finalResponse,
+      assistantText: assistantText.replace(/【.*?】/g, ""),
     });
   } catch (err) {
-    if (thread && thread.id)
-      await openai.beta.threads.del(thread.id).catch(() => { });
     console.error("Detailed OpenAI Error:", JSON.stringify(err));
     return res.status(500).json({
       error: "openai_request_failed",
