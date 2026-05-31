@@ -472,24 +472,6 @@ app.get("/classes/check-name", verifyGoogleToken, async (req, res) => {
     if (!name) {
       return res.status(400).json({ error: 'Class name is required' });
     }
-
-    // const userEmail = req.userEmail;
-    // const teacherSnapshot = await db.collection('teachers')
-    //   .where('gmail', '==', userEmail)
-    //   .limit(1)
-    //   .get();
-
-    // if (teacherSnapshot.empty) {
-    //   return res.status(403).json({ error: 'Teacher account not found' });
-    // }
-
-    // const teacherId = teacherSnapshot.docs[0].id;
-    // const snapshot = await db.collection('classes').get();
-
-    // const classes = [];
-    // snapshot.forEach(doc => {
-    //   classes.push({ id: doc.id, name: doc.data().name.toLowerCase() });
-    // });
     const isDuplicated = await isClassNameDuplicated(name);
     res.json({ exists: isDuplicated});
   } catch (error) {
@@ -500,39 +482,19 @@ app.get("/classes/check-name", verifyGoogleToken, async (req, res) => {
 
 app.post("/students", verifyGoogleToken, async (req, res) => {
   try {
-    const userEmail = req.userEmail;
     const { classId, students } = req.body;
 
     if (!classId || !Array.isArray(students) || students.length === 0) {
       return res.status(400).json({ error: 'Missing required fields: classId, students' });
     }
-
-    const teacherSnapshot = await db.collection('teachers')
-      .where('gmail', '==', userEmail)
-      .limit(1)
-      .get();
-
-    if (teacherSnapshot.empty) {
-      return res.status(403).json({ error: 'Teacher account not found' });
-    }
-
-    const teacherId = teacherSnapshot.docs[0].id;
-    const classDoc = await db.collection('classes').doc(classId).get();
-    if (!classDoc.exists) {
-      return res.status(404).json({ error: 'Class not found' });
-    }
-
-    const classData = classDoc.data();
-    if (!Array.isArray(classData.teacherId) || !classData.teacherId.includes(teacherId)) {
-      return res.status(403).json({ error: 'Teacher does not own this class' });
-    }
-
     const batch = db.batch();
     const studentsToSave = students
       .map((student) => ({
+        classId: classId,
         gmail: student.gmail?.trim(),
         name: student.name?.trim(),
         ggDocLink: student.ggDocLink?.trim() || '',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
       }))
       .filter((student) => student.gmail && student.name);
 
@@ -540,9 +502,7 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
       // const docRef = db.collection('students').doc();
       const docRef = db.collection('students-testing-table').doc();
       batch.set(docRef, {
-        ...student,
-        classId,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        ...student
       });
     });
 
