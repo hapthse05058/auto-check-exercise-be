@@ -28,6 +28,7 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 const serviceAccountPath = process.env.NODE_ENV === 'production'
   ? '/secrets/firebase-service-account'
   : path.join(__dirname, 'firebase-service-account.json');
+const prompt_and_instruction_for_ai = fs.readFileSync(path.join(__dirname, 'prompt_and_instruction_for_responses_api.txt'), 'utf8');
 
 if (fs.existsSync(serviceAccountPath)) {
   admin.initializeApp({
@@ -150,45 +151,37 @@ app.post("/exchange-token", async (req, res) => {
 });
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
   project: process.env.OPENAI_PROJECT_ID,
 });
 app.post("/grade", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
-  const model = process.env.OPENAI_MODEL || "gpt-5.4-nano";
+  const model = process.env.OPENAI_MODEL;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
   }
 
   const studentExercises = items
-    .map((item) => `${item.question}\n${item.answer}`)
- 
-  
-  ?fd
-
-   fc 
-` `  try {
+    .map((item) => `${item.question}\n${item.answer}`).join("\n\n");
+  try {
+    let inputText = "BÀI TẬP CẦN CHẤM: ".concat("```").concat(studentExercises).concat("```").concat("\n[CRITICAL RULE]: Evaluate the student exercise strictly against the instruction guide. Return only the structured evaluation.");
     const response = await openai.responses.create({
-      model,
-      input: "BÀI TẬP CẦN CHẤM:\n" + studentExercises,
-      store: false
+      model: model,
+      input: inputText,
+      instructions: prompt_and_instruction_for_ai,
+      temperature: 0.0
     });
 
-    const assistantText = response.output
-      ?.flatMap((message) =>
-        message.content?.map((contentItem) => contentItem?.text || "") || [],
-      )
-      .join("")
-      .trim();
+    const aiResponse = response.output_text.replace(/【.*?】/g, "").trim();
 
-    if (!assistantText) {
+    if (!aiResponse) {
       throw new Error("Assistant returned no output.");
     }
 
     return res.json({
       success: true,
-      assistantText: assistantText.replace(/【.*?】/g, ""),
+      aiResponse: aiResponse,
     });
   } catch (err) {
     console.error("Detailed OpenAI Error:", JSON.stringify(err));
