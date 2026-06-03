@@ -165,7 +165,7 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
   const studentExercises = items
     .map((item) => `${item.question}\n${item.answer}`).join("\n\n");
   try {
-    let inputText = "BÀI TẬP CẦN CHẤM: ".concat("```").concat(studentExercises).concat("```").concat("\n[CRITICAL RULE]: Evaluate the student exercise strictly against the instruction guide. Return only the structured evaluation.");
+    let inputText = "BÀI TẬP CẦN CHẤM: ".concat("```").concat(studentExercises).concat("```").concat(" \n[CRITICAL RULE]: Evaluate the student exercise strictly against the instruction guide. Return only the structured evaluation.");
     const response = await openai.responses.create({
       model: model,
       input: inputText,
