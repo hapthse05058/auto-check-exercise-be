@@ -2176,8 +2176,8 @@ cấu trúc giản lược của DC N là WH + to V, nên mình không cần t�
 2. Khi viết lại câu đúng ở cột "Chữa bài", bạn BẮT BUỘC PHẢI bao bọc các từ/cụm từ đã được sửa đổi vào trong cặp dấu sao đôi **.
   Ví dụ: Câu trả lời của học sinh  "She is smartest student in my class."
   Đáp án đúng phải là  "She is the smartest student in my class." thì hãy trả về  "She is **the** smartest student in my class."
-  Ví dụ: Câu trả lời của học sinh  "I ate nothing so far."
-  Đáp án đúng phải là  "I have eaten nothing so far." thì hãy trả về  "I **have eaten** nothing so far."
+  Ví dụ: Câu trả lời của học sinh  "he had lost the phone, so her borrow mine."
+  Đáp án đúng phải là  "She lost her phone, so she borrowed mine." thì hãy trả về  "She **lost** her phone, so **she borrowed** mine. (Câu cần chia đúng (lost/borrowed), và cấu trúc “borrow” cần borrowed theo thì quá khứ; ngoài ra phải có she ở vế sau)"
 ### OUTPUT FORMAT
 TRÌNH BÀY THEO BẢNG
 Tạo bảng như bên dưới với các cột:
