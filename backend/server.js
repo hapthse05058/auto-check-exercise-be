@@ -28,6 +28,7 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 const serviceAccountPath = process.env.NODE_ENV === 'production'
   ? '/secrets/firebase-service-account'
   : path.join(__dirname, 'firebase-service-account.json');
+const prompt_and_instruction_for_ai = fs.readFileSync(path.join(__dirname, 'prompt_and_instruction_for_responses_api.txt'), 'utf8');
 
 if (fs.existsSync(serviceAccountPath)) {
   admin.initializeApp({
@@ -150,75 +151,39 @@ app.post("/exchange-token", async (req, res) => {
 });
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
   project: process.env.OPENAI_PROJECT_ID,
 });
 app.post("/grade", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
-  const assistantId = process.env.ASSISTANT_ID;
+  const model = process.env.OPENAI_MODEL;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
   }
 
   const studentExercises = items
-    .map((item) => `${item.question}\n${item.answer}`)
-    .join("\n\n");
-
-  const thread = await openai.beta.threads.create();
+    .map((item) => `${item.question}\n${item.answer}`).join("\n\n");
   try {
-    await openai.beta.threads.messages.create(thread.id, {
-      role: "user",
-      content: "BÀI TẬP CẦN CHẤM:\n" + studentExercises,
+    let inputText = "BÀI TẬP CẦN CHẤM: ".concat("```").concat(studentExercises).concat("```").concat(" \n[CRITICAL RULE]: Evaluate the student exercise strictly against the instruction guide. Return only the structured evaluation.");
+    const response = await openai.responses.create({
+      model: model,
+      input: inputText,
+      instructions: prompt_and_instruction_for_ai,
+      temperature: 0.0
     });
 
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: assistantId,
-    });
+    const aiResponse = response.output_text.replace(/【.*?】/g, "").trim();
 
-    // POLLING LOGIC
-    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-
-    while (["in_progress", "queued"].includes(runStatus.status)) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    if (!aiResponse) {
+      throw new Error("Assistant returned no output.");
     }
-    if (["failed", "cancelled", "expired"].includes(runStatus.status)) {
-      console.error("Run Failed Details:", JSON.stringify(runStatus));
-      throw new Error(runStatus);
-    }
-    if (runStatus.status !== "completed") {
-      // Status can be "failed", "cancelled", "expired"
-      // Detailed error for your console
-      console.error(
-        "Run Failed Details:",
-        JSON.stringify(runStatus.last_error, null, 2),
-      );
-      throw new Error(runStatus);
-    }
-
-    // GET MESSAGES
-    const messages = await openai.beta.threads.messages.list(thread.id);
-    // FIND THE CORRECT MESSAGE
-    // Filter to find the latest message where role is 'assistant'
-    const assistantMessage = messages.data.find((m) => m.role === "assistant");
-    if (!assistantMessage || !assistantMessage.content[0]) {
-      throw new Error("Assistant completed but no message was found.");
-    }
-
-    let finalResponse = assistantMessage.content[0].text.value;
-
-    // CLEANUP: Remove those annoying 【4:0†source】 tags
-    finalResponse = finalResponse.replace(/【.*?】/g, "");
-    await openai.beta.threads.del(thread.id); // Delete thread
 
     return res.json({
       success: true,
-      assistantText: finalResponse,
+      aiResponse: aiResponse,
     });
   } catch (err) {
-    if (thread && thread.id)
-      await openai.beta.threads.del(thread.id).catch(() => { });
     console.error("Detailed OpenAI Error:", JSON.stringify(err));
     return res.status(500).json({
       error: "openai_request_failed",
