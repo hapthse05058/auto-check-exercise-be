@@ -21,6 +21,7 @@ const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
+const TEST_CLASS_ID = "class02";
 app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
@@ -647,8 +648,11 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "classId is required" });
     }
 
-    const studentsRef = db.collection('students');
-    // const studentsRef = db.collection('students-testing-table');
+    let collectionName = 'students';
+    if (classId === TEST_CLASS_ID) {
+      collectionName = 'students-testing-table';
+    }
+    const studentsRef = db.collection(collectionName);
     const snapshot = await studentsRef.where('classId', '==', classId).get();
 
     const students = [];
