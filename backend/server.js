@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const TEST_CLASS_ID = "class02";
+const TEST_EMAIL = "studyenglishwithelsa@gmail.com";
 app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
@@ -373,12 +373,11 @@ app.get("/teacher-info", verifyGoogleToken, async (req, res) => {
   }
 });
 
-app.post("/teacher-signup", verifyGoogleToken, async (req, res) => {
+app.post("/teacher-signup", async (req, res) => {
   
-  const userEmail = req.userEmail;
   try {
     const { name, phone, dob, address = '', notes = '', username, password, gmail } = req.body;
-    // const userEmail = gmail?.trim().toLowerCase();
+    const userEmail = gmail?.trim().toLowerCase();
 
     if (!name || !phone || !dob) {
       return res.status(400).json({ error: 'Missing required fields: name, phone, dob' });
@@ -487,6 +486,7 @@ app.get("/classes/check-name", verifyGoogleToken, async (req, res) => {
 
 app.post("/students", verifyGoogleToken, async (req, res) => {
   try {
+    const userEmail = req.userEmail;
     const { classId, students } = req.body;
 
     if (!classId || !Array.isArray(students) || students.length === 0) {
@@ -503,9 +503,9 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
       }))
       .filter((student) => student.gmail && student.name);
 
+    const tableName = userEmail === TEST_EMAIL ? 'students-testing-table' : 'students';
     studentsToSave.forEach((student) => {
-      // const docRef = db.collection('students').doc();
-      const docRef = db.collection('students-testing-table').doc();
+      const docRef = db.collection(tableName).doc();
       batch.set(docRef, {
         ...student
       });
@@ -641,17 +641,14 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
  */
 app.get("/students", verifyGoogleToken, async (req, res) => {
   try {
-    // const userEmail = req.userEmail;
+    const userEmail = req.userEmail;
     const classId = req.query.classId;
 
     if (!classId) {
       return res.status(400).json({ error: "classId is required" });
     }
 
-    let collectionName = 'students';
-    if (classId === TEST_CLASS_ID) {
-      collectionName = 'students-testing-table';
-    }
+    let collectionName = userEmail === TEST_EMAIL ? 'students-testing-table' : 'students';
     const studentsRef = db.collection(collectionName);
     const snapshot = await studentsRef.where('classId', '==', classId).get();
 
