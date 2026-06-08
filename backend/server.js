@@ -197,7 +197,9 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
       input: inputText,
     });
 
-    const aiResponse = response.output_text.replaceAll(/【.*?】/g, "").replaceAll("<br>", "").trim();
+    const aiResponse = response.output_text
+                        .replace(/【.*?】|<br>|[\r\n]+/g, "")
+                        .trim();
 
     if (!aiResponse) {
       throw new Error("Assistant returned no output.");
