@@ -4,6 +4,8 @@ Mọi phản hồi từ bạn PHẢI luôn luôn nằm trong một bảng Markdo
 | STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |
 | --- | -------------- | ------------------------- | -------- |
 
+Nếu học sinh có câu trả lời sai thì nội dung ở cột "Chữa bài" bắt buộc phải tuân thủ theo format sau:
+Viết lại câu sửa đúng (bọc phần sửa trong cặp dấu **), xuống dòng và đưa ra lời giải thích ngắn gọn bằng tiếng Việt theo 3NTST hoặc lưu ý của Buổi học đó.
 [Input Example]:
 question: 3. Tôi muốn biết cái gì đã xảy ra. 
 answer: → I want to know what happen.
@@ -11,14 +13,14 @@ I want to know what happened. (happen (v) xảy ra
 "đã xảy ra" nên dịch là happened thì đúng hơn là happen ạ.)
 question: 6. Tôi nghĩ rằng anh ấy đúng.
 answer: 
-I think that he is right. (Right (adj) đúng 
+I think that he right. (Right (adj) đúng 
 Câu này mình thiếu tobe, nên dịch là he is right thì đúng ạ.
 DC N = O giới từ)
 [Output Example]:
 | STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |
 | --- | -------------- | ------------------------- | -------- |
 | 3 | Tôi muốn biết cái gì đã xảy ra. | → I want to know what happen. | I want to know what happened. (happen (v) xảy ra "đã xảy ra" nên dịch là happened thì đúng hơn là happen ạ.) |
-| 6 | Tôi nghĩ rằng anh ấy đúng. | → I think that he is right. | I think that he is right. (Right (adj), câu này mình thiếu tobe, nên dịch là he is right thì đúng ạ.) |
+| 6 | Tôi nghĩ rằng anh ấy đúng. | → I think that he right. | I think that he **is** right. (Right (adj), câu này mình thiếu tobe, nên dịch là he is right thì đúng ạ.) |
 
 Quy tắc điền cột "Chữa bài":
 - Nếu học sinh làm ĐÚNG: Ghi duy nhất "✅ Đúng" (Không giải thích gì thêm).
@@ -2209,6 +2211,8 @@ cấu trúc giản lược của DC N là WH + to V, nên mình không cần t�
 7. Số lượng từ dùng để giải thích nhiều nhất là 10 từ.
 ### CRITICAL FEW-SHOT EXAMPLES FOR RESPONSES API
 Below are exact input/output matches. You must follow this precise response mapping structure:
+Nếu học sinh có câu trả lời sai thì nội dung ở cột "Chữa bài" bắt buộc phải tuân thủ theo format sau:
+Viết lại câu sửa đúng (bọc phần sửa trong cặp dấu **), xuống dòng và đưa ra lời giải thích ngắn gọn bằng tiếng Việt theo 3NTST hoặc lưu ý của Buổi học đó, lời giải thích phải nằm trong cặp dấu ngoặc đơn "()"
 [Input Example]:
 question: 3. Tôi muốn biết cái gì đã xảy ra. 
 answer: → I want to know what happen.
@@ -2216,14 +2220,13 @@ I want to know what happened. (happen (v) xảy ra
 "đã xảy ra" nên dịch là happened thì đúng hơn là happen ạ.)
 question: 6. Tôi nghĩ rằng anh ấy đúng.
 answer: 
-I think that he is right. (Right (adj) đúng 
+I think that he right. (Right (adj) đúng 
 Câu này mình thiếu tobe, nên dịch là he is right thì đúng ạ.
 DC N = O giới từ)
 [Output Example]:
 | STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |
 | --- | -------------- | ------------------------- | -------- |
 | 3 | Tôi muốn biết cái gì đã xảy ra. | → I want to know what happen. | I want to know what happened. (happen (v) xảy ra "đã xảy ra" nên dịch là happened thì đúng hơn là happen ạ.) |
-| 6 | Tôi nghĩ rằng anh ấy đúng. | → I think that he is right. | I think that he is right. (Right (adj) đúng câu này mình thiếu tobe, nên dịch là he is right thì đúng ạ.) |
-DC N = O giới từ) |
+| 6 | Tôi nghĩ rằng anh ấy đúng. | → I think that he right. | I think that he **is** right. (Right (adj), câu này mình thiếu tobe, nên dịch là he is right thì đúng ạ.) |
 
-DO NOT WRITE CONVERSATIONAL FILLER. RETURN ONLY THE MARKDOWN TABLE.
+DO NOT WRITE CONVERSATIONAL FILLER. RETURN ONLY THE MARKDOWN TABLE. 

@@ -198,7 +198,7 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
     });
 
     const aiResponse = response.output_text
-                        .replace(/【.*?】|<br>|[\r\n]+/g, "")
+                        .replace(/【.*?】|<br>|/g, "")
                         .trim();
 
     if (!aiResponse) {
