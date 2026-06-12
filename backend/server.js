@@ -8,7 +8,7 @@ const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
-const { OAuth2Client } = require("google-auth-library");
+const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const cors = require("cors");
 const app = express();
 app.use(express.json());
@@ -42,6 +42,38 @@ if (fs.existsSync(serviceAccountPath)) {
 }
 
 const db = admin.firestore();
+
+/**
+ * Google auth client backed by the service account key, used to mint REAL
+ * Google OAuth access tokens for the Google Docs API.
+ *
+ * Username/password login only produces a self-signed JWT (valid for THIS
+ * backend only). Google APIs reject that JWT with 401. Since student docs are
+ * shared as "anyone with the link can edit", any valid Google identity can
+ * read/write them — so we mint a token from the service account and hand it to
+ * the client to use against docs.googleapis.com.
+ */
+const googleDocsAuth = fs.existsSync(serviceAccountPath)
+  ? new GoogleAuth({
+      keyFile: serviceAccountPath,
+      scopes: [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/drive",
+      ],
+    })
+  : null;
+
+async function getServiceAccountGoogleToken() {
+  if (!googleDocsAuth) {
+    throw new Error("Service account not configured; cannot mint Google token");
+  }
+  const client = await googleDocsAuth.getClient();
+  const { token } = await client.getAccessToken();
+  if (!token) {
+    throw new Error("Failed to obtain Google access token from service account");
+  }
+  return token;
+}
 
 if (!OPENAI_API_KEY) {
   console.warn(
@@ -187,7 +219,6 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
       throw new Error(`Instruction file not found: ${instructionFilePath}`);
     }
     const prompt_and_instruction_for_ai = fs.readFileSync(instructionFilePath, 'utf8');
-    console.log(prompt_and_instruction_for_ai);
     // let inputText = "BÀI TẬP CẦN CHẤM: ".concat("```").concat(studentExercises).concat("```").concat(" \n[CRITICAL RULE]: Evaluate the student exercise strictly against the instruction guide. Return only the structured evaluation.");
     const response = await openai.responses.create({
       model: model,
@@ -204,8 +235,6 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
     if (!aiResponse) {
       throw new Error("Assistant returned no output.");
     }
-
-    console.log(`[GRADE] Response received, length: ${aiResponse.length} bytes`);
 
     return res.json({
       success: true,
@@ -290,15 +319,40 @@ app.post("/auth/username-password", async (req, res) => {
     const expires_in = 3600; // 1 hour in seconds
     const refresh_token_expires_date = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
 
+    // Mint a REAL Google access token (service account) so the client can call
+    // the Google Docs API. `access_token` (JWT) authenticates THIS backend only.
+    let google_access_token = null;
+    try {
+      google_access_token = await getServiceAccountGoogleToken();
+    } catch (tokenError) {
+      console.error("Failed to mint Google access token:", tokenError.message);
+    }
+
     res.json({
       access_token,
       expires_in,
       refresh_token,
-      refresh_token_expires_date
+      refresh_token_expires_date,
+      google_access_token
     });
   } catch (error) {
     console.error("Error in username/password login:", error);
     res.status(500).json({ error: "Login failed" });
+  }
+});
+
+/**
+ * Mint a fresh Google access token (service account) for Google Docs API calls.
+ * Protected by the backend JWT/Google token. Call this when the previous
+ * google_access_token expires (~1h).
+ */
+app.get("/auth/google-token", verifyToken, async (req, res) => {
+  try {
+    const google_access_token = await getServiceAccountGoogleToken();
+    res.json({ google_access_token, expires_in: 3600 });
+  } catch (error) {
+    console.error("Error minting Google access token:", error.message);
+    res.status(500).json({ error: "Failed to mint Google access token" });
   }
 });
 
@@ -327,11 +381,20 @@ app.post("/auth/refresh", async (req, res) => {
         { expiresIn: '1h' }
       );
 
+      // Also hand back a fresh Google token for the Docs API.
+      let google_access_token = null;
+      try {
+        google_access_token = await getServiceAccountGoogleToken();
+      } catch (tokenError) {
+        console.error("Failed to mint Google access token:", tokenError.message);
+      }
+
       return res.json({
         access_token,
         expiry_date: Date.now() + 3600 * 1000,
         refresh_token: refreshToken, // Keep the same refresh token
-        refresh_token_expires_date: Date.now() + 30 * 24 * 60 * 60 * 1000
+        refresh_token_expires_date: Date.now() + 30 * 24 * 60 * 60 * 1000,
+        google_access_token
       });
     } catch (jwtError) {
       // If JWT fails, try Google refresh token
