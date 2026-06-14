@@ -7,6 +7,7 @@ const OpenAI = require("openai");
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const cors = require("cors");
@@ -22,6 +23,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
 const TEST_EMAIL = "studyenglishwithelsa@gmail.com";
+// Bump this (or change OPENAI_MODEL) to invalidate the gradingCache: cached
+// feedback is keyed on promptVersion + model + question + answer.
+const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
 app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
@@ -244,6 +248,242 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
     console.error("[GRADE] Detailed OpenAI Error:", JSON.stringify(err));
     return res.status(500).json({
       error: "openai_request_failed",
+      details: err.message || "Unknown Error",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Cached grading (/grade-cached)
+//
+// The website FE sends a DEDUPED array of unique {question, answer} pairs for a
+// whole class. We reuse feedback from the gradingCache collection when present,
+// only send genuine cache misses to OpenAI, persist the new feedback, and
+// return feedback per pair. The FE re-maps feedback to each student by the same
+// (question, answer) pair and writes it into the right doc row by question index.
+// ---------------------------------------------------------------------------
+
+/** Normalizes a string for cache keying: collapse whitespace + trim. */
+function normalizeForKey(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Deterministic gradingCache document id. Keyed on promptVersion + model +
+ * normalized question + normalized answer, so identical answers share one doc
+ * and prompt/model changes naturally invalidate old feedback.
+ */
+function gradingCacheId(question, answer, model) {
+  const raw = `${PROMPT_VERSION}|${model}|${normalizeForKey(question)}|${normalizeForKey(answer)}`;
+  return crypto.createHash("sha1").update(raw).digest("hex");
+}
+
+/** Runs async task factories with a bounded concurrency. */
+async function runWithConcurrency(taskFactories, limit) {
+  const results = new Array(taskFactories.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < taskFactories.length) {
+      const index = cursor++;
+      results[index] = await taskFactories[index]();
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(limit, taskFactories.length) },
+    worker,
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/** Parses the AI markdown table into a { STT -> "Chữa bài" } map. */
+function parseGradedTable(aiText) {
+  const map = {};
+  for (const line of aiText.split("\n")) {
+    if (!line.includes("|") || line.includes("---")) continue;
+    const cleanLine = line.trim().replace(/^\||\|$/g, "");
+    const columns = cleanLine.split("|").map((col) => col.trim());
+    // Real rows have >=4 columns and a numeric STT in column 0.
+    if (columns.length >= 4 && /^\d+$/.test(columns[0])) {
+      map[columns[0]] = columns[3];
+    }
+  }
+  return map;
+}
+
+/**
+ * Grades ONE group of uncached items with OpenAI. Each item is renumbered
+ * 1..k (unique within the group) so the returned table maps back
+ * unambiguously. Returns feedback aligned to `group` by index (null if the AI
+ * did not return a row for that item).
+ */
+async function gradeGroupWithOpenAI(group, instruction, model) {
+  const studentExercises = group
+    .map((item, i) => {
+      const seq = i + 1;
+      const hasLeadingNumber = /^\s*\d+\s*\./.test(item.question || "");
+      const question = hasLeadingNumber
+        ? String(item.question).replace(/^\s*\d+\s*\./, `${seq}.`)
+        : `${seq}. ${item.question}`;
+      return `\n[VIETNAMESE]: ${question}\n[STUDENT_ANSWER]: ${item.answer}`;
+    })
+    .join("\n");
+
+  const inputText = `DATASET TO EVALUATE:\`\`\`\n${studentExercises}\n\n\`\`\`[CRITICAL RULE]: Evaluate each item above strictly against the instruction guide. Output a single combined Markdown table. You must provide the clear reason/evaluation for the grade inside the table if the answer is incorrect.`;
+
+  const response = await openai.responses.create({
+    model: model,
+    instructions: instruction,
+    temperature: 0.5,
+    top_p: 0.14,
+    input: inputText,
+  });
+
+  const aiResponse = (response.output_text || "")
+    .replace(/【.*?】|<br>|/g, "")
+    .trim();
+  const tableByStt = parseGradedTable(aiResponse);
+  return group.map((_, i) => {
+    const fb = tableByStt[String(i + 1)];
+    return fb != null && fb !== "" ? fb : null;
+  });
+}
+
+app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
+  const items = req.body.items;
+  const model = process.env.OPENAI_MODEL;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "no_items_provided" });
+  }
+
+  try {
+    // 1. Defensive dedupe by (question, answer); FE already dedupes.
+    const uniqueMap = new Map();
+    for (const item of items) {
+      if (!item || item.question == null || item.answer == null) continue;
+      const key = `${normalizeForKey(item.question)}${normalizeForKey(item.answer)}`;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, { question: item.question, answer: item.answer });
+      }
+    }
+    const uniqueItems = [...uniqueMap.values()];
+    if (uniqueItems.length === 0) {
+      return res.status(400).json({ error: "no_items_provided" });
+    }
+
+    const cacheRef = db.collection("gradingCache");
+    const ids = uniqueItems.map((it) => gradingCacheId(it.question, it.answer, model));
+
+    // 2. Read existing feedback from the cache (chunked getAll).
+    const feedbackById = new Map();
+    const READ_CHUNK = 200;
+    for (let i = 0; i < ids.length; i += READ_CHUNK) {
+      const refs = ids.slice(i, i + READ_CHUNK).map((id) => cacheRef.doc(id));
+      const snaps = await db.getAll(...refs);
+      snaps.forEach((snap) => {
+        if (snap.exists) {
+          const data = snap.data();
+          if (data && data.feedback != null) {
+            feedbackById.set(snap.id, data.feedback);
+          }
+        }
+      });
+    }
+
+    // 3. Anything not in the cache is a miss to be graded.
+    const uncached = [];
+    uniqueItems.forEach((it, idx) => {
+      if (!feedbackById.has(ids[idx])) uncached.push({ ...it, idx });
+    });
+
+    // 4. Grade misses with OpenAI, in modest groups, with bounded concurrency.
+    if (uncached.length > 0) {
+      const instructionFilePath = path.join(
+        __dirname,
+        "prompt_and_instruction_for_responses_api.txt",
+      );
+      if (!fs.existsSync(instructionFilePath)) {
+        throw new Error(`Instruction file not found: ${instructionFilePath}`);
+      }
+      const instruction = fs
+        .readFileSync(instructionFilePath, "utf8")
+        .trim();
+
+      const GROUP_SIZE = 15;
+      const groups = [];
+      for (let i = 0; i < uncached.length; i += GROUP_SIZE) {
+        groups.push(uncached.slice(i, i + GROUP_SIZE));
+      }
+
+      const CONCURRENCY = Number(process.env.GRADE_GROUP_CONCURRENCY || 4);
+      const tasks = groups.map((group) => async () => {
+        try {
+          const feedbacks = await gradeGroupWithOpenAI(group, instruction, model);
+          group.forEach((it, i) => {
+            const fb = feedbacks[i];
+            if (fb != null) {
+              feedbackById.set(ids[it.idx], fb);
+              it._feedback = fb; // mark for cache write
+            }
+          });
+        } catch (err) {
+          // A failed group leaves its items uncached/unwritten; they retry on
+          // the next run. Never block the whole class on one group.
+          console.error("[GRADE-CACHED] group grading failed:", err.message);
+        }
+      });
+      await runWithConcurrency(tasks, CONCURRENCY);
+
+      // 5. Persist newly graded feedback (chunked batch writes, <500/batch).
+      const toWrite = uncached.filter((it) => it._feedback != null);
+      const WRITE_CHUNK = 400;
+      for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
+        const batch = db.batch();
+        toWrite.slice(i, i + WRITE_CHUNK).forEach((it) => {
+          batch.set(cacheRef.doc(ids[it.idx]), {
+            question: it.question,
+            answer: it.answer,
+            feedback: it._feedback,
+            model: model,
+            promptVersion: PROMPT_VERSION,
+            hitCount: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+    }
+
+    // 6. Bump hitCount for items served from the cache (best effort).
+    const uncachedIds = new Set(uncached.map((it) => ids[it.idx]));
+    const hitIds = ids.filter(
+      (id) => !uncachedIds.has(id) && feedbackById.has(id),
+    );
+    const HIT_CHUNK = 400;
+    for (let i = 0; i < hitIds.length; i += HIT_CHUNK) {
+      const batch = db.batch();
+      hitIds.slice(i, i + HIT_CHUNK).forEach((id) => {
+        batch.update(cacheRef.doc(id), {
+          hitCount: admin.firestore.FieldValue.increment(1),
+        });
+      });
+      await batch.commit();
+    }
+
+    // 7. Return feedback per unique (question, answer). The FE maps these back
+    //    to each student by the same pair and writes by question index.
+    const results = uniqueItems.map((it, idx) => ({
+      question: it.question,
+      answer: it.answer,
+      feedback: feedbackById.get(ids[idx]) ?? null,
+    }));
+
+    return res.json({ success: true, results });
+  } catch (err) {
+    console.error("[GRADE-CACHED] Error:", err);
+    return res.status(500).json({
+      error: "grading_failed",
       details: err.message || "Unknown Error",
     });
   }
