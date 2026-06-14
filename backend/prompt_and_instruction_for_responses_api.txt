@@ -2211,6 +2211,7 @@ cấu trúc giản lược của DC N là WH + to V, nên mình không cần t�
 7. Số lượng từ dùng để giải thích nhiều nhất là 10 từ.
 ### CRITICAL FEW-SHOT EXAMPLES FOR RESPONSES API
 Below are exact input/output matches. You must follow this precise response mapping structure:
+Nếu đề bài là câu chủ động thì câu trả lời phải ở dạng chủ động, nếu đề bài là câu bị động thì câu trả lời cũng phải ở dạng bị động thì mới tính là đúng.
 Nếu học sinh có câu trả lời sai thì nội dung ở cột "Chữa bài" bắt buộc phải tuân thủ theo format sau:
 Viết lại câu sửa đúng (bọc phần sửa trong cặp dấu **), xuống dòng và đưa ra lời giải thích ngắn gọn bằng tiếng Việt theo 3NTST hoặc lưu ý của Buổi học đó, lời giải thích phải nằm trong cặp dấu ngoặc đơn "()"
 [Input Example]:

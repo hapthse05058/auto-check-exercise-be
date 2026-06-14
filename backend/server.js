@@ -23,7 +23,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
 const TEST_EMAIL = "studyenglishwithelsa@gmail.com";
-// Bump this (or change OPENAI_MODEL) to invalidate the gradingCache: cached
+// Bump this (or change AI_MODEL) to invalidate the gradingCache: cached
 // feedback is keyed on promptVersion + model + question + answer.
 const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
 app.use(cors());
@@ -79,9 +79,9 @@ async function getServiceAccountGoogleToken() {
   return token;
 }
 
-if (!OPENAI_API_KEY) {
+if (!process.env.AI_API_KEY && !OPENAI_API_KEY) {
   console.warn(
-    "WARNING: OPENAI_API_KEY not set. The service will fail until provided.",
+    "WARNING: AI_API_KEY (DeepSeek) not set. Grading will fail until provided.",
   );
 }
 
@@ -200,13 +200,45 @@ app.post("/exchange-token", async (req, res) => {
   }
 });
 
+// AI grader provider. DeepSeek is OpenAI-API-compatible for /chat/completions,
+// so we keep the OpenAI SDK and just repoint baseURL + key + model.
+// In .env set:
+//   AI_BASE_URL=https://api.deepseek.com
+//   AI_API_KEY=<your DeepSeek API key>
+//   AI_MODEL=deepseek-chat
+// Model ids: `deepseek-chat` = V4-Flash NON-thinking (recommended here: fast,
+// cheapest, no reasoning tokens); `deepseek-reasoner` = V4-Flash thinking mode.
+const AI_BASE_URL = process.env.AI_BASE_URL || "https://api.deepseek.com";
+const AI_API_KEY = process.env.AI_API_KEY || OPENAI_API_KEY;
+const AI_MODEL = process.env.AI_MODEL || "deepseek-chat";
 const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY,
-  project: process.env.OPENAI_PROJECT_ID,
+  apiKey: AI_API_KEY,
+  baseURL: AI_BASE_URL,
 });
+
+/**
+ * Calls the AI grader via chat completions (DeepSeek / any OpenAI-compatible
+ * provider) and returns the cleaned response text. The grading instruction is
+ * the system message; the dataset is the user message.
+ */
+async function callGrader(instruction, inputText, model) {
+  const response = await openai.chat.completions.create({
+    model: model,
+    messages: [
+      { role: "system", content: instruction },
+      { role: "user", content: inputText },
+    ],
+    temperature: 0.5,
+    top_p: 0.14,
+  });
+  return (response.choices?.[0]?.message?.content || "")
+    .replace(/【.*?】|<br>|/g, "")
+    .trim();
+}
+//Use for extension
 app.post("/grade", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
-  const model = process.env.OPENAI_MODEL;
+  const model = AI_MODEL;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
@@ -223,18 +255,11 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
       throw new Error(`Instruction file not found: ${instructionFilePath}`);
     }
     const prompt_and_instruction_for_ai = fs.readFileSync(instructionFilePath, 'utf8');
-    // let inputText = "BÀI TẬP CẦN CHẤM: ".concat("```").concat(studentExercises).concat("```").concat(" \n[CRITICAL RULE]: Evaluate the student exercise strictly against the instruction guide. Return only the structured evaluation.");
-    const response = await openai.responses.create({
-      model: model,
-      instructions: prompt_and_instruction_for_ai.trim(),
-      temperature: 0.5,
-      top_p: 0.14,
-      input: inputText,
-    });
-
-    const aiResponse = response.output_text
-                        .replace(/【.*?】|<br>|/g, "")
-                        .trim();
+    const aiResponse = await callGrader(
+      prompt_and_instruction_for_ai.trim(),
+      inputText,
+      model,
+    );
 
     if (!aiResponse) {
       throw new Error("Assistant returned no output.");
@@ -331,17 +356,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
 
   const inputText = `DATASET TO EVALUATE:\`\`\`\n${studentExercises}\n\n\`\`\`[CRITICAL RULE]: Evaluate each item above strictly against the instruction guide. Output a single combined Markdown table. You must provide the clear reason/evaluation for the grade inside the table if the answer is incorrect.`;
 
-  const response = await openai.responses.create({
-    model: model,
-    instructions: instruction,
-    temperature: 0.5,
-    top_p: 0.14,
-    input: inputText,
-  });
-
-  const aiResponse = (response.output_text || "")
-    .replace(/【.*?】|<br>|/g, "")
-    .trim();
+  const aiResponse = await callGrader(instruction, inputText, model);
   const tableByStt = parseGradedTable(aiResponse);
   return group.map((_, i) => {
     const fb = tableByStt[String(i + 1)];
@@ -351,7 +366,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
 
 app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
-  const model = process.env.OPENAI_MODEL;
+  const model = AI_MODEL;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
