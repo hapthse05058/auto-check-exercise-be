@@ -206,11 +206,17 @@ app.post("/exchange-token", async (req, res) => {
 //   AI_BASE_URL=https://api.deepseek.com
 //   AI_API_KEY=<your DeepSeek API key>
 //   AI_MODEL=deepseek-chat
-// Model ids: `deepseek-chat` = V4-Flash NON-thinking (recommended here: fast,
-// cheapest, no reasoning tokens); `deepseek-reasoner` = V4-Flash thinking mode.
+// Model ids: `deepseek-v4-pro` / `deepseek-v4-flash` (or legacy aliases
+// `deepseek-chat` = flash non-thinking, `deepseek-reasoner` = flash thinking).
+// Thinking mode is toggled via AI_THINKING (enabled/disabled). When enabled,
+// DeepSeek ignores temperature/top_p, so we omit them and pass reasoning_effort.
 const AI_BASE_URL = process.env.AI_BASE_URL || "https://api.deepseek.com";
 const AI_API_KEY = process.env.AI_API_KEY || OPENAI_API_KEY;
 const AI_MODEL = process.env.AI_MODEL || "deepseek-chat";
+const AI_THINKING_ENABLED = ["enabled", "true", "1", "on"].includes(
+  (process.env.AI_THINKING || "disabled").toLowerCase(),
+);
+const AI_REASONING_EFFORT = process.env.AI_REASONING_EFFORT || "high"; // high | max
 const openai = new OpenAI({
   apiKey: AI_API_KEY,
   baseURL: AI_BASE_URL,
@@ -222,15 +228,24 @@ const openai = new OpenAI({
  * the system message; the dataset is the user message.
  */
 async function callGrader(instruction, inputText, model) {
-  const response = await openai.chat.completions.create({
+  const params = {
     model: model,
     messages: [
       { role: "system", content: instruction },
       { role: "user", content: inputText },
     ],
-    temperature: 0.5,
-    top_p: 0.14,
-  });
+  };
+  if (AI_THINKING_ENABLED) {
+    // Thinking mode: DeepSeek emits chain-of-thought in `reasoning_content`
+    // (ignored — we only read the final `content`). temperature/top_p are not
+    // supported in this mode, so omit them and pass reasoning_effort instead.
+    params.reasoning_effort = AI_REASONING_EFFORT;
+    params.thinking = { type: "enabled" };
+  } else {
+    params.temperature = 0.5;
+    params.top_p = 0.14;
+  }
+  const response = await openai.chat.completions.create(params);
   return (response.choices?.[0]?.message?.content || "")
     .replace(/【.*?】|<br>|/g, "")
     .trim();
@@ -391,6 +406,11 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
 app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
   const model = AI_MODEL;
+  // Only admins may turn the cache OFF; everyone else always uses it. When off,
+  // we skip the cache lookup (every answer goes to the AI) and skip persisting
+  // the AI feedback to gradingCache.
+  const isAdmin = ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase());
+  const useCache = !(isAdmin && req.body.useCache === false);
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
@@ -414,20 +434,23 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
     const cacheRef = db.collection("gradingCache");
     const ids = uniqueItems.map((it) => gradingCacheId(it.question, it.answer, model));
 
-    // 2. Read existing feedback from the cache (chunked getAll).
+    // 2. Read existing feedback from the cache (chunked getAll). Skipped when
+    //    caching is off, so every answer is treated as a miss and re-graded.
     const feedbackById = new Map();
-    const READ_CHUNK = 200;
-    for (let i = 0; i < ids.length; i += READ_CHUNK) {
-      const refs = ids.slice(i, i + READ_CHUNK).map((id) => cacheRef.doc(id));
-      const snaps = await db.getAll(...refs);
-      snaps.forEach((snap) => {
-        if (snap.exists) {
-          const data = snap.data();
-          if (data && data.feedback != null) {
-            feedbackById.set(snap.id, data.feedback);
+    if (useCache) {
+      const READ_CHUNK = 200;
+      for (let i = 0; i < ids.length; i += READ_CHUNK) {
+        const refs = ids.slice(i, i + READ_CHUNK).map((id) => cacheRef.doc(id));
+        const snaps = await db.getAll(...refs);
+        snaps.forEach((snap) => {
+          if (snap.exists) {
+            const data = snap.data();
+            if (data && data.feedback != null) {
+              feedbackById.set(snap.id, data.feedback);
+            }
           }
-        }
-      });
+        });
+      }
     }
 
     // 3. Anything not in the cache is a miss to be graded.
@@ -475,22 +498,25 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       await runWithConcurrency(tasks, CONCURRENCY);
 
       // 5. Persist newly graded feedback (chunked batch writes, <500/batch).
-      const toWrite = uncached.filter((it) => it._feedback != null);
-      const WRITE_CHUNK = 400;
-      for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
-        const batch = db.batch();
-        toWrite.slice(i, i + WRITE_CHUNK).forEach((it) => {
-          batch.set(cacheRef.doc(ids[it.idx]), {
-            question: it.question,
-            answer: it.answer,
-            feedback: it._feedback,
-            model: model,
-            promptVersion: PROMPT_VERSION,
-            hitCount: 0,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      //    Skipped when caching is off — AI feedback is not stored.
+      if (useCache) {
+        const toWrite = uncached.filter((it) => it._feedback != null);
+        const WRITE_CHUNK = 400;
+        for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
+          const batch = db.batch();
+          toWrite.slice(i, i + WRITE_CHUNK).forEach((it) => {
+            batch.set(cacheRef.doc(ids[it.idx]), {
+              question: it.question,
+              answer: it.answer,
+              feedback: it._feedback,
+              model: model,
+              promptVersion: PROMPT_VERSION,
+              hitCount: 0,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
           });
-        });
-        await batch.commit();
+          await batch.commit();
+        }
       }
     }
 
