@@ -294,14 +294,38 @@ function normalizeForKey(value) {
 }
 
 /**
- * Deterministic gradingCache document id. Keyed on promptVersion + model +
- * normalized question + normalized answer, so identical answers share one doc
- * and prompt/model changes naturally invalidate old feedback.
+ * Deterministic gradingCache document id from explicit key fields. Keyed on
+ * promptVersion + model + normalized question + normalized answer, so identical
+ * answers share one doc and prompt/model changes naturally invalidate old
+ * feedback. Used both by grading and by the admin management endpoints (which
+ * must re-key a doc when any key field is edited).
  */
-function gradingCacheId(question, answer, model) {
-  const raw = `${PROMPT_VERSION}|${model}|${normalizeForKey(question)}|${normalizeForKey(answer)}`;
+function gradingCacheKey(promptVersion, model, question, answer) {
+  const raw = `${promptVersion}|${model}|${normalizeForKey(question)}|${normalizeForKey(answer)}`;
   return crypto.createHash("sha1").update(raw).digest("hex");
 }
+
+/** gradingCache id for the current PROMPT_VERSION (used by the grading flow). */
+function gradingCacheId(question, answer, model) {
+  return gradingCacheKey(PROMPT_VERSION, model, question, answer);
+}
+
+// Admin allow-list for the gradingCache management endpoints (comma-separated).
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "phamhongha.innerpiece@gmail.com")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+/** Gate: must run AFTER verifyToken (which sets req.userEmail). */
+function requireAdmin(req, res, next) {
+  if (!ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase())) {
+    return res.status(403).json({ error: "admin_only" });
+  }
+  next();
+}
+
+// Text fields searchable from the gradingCache management screen.
+const GRADING_CACHE_FIELDS = ["question", "answer", "feedback", "model", "promptVersion"];
 
 /** Runs async task factories with a bounded concurrency. */
 async function runWithConcurrency(taskFactories, limit) {
@@ -501,6 +525,207 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       error: "grading_failed",
       details: err.message || "Unknown Error",
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// gradingCache management (admin only) — list/search, add, edit, delete.
+// All endpoints require a registered token AND an admin email (requireAdmin).
+// ---------------------------------------------------------------------------
+
+/** Whitelist the fields a client may write, coercing types. */
+function sanitizeCacheInput(body, existing = {}) {
+  const out = { ...existing };
+  if (body.question != null) out.question = String(body.question);
+  if (body.answer != null) out.answer = String(body.answer);
+  if (body.feedback != null) out.feedback = String(body.feedback);
+  if (body.model != null) out.model = String(body.model);
+  if (body.promptVersion != null) out.promptVersion = String(body.promptVersion);
+  if (body.hitCount != null) out.hitCount = Number(body.hitCount) || 0;
+  return out;
+}
+
+/**
+ * GET /grading-cache?field=&q=&page=&pageSize= — substring search
+ * (case-insensitive) with server-side paging (max 100/page). Substring match
+ * isn't indexable in Firestore, so we read the collection, filter + sort in
+ * memory, then return only the requested page plus the total count.
+ */
+app.get("/grading-cache", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const field = GRADING_CACHE_FIELDS.includes(req.query.field)
+      ? req.query.field
+      : "question";
+    const q = (req.query.q || "").toString().toLowerCase();
+    const pageSize = Math.min(Math.max(Number(req.query.pageSize) || 100, 1), 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+
+    const snapshot = await db.collection("gradingCache").get();
+    let rows = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      rows.push({
+        id: doc.id,
+        question: data.question ?? "",
+        answer: data.answer ?? "",
+        feedback: data.feedback ?? "",
+        model: data.model ?? "",
+        promptVersion: data.promptVersion ?? "",
+        hitCount: data.hitCount ?? 0,
+        createdAt: data.createdAt?.toDate?.().toISOString() ?? null,
+      });
+    });
+
+    if (q) {
+      rows = rows.filter((row) =>
+        String(row[field] ?? "").toLowerCase().includes(q),
+      );
+    }
+    // Newest first; rows without createdAt sort last.
+    rows.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+    const total = rows.length;
+    const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * pageSize;
+    const results = rows.slice(start, start + pageSize);
+
+    return res.json({ results, total, page: safePage, pageSize, totalPages });
+  } catch (err) {
+    console.error("[GRADING-CACHE] list error:", err);
+    return res.status(500).json({ error: "failed_to_list" });
+  }
+});
+
+/** POST /grading-cache — add one record (id derived from key fields). */
+app.post("/grading-cache", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const data = sanitizeCacheInput(req.body);
+    if (!data.question || !data.answer || !data.feedback) {
+      return res.status(400).json({ error: "question_answer_feedback_required" });
+    }
+    data.model = data.model || AI_MODEL;
+    data.promptVersion = data.promptVersion || PROMPT_VERSION;
+    data.hitCount = data.hitCount || 0;
+
+    const id = gradingCacheKey(
+      data.promptVersion,
+      data.model,
+      data.question,
+      data.answer,
+    );
+    const ref = db.collection("gradingCache").doc(id);
+    if ((await ref.get()).exists) {
+      return res.status(409).json({ error: "already_exists" });
+    }
+    await ref.set({
+      ...data,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return res.status(201).json({ id, ...data });
+  } catch (err) {
+    console.error("[GRADING-CACHE] create error:", err);
+    return res.status(500).json({ error: "failed_to_create" });
+  }
+});
+
+/**
+ * PATCH /grading-cache/:id — edit any field. If a KEY field
+ * (question/answer/model/promptVersion) changes, the doc id is re-derived so
+ * the grading flow still finds it: the doc is moved to the new id.
+ */
+app.patch("/grading-cache/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const ref = db.collection("gradingCache").doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "not_found" });
+    }
+
+    const existing = snap.data();
+    const merged = sanitizeCacheInput(req.body, existing);
+    if (!merged.question || !merged.answer || !merged.feedback) {
+      return res.status(400).json({ error: "question_answer_feedback_required" });
+    }
+    merged.model = merged.model || AI_MODEL;
+    merged.promptVersion = merged.promptVersion || PROMPT_VERSION;
+    merged.hitCount = merged.hitCount ?? 0;
+
+    const newId = gradingCacheKey(
+      merged.promptVersion,
+      merged.model,
+      merged.question,
+      merged.answer,
+    );
+
+    if (newId === id) {
+      // Only non-key fields changed (e.g. feedback/hitCount) — update in place.
+      await ref.update({
+        question: merged.question,
+        answer: merged.answer,
+        feedback: merged.feedback,
+        model: merged.model,
+        promptVersion: merged.promptVersion,
+        hitCount: merged.hitCount,
+      });
+      return res.json({ id, ...merged });
+    }
+
+    // Key field changed → re-key. Refuse if it would clobber another record.
+    const newRef = db.collection("gradingCache").doc(newId);
+    if ((await newRef.get()).exists) {
+      return res.status(409).json({ error: "key_conflict" });
+    }
+    const batch = db.batch();
+    batch.set(newRef, {
+      ...merged,
+      createdAt: existing.createdAt ?? admin.firestore.FieldValue.serverTimestamp(),
+    });
+    batch.delete(ref);
+    await batch.commit();
+    return res.json({ id: newId, ...merged });
+  } catch (err) {
+    console.error("[GRADING-CACHE] update error:", err);
+    return res.status(500).json({ error: "failed_to_update" });
+  }
+});
+
+/** DELETE /grading-cache/:id */
+app.delete("/grading-cache/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const ref = db.collection("gradingCache").doc(req.params.id);
+    if (!(await ref.get()).exists) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    await ref.delete();
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[GRADING-CACHE] delete error:", err);
+    return res.status(500).json({ error: "failed_to_delete" });
+  }
+});
+
+/** POST /grading-cache/bulk-delete — delete many records by id at once. */
+app.post("/grading-cache/bulk-delete", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids)
+      ? [...new Set(req.body.ids.filter((x) => typeof x === "string" && x))]
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ error: "no_ids" });
+    }
+    const cacheRef = db.collection("gradingCache");
+    const CHUNK = 400; // Firestore batch limit is 500.
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const batch = db.batch();
+      ids.slice(i, i + CHUNK).forEach((id) => batch.delete(cacheRef.doc(id)));
+      await batch.commit();
+    }
+    return res.json({ deleted: ids.length });
+  } catch (err) {
+    console.error("[GRADING-CACHE] bulk-delete error:", err);
+    return res.status(500).json({ error: "failed_to_bulk_delete" });
   }
 });
 
