@@ -260,7 +260,7 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
   }
 
   const studentExercises = items
-    .map((item, index) => `\n[VIETNAMESE]: ${item.question}\n[STUDENT_ANSWER]: ${item.answer}`)
+    .map((item) => `\n[VIETNAMESE]: ${item.question}\n[STUDENT_ANSWER]: ${item.answer}`)
     .join("\n");
 
   try {
