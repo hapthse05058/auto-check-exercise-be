@@ -23,3 +23,9 @@ Thumbs.db
 # Agent instruction files
 AGENTS.md
 CLAUDE.md
+.claude/skills/gitnexus/gitnexus-cli/SKILL.md
+.claude/skills/gitnexus/gitnexus-debugging/SKILL.md
+.claude/skills/gitnexus/gitnexus-exploring/SKILL.md
+.claude/skills/gitnexus/gitnexus-guide/SKILL.md
+.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md
+.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md

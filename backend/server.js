@@ -755,6 +755,282 @@ app.post("/grading-cache/bulk-delete", verifyGoogleToken, requireAdmin, async (r
   }
 });
 
+// ---------------------------------------------------------------------------
+// TeacherPoint — point balance per teacher (1 point spent per student doc whose
+// feedback is written), top-up history, and an admin billing summary.
+//   point = topUpVnd / 700 ;  saler commission = topUpVnd / 700 * 100
+// Admin-only CRUD + top-up. Teachers only read their own balance / consume it.
+// ---------------------------------------------------------------------------
+
+const TOPUP_STEP_VND = 70000;
+const TOPUP_MAX_VND = 7000000;
+const VND_PER_POINT = 700;
+
+/** Validates a top-up amount: integer multiple of 70k within [70k, 7M]. */
+function isValidTopUp(amountVnd) {
+  return (
+    Number.isInteger(amountVnd) &&
+    amountVnd >= TOPUP_STEP_VND &&
+    amountVnd <= TOPUP_MAX_VND &&
+    amountVnd % TOPUP_STEP_VND === 0
+  );
+}
+
+/** Resolves the teacher doc for the authenticated user (by gmail). */
+async function findTeacherByEmail(email) {
+  const snap = await db
+    .collection("teachers")
+    .where("gmail", "==", (email || "").toLowerCase())
+    .limit(1)
+    .get();
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+}
+
+/** Current point balance of the logged-in teacher (0 when no record yet). */
+app.get("/teacher-points/me", verifyGoogleToken, async (req, res) => {
+  try {
+    const snap = await db
+      .collection("TeacherPoint")
+      .where("gmail", "==", (req.userEmail || "").toLowerCase())
+      .limit(1)
+      .get();
+    const point = snap.empty ? 0 : snap.docs[0].data().point ?? 0;
+    return res.json({ point });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] me error:", err);
+    return res.status(500).json({ error: "failed_to_get_point" });
+  }
+});
+
+/** Spends `count` points for the logged-in teacher (after successful writes). */
+app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
+  try {
+    const count = Number(req.body.count);
+    if (!Number.isFinite(count) || count <= 0) {
+      return res.status(400).json({ error: "invalid_count" });
+    }
+    const teacher = await findTeacherByEmail(req.userEmail);
+    if (!teacher) {
+      return res.status(403).json({ error: "teacher_not_found" });
+    }
+    const ref = db.collection("TeacherPoint").doc(teacher.id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({
+        teacherId: teacher.id,
+        gmail: teacher.gmail,
+        name: teacher.name || "",
+        point: -count,
+        topUpHistory: [],
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return res.json({ point: -count });
+    }
+    await ref.update({
+      point: admin.firestore.FieldValue.increment(-count),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    const updated = await ref.get();
+    return res.json({ point: updated.data().point ?? 0 });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] consume error:", err);
+    return res.status(500).json({ error: "failed_to_consume" });
+  }
+});
+
+/** Admin: list teachers (for the create dropdown). */
+app.get("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const snap = await db.collection("teachers").get();
+    const teachers = [];
+    snap.forEach((doc) => {
+      const d = doc.data();
+      teachers.push({ id: doc.id, gmail: d.gmail || "", name: d.name || "" });
+    });
+    teachers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    return res.json({ teachers });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] list teachers error:", err);
+    return res.status(500).json({ error: "failed_to_list_teachers" });
+  }
+});
+
+/** Admin: the billing summary (total topped up + derived saler commission). */
+app.get("/teacher-points/billing", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const snap = await db.collection("AdminBilling").doc("summary").get();
+    const totalTopUpVnd = snap.exists ? snap.data().totalTopUpVnd ?? 0 : 0;
+    const commissionVnd = Math.round((totalTopUpVnd / VND_PER_POINT) * 100);
+    return res.json({ totalTopUpVnd, commissionVnd });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] billing error:", err);
+    return res.status(500).json({ error: "failed_to_get_billing" });
+  }
+});
+
+/** Admin: reset the total-topped-up counter (commission resets with it). */
+app.post("/teacher-points/billing/reset", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    await db.collection("AdminBilling").doc("summary").set(
+      {
+        totalTopUpVnd: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return res.json({ totalTopUpVnd: 0, commissionVnd: 0 });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] billing reset error:", err);
+    return res.status(500).json({ error: "failed_to_reset_billing" });
+  }
+});
+
+/** Admin: list all TeacherPoint records. */
+app.get("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const snap = await db.collection("TeacherPoint").get();
+    const records = [];
+    snap.forEach((doc) => {
+      const d = doc.data();
+      const history = Array.isArray(d.topUpHistory) ? d.topUpHistory : [];
+      const mappedHistory = history.map((h) => ({
+        amountVnd: h.amountVnd ?? 0,
+        points: h.points ?? 0,
+        topUpAt: h.topUpAt?.toDate?.().toISOString() ?? null,
+      }));
+      const lastTopUpAt = mappedHistory.length
+        ? mappedHistory[mappedHistory.length - 1].topUpAt
+        : null;
+      records.push({
+        id: doc.id,
+        teacherId: d.teacherId ?? doc.id,
+        gmail: d.gmail ?? "",
+        name: d.name ?? "",
+        point: d.point ?? 0,
+        topUpCount: mappedHistory.length,
+        lastTopUpAt,
+        topUpHistory: mappedHistory,
+      });
+    });
+    records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    return res.json({ records });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] list error:", err);
+    return res.status(500).json({ error: "failed_to_list" });
+  }
+});
+
+/** Admin: create a TeacherPoint record for a teacher (id = teacherId). */
+app.post("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const teacherId = req.body.teacherId;
+    const point = Number(req.body.point) || 0;
+    if (!teacherId) {
+      return res.status(400).json({ error: "teacherId_required" });
+    }
+    const teacherDoc = await db.collection("teachers").doc(teacherId).get();
+    if (!teacherDoc.exists) {
+      return res.status(404).json({ error: "teacher_not_found" });
+    }
+    const ref = db.collection("TeacherPoint").doc(teacherId);
+    if ((await ref.get()).exists) {
+      return res.status(409).json({ error: "already_exists" });
+    }
+    const teacher = teacherDoc.data();
+    const data = {
+      teacherId,
+      gmail: teacher.gmail || "",
+      name: teacher.name || "",
+      point,
+      topUpHistory: [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    await ref.set(data);
+    return res.status(201).json({ id: teacherId, ...data });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] create error:", err);
+    return res.status(500).json({ error: "failed_to_create" });
+  }
+});
+
+/** Admin: set a teacher's point balance directly. */
+app.patch("/teacher-points/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const ref = db.collection("TeacherPoint").doc(req.params.id);
+    if (!(await ref.get()).exists) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    if (req.body.point == null || !Number.isFinite(Number(req.body.point))) {
+      return res.status(400).json({ error: "invalid_point" });
+    }
+    await ref.update({
+      point: Number(req.body.point),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return res.json({ id: req.params.id, point: Number(req.body.point) });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] update error:", err);
+    return res.status(500).json({ error: "failed_to_update" });
+  }
+});
+
+/** Admin: delete a TeacherPoint record. */
+app.delete("/teacher-points/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const ref = db.collection("TeacherPoint").doc(req.params.id);
+    if (!(await ref.get()).exists) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    await ref.delete();
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] delete error:", err);
+    return res.status(500).json({ error: "failed_to_delete" });
+  }
+});
+
+/**
+ * Admin: top up a teacher's points from a VND amount. Adds the computed points,
+ * appends a history entry, and bumps the global admin billing total.
+ */
+app.post("/teacher-points/:id/topup", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const amountVnd = Number(req.body.amountVnd);
+    if (!isValidTopUp(amountVnd)) {
+      return res.status(400).json({ error: "invalid_amount" });
+    }
+    const ref = db.collection("TeacherPoint").doc(req.params.id);
+    if (!(await ref.get()).exists) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    const points = amountVnd / VND_PER_POINT;
+    await ref.update({
+      point: admin.firestore.FieldValue.increment(points),
+      topUpHistory: admin.firestore.FieldValue.arrayUnion({
+        amountVnd,
+        points,
+        topUpAt: admin.firestore.Timestamp.now(),
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    // Bump the admin billing total (lazy-create the singleton).
+    await db.collection("AdminBilling").doc("summary").set(
+      {
+        totalTopUpVnd: admin.firestore.FieldValue.increment(amountVnd),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    const updated = await ref.get();
+    return res.json({ id: req.params.id, point: updated.data().point ?? 0, addedPoints: points });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] topup error:", err);
+    return res.status(500).json({ error: "failed_to_topup" });
+  }
+});
+
 /**
  * 1. Endpoint đổi 'code' lấy Access Token & Refresh Token (Lúc mới Login)
  */
