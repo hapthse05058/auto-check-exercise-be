@@ -10,6 +10,7 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 
 const { OAuth2Client, GoogleAuth } = require("google-auth-library");
+const billing = require("./lib/billing.js");
 const cors = require("cors");
 const app = express();
 app.use(express.json());
@@ -876,33 +877,67 @@ app.get("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
   }
 });
 
-/** Admin: the billing summary (total topped up + derived saler commission). */
+/**
+ * Admin: the billing summary. `totalTopUpVnd` is the lifetime top-up total;
+ * `commissionVnd` is the saler commission OUTSTANDING since the last settlement
+ * (settled baseline = `settledTopUpVnd`). Also returns the all-time saler cost
+ * and the commission already paid, for the detail popup.
+ */
 app.get("/teacher-points/billing", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
     const snap = await db.collection("AdminBilling").doc("summary").get();
-    const totalTopUpVnd = snap.exists ? snap.data().totalTopUpVnd ?? 0 : 0;
-    const commissionVnd = Math.round((totalTopUpVnd / VND_PER_POINT) * 100);
-    return res.json({ totalTopUpVnd, commissionVnd });
+    const data = snap.exists ? snap.data() : {};
+    const totalTopUpVnd = data.totalTopUpVnd ?? 0;
+    const settledTopUpVnd = data.settledTopUpVnd ?? 0;
+    const history = (data.settlementHistory || []).map((h) => ({
+      paidAt: h.paidAt?.toDate?.().toISOString() ?? null,
+      commissionVnd: h.commissionVnd ?? 0,
+    }));
+    return res.json({
+      totalTopUpVnd,
+      commissionVnd: billing.outstandingCommissionVnd(totalTopUpVnd, settledTopUpVnd),
+      totalCommissionVnd: billing.salerCostVnd(totalTopUpVnd),
+      paidCommissionVnd: billing.sumPaidCommissionVnd(history),
+      lastSettledAt: history.length ? history[history.length - 1].paidAt : null,
+      settlementHistory: history,
+    });
   } catch (err) {
     console.error("[TEACHER-POINTS] billing error:", err);
     return res.status(500).json({ error: "failed_to_get_billing" });
   }
 });
 
-/** Admin: reset the total-topped-up counter (commission resets with it). */
-app.post("/teacher-points/billing/reset", verifyGoogleToken, requireAdmin, async (req, res) => {
+/**
+ * Admin: pay (settle) the outstanding saler commission. Records the payment time
+ * and the commission paid, advances the settled baseline so the outstanding
+ * commission drops to 0, and KEEPS the lifetime `totalTopUpVnd`.
+ */
+app.post("/teacher-points/billing/settle", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
-    await db.collection("AdminBilling").doc("summary").set(
+    const ref = db.collection("AdminBilling").doc("summary");
+    const snap = await ref.get();
+    const data = snap.exists ? snap.data() : {};
+    const totalTopUpVnd = data.totalTopUpVnd ?? 0;
+    const settledTopUpVnd = data.settledTopUpVnd ?? 0;
+    const commissionVnd = billing.outstandingCommissionVnd(totalTopUpVnd, settledTopUpVnd);
+    const paidAt = admin.firestore.Timestamp.now();
+    await ref.set(
       {
-        totalTopUpVnd: 0,
+        settledTopUpVnd: totalTopUpVnd,
+        settlementHistory: admin.firestore.FieldValue.arrayUnion({ paidAt, commissionVnd }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
-    return res.json({ totalTopUpVnd: 0, commissionVnd: 0 });
+    return res.json({
+      totalTopUpVnd,
+      commissionVnd: 0,
+      paidCommissionVnd: commissionVnd,
+      paidAt: paidAt.toDate().toISOString(),
+    });
   } catch (err) {
-    console.error("[TEACHER-POINTS] billing reset error:", err);
-    return res.status(500).json({ error: "failed_to_reset_billing" });
+    console.error("[TEACHER-POINTS] billing settle error:", err);
+    return res.status(500).json({ error: "failed_to_settle_commission" });
   }
 });
 
