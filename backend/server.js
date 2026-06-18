@@ -18,7 +18,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
@@ -86,13 +86,16 @@ if (!process.env.AI_API_KEY && !OPENAI_API_KEY) {
 }
 
 
-async function isClassNameDuplicated(newClassName) {
+async function isClassNameDuplicated(newClassName, excludeId = null) {
   const snapshot = await db.collection('classes').get();
+  const target = String(newClassName ?? '').toLowerCase();
   const classes = [];
   snapshot.forEach(doc => {
-    classes.push({ id: doc.id, name: doc.data().name.toLowerCase() });
+    classes.push({ id: doc.id, name: String(doc.data().name ?? '').toLowerCase() });
   });
-  const duplicateClassSnapshot = classes.filter((cls) => cls.name === newClassName.toLowerCase());
+  const duplicateClassSnapshot = classes.filter(
+    (cls) => cls.id !== excludeId && cls.name === target,
+  );
   return duplicateClassSnapshot.length > 0;
 }
 
@@ -479,6 +482,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       }
 
       const CONCURRENCY = Number(process.env.GRADE_GROUP_CONCURRENCY || 4);
+      const groupErrors = [];
       const tasks = groups.map((group) => async () => {
         try {
           const feedbacks = await gradeGroupWithOpenAI(group, instruction, model);
@@ -492,10 +496,26 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
         } catch (err) {
           // A failed group leaves its items uncached/unwritten; they retry on
           // the next run. Never block the whole class on one group.
+          groupErrors.push(err);
           console.error("[GRADE-CACHED] group grading failed:", err.message);
         }
       });
       await runWithConcurrency(tasks, CONCURRENCY);
+
+      // If EVERY group failed (e.g. a misconfigured AI key/model in this
+      // environment), the AI produced no feedback at all. Returning
+      // success:true with all-null feedback hides a total outage, so surface
+      // it as a real error instead. Partial failures still pass through and
+      // retry on the next run.
+      const graded = uncached.some((it) => it._feedback != null);
+      if (!graded && groupErrors.length > 0) {
+        const cause = groupErrors[0];
+        const err = new Error(
+          `AI grading failed for all ${uncached.length} item(s): ${cause.message || cause}`,
+        );
+        err.status = cause.status; // preserve upstream status (e.g. 401) for logs
+        throw err;
+      }
 
       // 5. Persist newly graded feedback (chunked batch writes, <500/batch).
       //    Skipped when caching is off — AI feedback is not stored.
@@ -889,6 +909,18 @@ app.post("/teacher-points/billing/reset", verifyGoogleToken, requireAdmin, async
 /** Admin: list all TeacherPoint records. */
 app.get("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
+    // Teacher ids that own at least one ACTIVE class — used to flag each record
+    // so the FE can default-filter to teachers with active classes.
+    const activeClassSnap = await db
+      .collection("classes")
+      .where("isActive", "==", true)
+      .get();
+    const activeTeacherIds = new Set();
+    activeClassSnap.forEach((doc) => {
+      const ids = doc.data().teacherId;
+      if (Array.isArray(ids)) ids.forEach((id) => activeTeacherIds.add(id));
+    });
+
     const snap = await db.collection("TeacherPoint").get();
     const records = [];
     snap.forEach((doc) => {
@@ -902,15 +934,17 @@ app.get("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => 
       const lastTopUpAt = mappedHistory.length
         ? mappedHistory[mappedHistory.length - 1].topUpAt
         : null;
+      const teacherId = d.teacherId ?? doc.id;
       records.push({
         id: doc.id,
-        teacherId: d.teacherId ?? doc.id,
+        teacherId,
         gmail: d.gmail ?? "",
         name: d.name ?? "",
         point: d.point ?? 0,
         topUpCount: mappedHistory.length,
         lastTopUpAt,
         topUpHistory: mappedHistory,
+        hasActiveClass: activeTeacherIds.has(teacherId),
       });
     });
     records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -1306,6 +1340,7 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
       classType,
       currentLesson: currentLesson || null,
       teacherId: [teacherId],
+      isActive: true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
@@ -1343,12 +1378,13 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
     const studentsToSave = students
       .map((student) => ({
         classId: classId,
-        gmail: student.gmail?.trim(),
+        gmail: student.gmail?.trim() || '',
         name: student.name?.trim(),
         ggDocLink: student.ggDocLink?.trim() || '',
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       }))
-      .filter((student) => student.gmail && student.name);
+      // Gmail is temporarily optional; only require a name.
+      .filter((student) => student.name);
 
     const tableName = userEmail === TEST_EMAIL ? 'students-testing-table' : 'students';
     studentsToSave.forEach((student) => {
@@ -1480,6 +1516,87 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
   } catch (error) {
     console.error("Error updating current lesson:", error);
     res.status(500).json({ error: "Failed to update current lesson" });
+  }
+});
+
+/**
+ * Admin: list ALL classes (every teacher) with teacher names joined. Used by the
+ * class-management screen when an admin is logged in. Missing `isActive` is
+ * treated as active so pre-migration docs still show up as active.
+ */
+app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const [classSnap, teacherSnap] = await Promise.all([
+      db.collection("classes").get(),
+      db.collection("teachers").get(),
+    ]);
+    const teacherNameById = new Map();
+    teacherSnap.forEach((doc) => {
+      const d = doc.data();
+      teacherNameById.set(doc.id, d.name || d.gmail || doc.id);
+    });
+    const classes = [];
+    classSnap.forEach((doc) => {
+      const d = doc.data();
+      const teacherIds = Array.isArray(d.teacherId) ? d.teacherId : [];
+      classes.push({
+        id: doc.id,
+        name: d.name ?? "",
+        classType: d.classType ?? "",
+        currentLesson: d.currentLesson ?? null,
+        isActive: d.isActive !== false,
+        teacherId: teacherIds,
+        teacherNames: teacherIds.map((id) => teacherNameById.get(id) || id),
+      });
+    });
+    res.json(classes);
+  } catch (error) {
+    console.error("Error fetching all classes:", error);
+    res.status(500).json({ error: "Failed to fetch all classes" });
+  }
+});
+
+/**
+ * Update a class: rename (`name`) and/or deactivate (`isActive: false`).
+ * Deactivation is irreversible by design — there is no re-activate path here.
+ */
+app.patch("/classes/:id", verifyGoogleToken, async (req, res) => {
+  try {
+    const classId = req.params.id;
+    const { name, isActive } = req.body;
+
+    const classRef = db.collection("classes").doc(classId);
+    const classDoc = await classRef.get();
+    if (!classDoc.exists) {
+      return res.status(404).json({ error: "Class not found" });
+    }
+
+    const updates = {};
+
+    if (name !== undefined) {
+      const trimmed = String(name).trim();
+      if (!trimmed) {
+        return res.status(400).json({ error: "Class name cannot be empty" });
+      }
+      if (await isClassNameDuplicated(trimmed, classId)) {
+        return res.status(409).json({ error: "Class name already exists" });
+      }
+      updates.name = trimmed;
+    }
+
+    if (isActive === false) {
+      updates.isActive = false;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    await classRef.update(updates);
+    res.json({ success: true, ...updates });
+  } catch (error) {
+    console.error("Error updating class:", error);
+    res.status(500).json({ error: "Failed to update class" });
   }
 });
 
