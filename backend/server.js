@@ -4,7 +4,9 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const OpenAI = require("openai");
-const admin = require("firebase-admin");
+// Firebase Admin + the Firestore handle (database chosen by FIRESTORE_DATABASE_ID).
+// `serviceAccountPath` is reused below for the Google Docs auth client.
+const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -24,7 +26,6 @@ const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const TEST_EMAIL = "studyenglishwithelsa@gmail.com";
 // Bump this (or change AI_MODEL) to invalidate the gradingCache: cached
 // feedback is keyed on promptVersion + model + question + answer.
 const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
@@ -33,21 +34,8 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-// Initialize Firebase Admin
-// Use the Cloud Run path, or fallback to a local file for development
-const serviceAccountPath = process.env.NODE_ENV === 'production'
-  ? '/secrets/firebase-service-account'
-  : path.join(__dirname, 'firebase-service-account.json');
-
-if (fs.existsSync(serviceAccountPath)) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccountPath)
-  });
-} else {
-  console.error("Critical: Service account file not found!");
-}
-
-const db = admin.firestore();
+// Firebase Admin + Firestore (`admin`, `db`) are initialized in ./lib/firestore.js
+// and imported at the top of this file.
 
 /**
  * Google auth client backed by the service account key, used to mint REAL
@@ -1711,9 +1699,8 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
       // Gmail is temporarily optional; only require a name.
       .filter((student) => student.name);
 
-    const tableName = userEmail === TEST_EMAIL ? 'students-testing-table' : 'students';
     studentsToSave.forEach((student) => {
-      const docRef = db.collection(tableName).doc();
+      const docRef = db.collection('students').doc();
       batch.set(docRef, {
         ...student
       });
@@ -1937,8 +1924,7 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "classId is required" });
     }
 
-    let collectionName = userEmail === TEST_EMAIL ? 'students-testing-table' : 'students';
-    const studentsRef = db.collection(collectionName);
+    const studentsRef = db.collection('students');
     const snapshot = await studentsRef.where('classId', '==', classId).get();
 
     const students = [];

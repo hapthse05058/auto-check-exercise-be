@@ -4,27 +4,9 @@
 // Usage (from the backend/ directory):
 //   node scripts/backfill-class-isactive.js
 //
-// Mirrors server.js firebase-admin init: in production the service account is
-// mounted at /secrets/firebase-service-account, locally it lives one level up.
-const fs = require("fs");
-const path = require("path");
-const admin = require("firebase-admin");
-
-const serviceAccountPath =
-  process.env.NODE_ENV === "production"
-    ? "/secrets/firebase-service-account"
-    : path.join(__dirname, "..", "firebase-service-account.json");
-
-if (!fs.existsSync(serviceAccountPath)) {
-  console.error(`Service account file not found at: ${serviceAccountPath}`);
-  process.exit(1);
-}
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccountPath),
-});
-
-const db = admin.firestore();
+// Uses the shared Firestore init (lib/firestore.js): targets the database in
+// FIRESTORE_DATABASE_ID (e.g. run with FIRESTORE_DATABASE_ID=dev to backfill dev).
+const { db } = require("../lib/firestore.js");
 
 async function main() {
   const snapshot = await db.collection("classes").get();
