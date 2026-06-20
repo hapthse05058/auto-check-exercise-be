@@ -11,6 +11,7 @@ const crypto = require("crypto");
 
 const { OAuth2Client, GoogleAuth } = require("google-auth-library");
 const billing = require("./lib/billing.js");
+const teacherFilter = require("./lib/teacherFilter.js");
 const cors = require("cors");
 const app = express();
 app.use(express.json());
@@ -134,6 +135,9 @@ async function verifyToken(req, res, next) {
     const teacherDoc = await db.collection("teachers").where("gmail", "==", userEmail).get();
     if (teacherDoc.empty) {
       return res.status(403).json({ error: "Access denied. User is not a registered teacher." });
+    }
+    if (teacherDoc.docs[0].data().isAccountActive === false) {
+      return res.status(403).json({ error: "account_closed" });
     }
     req.userEmail = userEmail;
     next();
@@ -783,11 +787,11 @@ app.post("/grading-cache/bulk-delete", verifyGoogleToken, requireAdmin, async (r
 // Admin-only CRUD + top-up. Teachers only read their own balance / consume it.
 // ---------------------------------------------------------------------------
 
-const TOPUP_STEP_VND = 70000;
-const TOPUP_MAX_VND = 7000000;
-const VND_PER_POINT = 700;
+const TOPUP_STEP_VND = 60000;
+const TOPUP_MAX_VND = 6000000;
+const VND_PER_POINT = 600;
 
-/** Validates a top-up amount: integer multiple of 70k within [70k, 7M]. */
+/** Validates a top-up amount: integer multiple of 60k within [60k, 6M]. */
 function isValidTopUp(amountVnd) {
   return (
     Number.isInteger(amountVnd) &&
@@ -867,7 +871,8 @@ app.get("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
     const teachers = [];
     snap.forEach((doc) => {
       const d = doc.data();
-      teachers.push({ id: doc.id, gmail: d.gmail || "", name: d.name || "" });
+      // teachers.push({ id: doc.id, gmail: d.gmail || "", name: d.name || "" });
+      teachers.push({ ...d, id: doc.id });
     });
     teachers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     return res.json({ teachers });
@@ -877,29 +882,268 @@ app.get("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Teacher management (admin) — list/search/filter, create, update, close.
+// `isAccountActive` (default true) gates login; class assignment is mirrored to
+// each class's `teacherId[]` (the source of truth used by the class screens).
+// ---------------------------------------------------------------------------
+
+/** Editable teacher fields (username/password and system fields are excluded). */
+const TEACHER_EDITABLE_FIELDS = ["name", "gmail", "phone", "dob", "address", "notes"];
+
+/** Strips the password hash before returning a teacher record to the client. */
+function publicTeacher(id, data, classIds, classNames) {
+  const { password, ...rest } = data;
+  return { id, ...rest, isAccountActive: data.isAccountActive !== false, classIds, classNames };
+}
+
+/** Builds teacherId -> { classIds[], classNames[] } from all class docs. */
+async function buildClassAssignments() {
+  const classSnap = await db.collection("classes").get();
+  const byTeacher = {}; // id -> classIds
+  const names = {}; // id -> classNames
+  classSnap.forEach((doc) => {
+    const d = doc.data();
+    const ids = Array.isArray(d.teacherId) ? d.teacherId : [];
+    ids.forEach((tid) => {
+      (byTeacher[tid] ||= []).push(doc.id);
+      (names[tid] ||= []).push(d.name || doc.id);
+    });
+  });
+  return { byTeacher, names };
+}
+
+/** Admin: list/search/filter teachers for the management screen. */
+app.get("/teachers/manage", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const [snap, assignments] = await Promise.all([
+      db.collection("teachers").get(),
+      buildClassAssignments(),
+    ]);
+    const teachers = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const filtered = teacherFilter.filterTeachers(
+      teachers,
+      { q: req.query.q, classId: req.query.classId, isAccountActive: req.query.isAccountActive },
+      assignments.byTeacher,
+    );
+    const records = filtered.map((t) =>
+      publicTeacher(t.id, t, assignments.byTeacher[t.id] || [], assignments.names[t.id] || []),
+    );
+    return res.json({ teachers: records });
+  } catch (err) {
+    console.error("[TEACHERS] list error:", err);
+    return res.status(500).json({ error: "failed_to_list_teachers" });
+  }
+});
+
+/** Adds/removes a teacherId on each class's `teacherId[]` to match a new assignment. */
+async function syncClassAssignment(teacherId, oldIds, newIds) {
+  const { added, removed } = teacherFilter.diffClassIds(oldIds, newIds);
+  const ops = [];
+  added.forEach((cid) =>
+    ops.push(
+      db.collection("classes").doc(cid).update({
+        teacherId: admin.firestore.FieldValue.arrayUnion(teacherId),
+      }),
+    ),
+  );
+  removed.forEach((cid) =>
+    ops.push(
+      db.collection("classes").doc(cid).update({
+        teacherId: admin.firestore.FieldValue.arrayRemove(teacherId),
+      }),
+    ),
+  );
+  await Promise.all(ops);
+}
+
+/** Admin: create a teacher (requires username + password, like signup). */
+app.post("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const { name, phone, dob, address = "", notes = "", username, password } = req.body;
+    const gmail = String(req.body.gmail || "").trim().toLowerCase();
+    const classIds = Array.isArray(req.body.classIds) ? req.body.classIds : [];
+
+    if (!name || !phone || !dob || !gmail) {
+      return res.status(400).json({ error: "missing_required_fields" });
+    }
+    if (!username || !password) {
+      return res.status(400).json({ error: "username_password_required" });
+    }
+
+    const teachersRef = db.collection("teachers");
+    if (!(await teachersRef.where("gmail", "==", gmail).limit(1).get()).empty) {
+      return res.status(409).json({ error: "gmail_exists" });
+    }
+    if (!(await teachersRef.where("username", "==", username).limit(1).get()).empty) {
+      return res.status(409).json({ error: "username_exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const teacherData = {
+      gmail, name, phone, dob, address, notes,
+      username,
+      password: hashedPassword,
+      classIds,
+      isAccountActive: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const docRef = await teachersRef.add(teacherData);
+    await syncClassAssignment(docRef.id, [], classIds);
+
+    return res.status(201).json(publicTeacher(docRef.id, teacherData, classIds, []));
+  } catch (err) {
+    console.error("[TEACHERS] create error:", err);
+    return res.status(500).json({ error: "failed_to_create_teacher" });
+  }
+});
+
+/** Admin: update a teacher. Never touches username/password. */
+app.patch("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const ref = db.collection("teachers").doc(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "teacher_not_found" });
+    }
+    const current = snap.data();
+    const updates = {};
+
+    for (const field of TEACHER_EDITABLE_FIELDS) {
+      if (req.body[field] === undefined) continue;
+      if (field === "gmail") {
+        const gmail = String(req.body.gmail).trim().toLowerCase();
+        if (!gmail) return res.status(400).json({ error: "gmail_required" });
+        if (gmail !== current.gmail) {
+          const dup = await db.collection("teachers").where("gmail", "==", gmail).limit(1).get();
+          if (!dup.empty && dup.docs[0].id !== req.params.id) {
+            return res.status(409).json({ error: "gmail_exists" });
+          }
+        }
+        updates.gmail = gmail;
+      } else {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (typeof req.body.isAccountActive === "boolean") {
+      updates.isAccountActive = req.body.isAccountActive;
+    }
+
+    let newClassIds = Array.isArray(current.classIds) ? current.classIds : [];
+    if (Array.isArray(req.body.classIds)) {
+      newClassIds = req.body.classIds;
+      updates.classIds = newClassIds;
+      await syncClassAssignment(req.params.id, current.classIds || [], newClassIds);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "nothing_to_update" });
+    }
+
+    await ref.update(updates);
+    return res.json(publicTeacher(req.params.id, { ...current, ...updates }, newClassIds, []));
+  } catch (err) {
+    console.error("[TEACHERS] update error:", err);
+    return res.status(500).json({ error: "failed_to_update_teacher" });
+  }
+});
+
 /**
- * Admin: the billing summary. `totalTopUpVnd` is the lifetime top-up total;
- * `commissionVnd` is the saler commission OUTSTANDING since the last settlement
- * (settled baseline = `settledTopUpVnd`). Also returns the all-time saler cost
- * and the commission already paid, for the detail popup.
+ * Admin: permanently delete a teacher account. Irreversible.
+ *
+ * Always removes the TeacherPoint record. For each class referencing the teacher:
+ *  - if `deleteClasses` is set AND the teacher is the SOLE owner (teacherId === [id]),
+ *    the class is deleted (and, when `deleteStudents` is set, its students too);
+ *  - otherwise the teacher is just unlinked (arrayRemove) — shared classes are never
+ *    deleted, so other teachers on them are unaffected.
+ */
+app.delete("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const teacherId = req.params.id;
+    const { deleteClasses = false, deleteStudents = false } = req.body || {};
+    const ref = db.collection("teachers").doc(teacherId);
+    if (!(await ref.get()).exists) {
+      return res.status(404).json({ error: "teacher_not_found" });
+    }
+
+    const classSnap = await db
+      .collection("classes")
+      .where("teacherId", "array-contains", teacherId)
+      .get();
+
+    const classRefsToDelete = []; // sole-owned classes to remove
+    const classIdsToDelete = [];
+    const classRefsToUnlink = []; // shared classes (or when not deleting classes)
+    classSnap.docs.forEach((d) => {
+      const ids = d.data().teacherId;
+      const soleOwner = Array.isArray(ids) && ids.length === 1;
+      if (deleteClasses && soleOwner) {
+        classRefsToDelete.push(d.ref);
+        classIdsToDelete.push(d.id);
+      } else {
+        classRefsToUnlink.push(d.ref);
+      }
+    });
+
+    // Collect student docs of the to-be-deleted classes (both real + test tables).
+    const studentRefsToDelete = [];
+    if (deleteStudents && classIdsToDelete.length) {
+      for (const collName of ["students", "students-testing-table"]) {
+        const coll = db.collection(collName);
+        const snaps = await Promise.all(
+          classIdsToDelete.map((cid) => coll.where("classId", "==", cid).get()),
+        );
+        snaps.forEach((snap) => snap.docs.forEach((doc) => studentRefsToDelete.push(doc.ref)));
+      }
+    }
+
+    // Unlink shared classes (kept) from this teacher.
+    await Promise.all(
+      classRefsToUnlink.map((r) =>
+        r.update({ teacherId: admin.firestore.FieldValue.arrayRemove(teacherId) }),
+      ),
+    );
+
+    // Batch-delete classes + their students, then the points + teacher docs.
+    const allDeletes = [
+      ...studentRefsToDelete,
+      ...classRefsToDelete,
+      db.collection("TeacherPoint").doc(teacherId),
+      ref,
+    ];
+    const CHUNK = 400; // Firestore batch limit is 500.
+    for (let i = 0; i < allDeletes.length; i += CHUNK) {
+      const batch = db.batch();
+      allDeletes.slice(i, i + CHUNK).forEach((r) => batch.delete(r));
+      await batch.commit();
+    }
+
+    return res.json({
+      success: true,
+      deletedClasses: classRefsToDelete.length,
+      deletedStudents: studentRefsToDelete.length,
+    });
+  } catch (err) {
+    console.error("[TEACHERS] delete error:", err);
+    return res.status(500).json({ error: "failed_to_delete_teacher" });
+  }
+});
+
+/**
+ * Admin: the billing summary. `totalTopUpVnd` is the lifetime revenue (the amount
+ * the admin records/receives). `totalCommissionVnd` is the saler's cut, shown for
+ * the admin's information only (the saler takes it upfront — it does not reduce
+ * the admin's revenue).
  */
 app.get("/teacher-points/billing", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
     const snap = await db.collection("AdminBilling").doc("summary").get();
     const data = snap.exists ? snap.data() : {};
     const totalTopUpVnd = data.totalTopUpVnd ?? 0;
-    const settledTopUpVnd = data.settledTopUpVnd ?? 0;
-    const history = (data.settlementHistory || []).map((h) => ({
-      paidAt: h.paidAt?.toDate?.().toISOString() ?? null,
-      commissionVnd: h.commissionVnd ?? 0,
-    }));
     return res.json({
       totalTopUpVnd,
-      commissionVnd: billing.outstandingCommissionVnd(totalTopUpVnd, settledTopUpVnd),
       totalCommissionVnd: billing.salerCostVnd(totalTopUpVnd),
-      paidCommissionVnd: billing.sumPaidCommissionVnd(history),
-      lastSettledAt: history.length ? history[history.length - 1].paidAt : null,
-      settlementHistory: history,
     });
   } catch (err) {
     console.error("[TEACHER-POINTS] billing error:", err);
@@ -908,80 +1152,78 @@ app.get("/teacher-points/billing", verifyGoogleToken, requireAdmin, async (req, 
 });
 
 /**
- * Admin: pay (settle) the outstanding saler commission. Records the payment time
- * and the commission paid, advances the settled baseline so the outstanding
- * commission drops to 0, and KEEPS the lifetime `totalTopUpVnd`.
+ * Admin: list point rows — ONE PER TEACHER, not one per TeacherPoint doc.
+ * Every active teacher appears (point defaults to 0) even before a TeacherPoint
+ * record exists; the record is created lazily on the first edit/top-up. Closed
+ * accounts are skipped unless they still hold a point record (so balances are
+ * never hidden). The TeacherPoint doc id === teacherId.
  */
-app.post("/teacher-points/billing/settle", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const ref = db.collection("AdminBilling").doc("summary");
-    const snap = await ref.get();
-    const data = snap.exists ? snap.data() : {};
-    const totalTopUpVnd = data.totalTopUpVnd ?? 0;
-    const settledTopUpVnd = data.settledTopUpVnd ?? 0;
-    const commissionVnd = billing.outstandingCommissionVnd(totalTopUpVnd, settledTopUpVnd);
-    const paidAt = admin.firestore.Timestamp.now();
-    await ref.set(
-      {
-        settledTopUpVnd: totalTopUpVnd,
-        settlementHistory: admin.firestore.FieldValue.arrayUnion({ paidAt, commissionVnd }),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    return res.json({
-      totalTopUpVnd,
-      commissionVnd: 0,
-      paidCommissionVnd: commissionVnd,
-      paidAt: paidAt.toDate().toISOString(),
-    });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] billing settle error:", err);
-    return res.status(500).json({ error: "failed_to_settle_commission" });
-  }
-});
-
-/** Admin: list all TeacherPoint records. */
 app.get("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
     // Teacher ids that own at least one ACTIVE class — used to flag each record
     // so the FE can default-filter to teachers with active classes.
-    const activeClassSnap = await db
-      .collection("classes")
-      .where("isActive", "==", true)
-      .get();
+    const [activeClassSnap, teacherSnap, pointSnap] = await Promise.all([
+      db.collection("classes").where("isActive", "==", true).get(),
+      db.collection("teachers").get(),
+      db.collection("TeacherPoint").get(),
+    ]);
+
     const activeTeacherIds = new Set();
     activeClassSnap.forEach((doc) => {
       const ids = doc.data().teacherId;
       if (Array.isArray(ids)) ids.forEach((id) => activeTeacherIds.add(id));
     });
 
-    const snap = await db.collection("TeacherPoint").get();
-    const records = [];
-    snap.forEach((doc) => {
+    // Index existing point records by teacherId (doc id === teacherId).
+    const pointByTeacher = new Map();
+    pointSnap.forEach((doc) => {
       const d = doc.data();
-      const history = Array.isArray(d.topUpHistory) ? d.topUpHistory : [];
+      pointByTeacher.set(d.teacherId ?? doc.id, { docId: doc.id, ...d });
+    });
+
+    const buildRow = (id, teacherId, source, point) => {
+      const history = Array.isArray(source?.topUpHistory) ? source.topUpHistory : [];
       const mappedHistory = history.map((h) => ({
         amountVnd: h.amountVnd ?? 0,
         points: h.points ?? 0,
         topUpAt: h.topUpAt?.toDate?.().toISOString() ?? null,
       }));
-      const lastTopUpAt = mappedHistory.length
-        ? mappedHistory[mappedHistory.length - 1].topUpAt
-        : null;
-      const teacherId = d.teacherId ?? doc.id;
-      records.push({
-        id: doc.id,
+      return {
+        id,
         teacherId,
-        gmail: d.gmail ?? "",
-        name: d.name ?? "",
-        point: d.point ?? 0,
+        gmail: source?.gmail ?? "",
+        name: source?.name ?? "",
+        point,
         topUpCount: mappedHistory.length,
-        lastTopUpAt,
+        lastTopUpAt: mappedHistory.length ? mappedHistory[mappedHistory.length - 1].topUpAt : null,
         topUpHistory: mappedHistory,
         hasActiveClass: activeTeacherIds.has(teacherId),
-      });
+      };
+    };
+
+    const records = [];
+    const seen = new Set();
+
+    // One row per teacher: active accounts, or closed accounts that still hold
+    // a point record (so their balance stays visible).
+    teacherSnap.forEach((doc) => {
+      const t = doc.data();
+      const pd = pointByTeacher.get(doc.id);
+      if (t.isAccountActive === false && !pd) return;
+      // Prefer the teacher's current name/gmail; fall back to the point record.
+      const source = { ...pd, gmail: t.gmail ?? pd?.gmail, name: t.name ?? pd?.name };
+      records.push(buildRow(pd?.docId ?? doc.id, doc.id, source, pd?.point ?? 0));
+      seen.add(doc.id);
     });
+
+    // Orphan point records whose teacher doc was deleted — keep them visible.
+    pointSnap.forEach((doc) => {
+      const d = doc.data();
+      const teacherId = d.teacherId ?? doc.id;
+      if (seen.has(teacherId)) return;
+      records.push(buildRow(doc.id, teacherId, d, d.point ?? 0));
+    });
+
     records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     return res.json({ records });
   } catch (err) {
@@ -1024,21 +1266,37 @@ app.post("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) =>
   }
 });
 
-/** Admin: set a teacher's point balance directly. */
+/** Admin: set a teacher's point balance directly (lazy-creates the record). */
 app.patch("/teacher-points/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
-    const ref = db.collection("TeacherPoint").doc(req.params.id);
-    if (!(await ref.get()).exists) {
-      return res.status(404).json({ error: "not_found" });
-    }
     if (req.body.point == null || !Number.isFinite(Number(req.body.point))) {
       return res.status(400).json({ error: "invalid_point" });
     }
-    await ref.update({
-      point: Number(req.body.point),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    return res.json({ id: req.params.id, point: Number(req.body.point) });
+    const point = Number(req.body.point);
+    const ref = db.collection("TeacherPoint").doc(req.params.id);
+    if ((await ref.get()).exists) {
+      await ref.update({
+        point,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      // No record yet — create one (id === teacherId), copying name/gmail.
+      const teacherDoc = await db.collection("teachers").doc(req.params.id).get();
+      if (!teacherDoc.exists) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      const teacher = teacherDoc.data();
+      await ref.set({
+        teacherId: req.params.id,
+        gmail: teacher.gmail || "",
+        name: teacher.name || "",
+        point,
+        topUpHistory: [],
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    return res.json({ id: req.params.id, point });
   } catch (err) {
     console.error("[TEACHER-POINTS] update error:", err);
     return res.status(500).json({ error: "failed_to_update" });
@@ -1072,7 +1330,21 @@ app.post("/teacher-points/:id/topup", verifyGoogleToken, requireAdmin, async (re
     }
     const ref = db.collection("TeacherPoint").doc(req.params.id);
     if (!(await ref.get()).exists) {
-      return res.status(404).json({ error: "not_found" });
+      // No record yet — create one (id === teacherId) before topping up.
+      const teacherDoc = await db.collection("teachers").doc(req.params.id).get();
+      if (!teacherDoc.exists) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      const teacher = teacherDoc.data();
+      await ref.set({
+        teacherId: req.params.id,
+        gmail: teacher.gmail || "",
+        name: teacher.name || "",
+        point: 0,
+        topUpHistory: [],
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     }
     const points = amountVnd / VND_PER_POINT;
     await ref.update({
@@ -1154,6 +1426,11 @@ app.post("/auth/username-password", async (req, res) => {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
+    // Closed accounts cannot log in.
+    if (teacherData.isAccountActive === false) {
+      return res.status(403).json({ error: "account_closed" });
+    }
+
     // Generate JWT tokens
     const access_token = jwt.sign(
       { id: teacherDoc.id, email: teacherData.gmail, username: teacherData.username },
@@ -1223,6 +1500,19 @@ app.post("/auth/refresh", async (req, res) => {
       const decoded = jwt.verify(refreshToken, JWT_SECRET);
       if (decoded.type !== 'refresh') {
         throw new Error('Invalid refresh token type');
+      }
+
+      // A closed account cannot refresh its session (so a close takes effect
+      // within the 1h access-token lifetime).
+      if (decoded.email) {
+        const tSnap = await db
+          .collection("teachers")
+          .where("gmail", "==", String(decoded.email).toLowerCase())
+          .limit(1)
+          .get();
+        if (!tSnap.empty && tSnap.docs[0].data().isAccountActive === false) {
+          return res.status(403).json({ error: "account_closed" });
+        }
       }
 
       // Generate new access token
