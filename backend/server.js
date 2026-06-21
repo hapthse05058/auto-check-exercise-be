@@ -459,7 +459,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
     if (uncached.length > 0) {
       const instructionFilePath = path.join(
         __dirname,
-        "prompt_and_instruction_for_responses_api.txt",
+        "prompt_and_instruction_for_responses_api_2.txt",
       );
       if (!fs.existsSync(instructionFilePath)) {
         throw new Error(`Instruction file not found: ${instructionFilePath}`);
