@@ -802,13 +802,13 @@ async function findTeacherByEmail(email) {
 /** Current point balance of the logged-in teacher (0 when no record yet). */
 app.get("/teacher-points/me", verifyGoogleToken, async (req, res) => {
   try {
-    const snap = await db
-      .collection("TeacherPoint")
-      .where("gmail", "==", (req.userEmail || "").toLowerCase())
-      .limit(1)
-      .get();
-    const point = snap.empty ? 0 : snap.docs[0].data().point ?? 0;
-    return res.json({ point });
+      const snap = await db
+        .collection("TeacherPoint")
+        .where("gmail", "==", (req.userEmail || "").toLowerCase())
+        .limit(1)
+        .get();
+      const point = snap.empty ? 0 : snap.docs[0].data().point ?? 0;
+      return res.json({ point });
   } catch (err) {
     console.error("[TEACHER-POINTS] me error:", err);
     return res.status(500).json({ error: "failed_to_get_point" });
@@ -1030,6 +1030,25 @@ app.patch("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) => 
     }
 
     await ref.update(updates);
+
+    // Keep the TeacherPoint record's denormalized name/gmail in sync. Best-effort:
+    // a failure here must not fail the teacher update (teachers is the source of truth).
+    const pointUpdates = {};
+    if (updates.name !== undefined) pointUpdates.name = updates.name;
+    if (updates.gmail !== undefined) pointUpdates.gmail = updates.gmail;
+    if (Object.keys(pointUpdates).length > 0) {
+      try {
+        const pointRef = db.collection("TeacherPoint").doc(req.params.id);
+        const pointSnap = await pointRef.get();
+        // Only update an existing record — never create a partial one (records are lazy).
+        if (pointSnap.exists) {
+          await pointRef.update(pointUpdates);
+        }
+      } catch (syncErr) {
+        console.error("[TEACHERS] point sync error:", syncErr);
+      }
+    }
+
     return res.json(publicTeacher(req.params.id, { ...current, ...updates }, newClassIds, []));
   } catch (err) {
     console.error("[TEACHERS] update error:", err);
