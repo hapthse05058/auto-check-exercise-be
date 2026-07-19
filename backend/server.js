@@ -25,7 +25,8 @@ const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EXTENSION_SECRET_KEY = process.env.EXTENSION_SECRET_KEY;
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "your-secret-key-change-in-production";
 // Bump this (or change AI_MODEL) to invalidate the gradingCache: cached
 // feedback is keyed on promptVersion + model + question + answer.
 const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
@@ -64,7 +65,9 @@ async function getServiceAccountGoogleToken() {
   const client = await googleDocsAuth.getClient();
   const { token } = await client.getAccessToken();
   if (!token) {
-    throw new Error("Failed to obtain Google access token from service account");
+    throw new Error(
+      "Failed to obtain Google access token from service account",
+    );
   }
   return token;
 }
@@ -75,13 +78,15 @@ if (!process.env.AI_API_KEY && !OPENAI_API_KEY) {
   );
 }
 
-
 async function isClassNameDuplicated(newClassName, excludeId = null) {
-  const snapshot = await db.collection('classes').get();
-  const target = String(newClassName ?? '').toLowerCase();
+  const snapshot = await db.collection("classes").get();
+  const target = String(newClassName ?? "").toLowerCase();
   const classes = [];
-  snapshot.forEach(doc => {
-    classes.push({ id: doc.id, name: String(doc.data().name ?? '').toLowerCase() });
+  snapshot.forEach((doc) => {
+    classes.push({
+      id: doc.id,
+      name: String(doc.data().name ?? "").toLowerCase(),
+    });
   });
   const duplicateClassSnapshot = classes.filter(
     (cls) => cls.id !== excludeId && cls.name === target,
@@ -93,13 +98,13 @@ async function verifyToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const secret_key = req.headers["x-api-key"];
   if (secret_key !== EXTENSION_SECRET_KEY) {
-    return res.status(401).send('Invalid key');
+    return res.status(401).send("Invalid key");
   }
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).send('Missing Token');
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).send("Missing Token");
   }
 
-  const token = authHeader.split(' ')[1];
+  const token = authHeader.split(" ")[1];
 
   try {
     // First, try to verify as JWT (for username/password login)
@@ -112,17 +117,24 @@ async function verifyToken(req, res, next) {
     }
 
     // Try Google token verification (for Google OAuth)
-    const response = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`);
+    const response = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`,
+    );
     const userInfo = await response.json();
 
     if (!userInfo.email) {
-      return res.status(401).send('Invalid Token');
+      return res.status(401).send("Invalid Token");
     }
 
     const userEmail = userInfo.email.toLowerCase();
-    const teacherDoc = await db.collection("teachers").where("gmail", "==", userEmail).get();
+    const teacherDoc = await db
+      .collection("teachers")
+      .where("gmail", "==", userEmail)
+      .get();
     if (teacherDoc.empty) {
-      return res.status(403).json({ error: "Access denied. User is not a registered teacher." });
+      return res
+        .status(403)
+        .json({ error: "Access denied. User is not a registered teacher." });
     }
     if (teacherDoc.docs[0].data().isAccountActive === false) {
       return res.status(403).json({ error: "account_closed" });
@@ -130,8 +142,8 @@ async function verifyToken(req, res, next) {
     req.userEmail = userEmail;
     next();
   } catch (error) {
-    console.error('Error verifying token:', error);
-    res.status(401).send('Unauthorized');
+    console.error("Error verifying token:", error);
+    res.status(401).send("Unauthorized");
   }
 }
 
@@ -256,16 +268,25 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
   }
 
   const studentExercises = items
-    .map((item) => `\n[VIETNAMESE]: ${item.question}\n[STUDENT_ANSWER]: ${item.answer}`)
+    .map(
+      (item) =>
+        `\n[VIETNAMESE]: ${item.question}\n[STUDENT_ANSWER]: ${item.answer}`,
+    )
     .join("\n");
 
   try {
     const inputText = `DATASET TO EVALUATE:\`\`\`\n${studentExercises}\n\n\`\`\`[CRITICAL RULE]: Evaluate each item above strictly against the instruction guide. Output a single combined Markdown table. You must provide the clear reason/evaluation for the grade inside the table if the answer is incorrect.`;
-    const instructionFilePath = path.join(__dirname, 'prompt_and_instruction_for_responses_api.txt');
+    const instructionFilePath = path.join(
+      __dirname,
+      "prompt_and_instruction_for_responses_api.txt",
+    );
     if (!fs.existsSync(instructionFilePath)) {
       throw new Error(`Instruction file not found: ${instructionFilePath}`);
     }
-    const prompt_and_instruction_for_ai = fs.readFileSync(instructionFilePath, 'utf8');
+    const prompt_and_instruction_for_ai = fs.readFileSync(
+      instructionFilePath,
+      "utf8",
+    );
     const aiResponse = await callGrader(
       prompt_and_instruction_for_ai.trim(),
       inputText,
@@ -301,7 +322,9 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
 
 /** Normalizes a string for cache keying: collapse whitespace + trim. */
 function normalizeForKey(value) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -322,7 +345,9 @@ function gradingCacheId(question, answer, model) {
 }
 
 // Admin allow-list for the gradingCache management endpoints (comma-separated).
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "phamhongha.innerpiece@gmail.com")
+const ADMIN_EMAILS = (
+  process.env.ADMIN_EMAILS || "phamhongha.innerpiece@gmail.com"
+)
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
@@ -336,7 +361,13 @@ function requireAdmin(req, res, next) {
 }
 
 // Text fields searchable from the gradingCache management screen.
-const GRADING_CACHE_FIELDS = ["question", "answer", "feedback", "model", "promptVersion"];
+const GRADING_CACHE_FIELDS = [
+  "question",
+  "answer",
+  "feedback",
+  "model",
+  "promptVersion",
+];
 
 /** Runs async task factories with a bounded concurrency. */
 async function runWithConcurrency(taskFactories, limit) {
@@ -428,7 +459,9 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
     }
 
     const cacheRef = db.collection("gradingCache");
-    const ids = uniqueItems.map((it) => gradingCacheId(it.question, it.answer, model));
+    const ids = uniqueItems.map((it) =>
+      gradingCacheId(it.question, it.answer, model),
+    );
 
     // 2. Read existing feedback from the cache (chunked getAll). Skipped when
     //    caching is off, so every answer is treated as a miss and re-graded.
@@ -464,9 +497,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       if (!fs.existsSync(instructionFilePath)) {
         throw new Error(`Instruction file not found: ${instructionFilePath}`);
       }
-      const instruction = fs
-        .readFileSync(instructionFilePath, "utf8")
-        .trim();
+      const instruction = fs.readFileSync(instructionFilePath, "utf8").trim();
 
       const GROUP_SIZE = 15;
       const groups = [];
@@ -478,7 +509,11 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       const groupErrors = [];
       const tasks = groups.map((group) => async () => {
         try {
-          const feedbacks = await gradeGroupWithOpenAI(group, instruction, model);
+          const feedbacks = await gradeGroupWithOpenAI(
+            group,
+            instruction,
+            model,
+          );
           group.forEach((it, i) => {
             const fb = feedbacks[i];
             if (fb != null) {
@@ -579,7 +614,8 @@ function sanitizeCacheInput(body, existing = {}) {
   if (body.answer != null) out.answer = String(body.answer);
   if (body.feedback != null) out.feedback = String(body.feedback);
   if (body.model != null) out.model = String(body.model);
-  if (body.promptVersion != null) out.promptVersion = String(body.promptVersion);
+  if (body.promptVersion != null)
+    out.promptVersion = String(body.promptVersion);
   if (body.hitCount != null) out.hitCount = Number(body.hitCount) || 0;
   return out;
 }
@@ -596,7 +632,10 @@ app.get("/grading-cache", verifyGoogleToken, requireAdmin, async (req, res) => {
       ? req.query.field
       : "question";
     const q = (req.query.q || "").toString().toLowerCase();
-    const pageSize = Math.min(Math.max(Number(req.query.pageSize) || 100, 1), 100);
+    const pageSize = Math.min(
+      Math.max(Number(req.query.pageSize) || 100, 1),
+      100,
+    );
     const page = Math.max(Number(req.query.page) || 1, 1);
 
     const snapshot = await db.collection("gradingCache").get();
@@ -617,7 +656,9 @@ app.get("/grading-cache", verifyGoogleToken, requireAdmin, async (req, res) => {
 
     if (q) {
       rows = rows.filter((row) =>
-        String(row[field] ?? "").toLowerCase().includes(q),
+        String(row[field] ?? "")
+          .toLowerCase()
+          .includes(q),
       );
     }
     // Newest first; rows without createdAt sort last.
@@ -637,136 +678,161 @@ app.get("/grading-cache", verifyGoogleToken, requireAdmin, async (req, res) => {
 });
 
 /** POST /grading-cache — add one record (id derived from key fields). */
-app.post("/grading-cache", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const data = sanitizeCacheInput(req.body);
-    if (!data.question || !data.answer || !data.feedback) {
-      return res.status(400).json({ error: "question_answer_feedback_required" });
-    }
-    data.model = data.model || AI_MODEL;
-    data.promptVersion = data.promptVersion || PROMPT_VERSION;
-    data.hitCount = data.hitCount || 0;
+app.post(
+  "/grading-cache",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const data = sanitizeCacheInput(req.body);
+      if (!data.question || !data.answer || !data.feedback) {
+        return res
+          .status(400)
+          .json({ error: "question_answer_feedback_required" });
+      }
+      data.model = data.model || AI_MODEL;
+      data.promptVersion = data.promptVersion || PROMPT_VERSION;
+      data.hitCount = data.hitCount || 0;
 
-    const id = gradingCacheKey(
-      data.promptVersion,
-      data.model,
-      data.question,
-      data.answer,
-    );
-    const ref = db.collection("gradingCache").doc(id);
-    if ((await ref.get()).exists) {
-      return res.status(409).json({ error: "already_exists" });
+      const id = gradingCacheKey(
+        data.promptVersion,
+        data.model,
+        data.question,
+        data.answer,
+      );
+      const ref = db.collection("gradingCache").doc(id);
+      if ((await ref.get()).exists) {
+        return res.status(409).json({ error: "already_exists" });
+      }
+      await ref.set({
+        ...data,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return res.status(201).json({ id, ...data });
+    } catch (err) {
+      console.error("[GRADING-CACHE] create error:", err);
+      return res.status(500).json({ error: "failed_to_create" });
     }
-    await ref.set({
-      ...data,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    return res.status(201).json({ id, ...data });
-  } catch (err) {
-    console.error("[GRADING-CACHE] create error:", err);
-    return res.status(500).json({ error: "failed_to_create" });
-  }
-});
+  },
+);
 
 /**
  * PATCH /grading-cache/:id — edit any field. If a KEY field
  * (question/answer/model/promptVersion) changes, the doc id is re-derived so
  * the grading flow still finds it: the doc is moved to the new id.
  */
-app.patch("/grading-cache/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-    const ref = db.collection("gradingCache").doc(id);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      return res.status(404).json({ error: "not_found" });
-    }
+app.patch(
+  "/grading-cache/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+      const ref = db.collection("gradingCache").doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ error: "not_found" });
+      }
 
-    const existing = snap.data();
-    const merged = sanitizeCacheInput(req.body, existing);
-    if (!merged.question || !merged.answer || !merged.feedback) {
-      return res.status(400).json({ error: "question_answer_feedback_required" });
-    }
-    merged.model = merged.model || AI_MODEL;
-    merged.promptVersion = merged.promptVersion || PROMPT_VERSION;
-    merged.hitCount = merged.hitCount ?? 0;
+      const existing = snap.data();
+      const merged = sanitizeCacheInput(req.body, existing);
+      if (!merged.question || !merged.answer || !merged.feedback) {
+        return res
+          .status(400)
+          .json({ error: "question_answer_feedback_required" });
+      }
+      merged.model = merged.model || AI_MODEL;
+      merged.promptVersion = merged.promptVersion || PROMPT_VERSION;
+      merged.hitCount = merged.hitCount ?? 0;
 
-    const newId = gradingCacheKey(
-      merged.promptVersion,
-      merged.model,
-      merged.question,
-      merged.answer,
-    );
+      const newId = gradingCacheKey(
+        merged.promptVersion,
+        merged.model,
+        merged.question,
+        merged.answer,
+      );
 
-    if (newId === id) {
-      // Only non-key fields changed (e.g. feedback/hitCount) — update in place.
-      await ref.update({
-        question: merged.question,
-        answer: merged.answer,
-        feedback: merged.feedback,
-        model: merged.model,
-        promptVersion: merged.promptVersion,
-        hitCount: merged.hitCount,
+      if (newId === id) {
+        // Only non-key fields changed (e.g. feedback/hitCount) — update in place.
+        await ref.update({
+          question: merged.question,
+          answer: merged.answer,
+          feedback: merged.feedback,
+          model: merged.model,
+          promptVersion: merged.promptVersion,
+          hitCount: merged.hitCount,
+        });
+        return res.json({ id, ...merged });
+      }
+
+      // Key field changed → re-key. Refuse if it would clobber another record.
+      const newRef = db.collection("gradingCache").doc(newId);
+      if ((await newRef.get()).exists) {
+        return res.status(409).json({ error: "key_conflict" });
+      }
+      const batch = db.batch();
+      batch.set(newRef, {
+        ...merged,
+        createdAt:
+          existing.createdAt ?? admin.firestore.FieldValue.serverTimestamp(),
       });
-      return res.json({ id, ...merged });
+      batch.delete(ref);
+      await batch.commit();
+      return res.json({ id: newId, ...merged });
+    } catch (err) {
+      console.error("[GRADING-CACHE] update error:", err);
+      return res.status(500).json({ error: "failed_to_update" });
     }
-
-    // Key field changed → re-key. Refuse if it would clobber another record.
-    const newRef = db.collection("gradingCache").doc(newId);
-    if ((await newRef.get()).exists) {
-      return res.status(409).json({ error: "key_conflict" });
-    }
-    const batch = db.batch();
-    batch.set(newRef, {
-      ...merged,
-      createdAt: existing.createdAt ?? admin.firestore.FieldValue.serverTimestamp(),
-    });
-    batch.delete(ref);
-    await batch.commit();
-    return res.json({ id: newId, ...merged });
-  } catch (err) {
-    console.error("[GRADING-CACHE] update error:", err);
-    return res.status(500).json({ error: "failed_to_update" });
-  }
-});
+  },
+);
 
 /** DELETE /grading-cache/:id */
-app.delete("/grading-cache/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const ref = db.collection("gradingCache").doc(req.params.id);
-    if (!(await ref.get()).exists) {
-      return res.status(404).json({ error: "not_found" });
+app.delete(
+  "/grading-cache/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const ref = db.collection("gradingCache").doc(req.params.id);
+      if (!(await ref.get()).exists) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      await ref.delete();
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("[GRADING-CACHE] delete error:", err);
+      return res.status(500).json({ error: "failed_to_delete" });
     }
-    await ref.delete();
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("[GRADING-CACHE] delete error:", err);
-    return res.status(500).json({ error: "failed_to_delete" });
-  }
-});
+  },
+);
 
 /** POST /grading-cache/bulk-delete — delete many records by id at once. */
-app.post("/grading-cache/bulk-delete", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const ids = Array.isArray(req.body.ids)
-      ? [...new Set(req.body.ids.filter((x) => typeof x === "string" && x))]
-      : [];
-    if (ids.length === 0) {
-      return res.status(400).json({ error: "no_ids" });
+app.post(
+  "/grading-cache/bulk-delete",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const ids = Array.isArray(req.body.ids)
+        ? [...new Set(req.body.ids.filter((x) => typeof x === "string" && x))]
+        : [];
+      if (ids.length === 0) {
+        return res.status(400).json({ error: "no_ids" });
+      }
+      const cacheRef = db.collection("gradingCache");
+      const CHUNK = 400; // Firestore batch limit is 500.
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const batch = db.batch();
+        ids.slice(i, i + CHUNK).forEach((id) => batch.delete(cacheRef.doc(id)));
+        await batch.commit();
+      }
+      return res.json({ deleted: ids.length });
+    } catch (err) {
+      console.error("[GRADING-CACHE] bulk-delete error:", err);
+      return res.status(500).json({ error: "failed_to_bulk_delete" });
     }
-    const cacheRef = db.collection("gradingCache");
-    const CHUNK = 400; // Firestore batch limit is 500.
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const batch = db.batch();
-      ids.slice(i, i + CHUNK).forEach((id) => batch.delete(cacheRef.doc(id)));
-      await batch.commit();
-    }
-    return res.json({ deleted: ids.length });
-  } catch (err) {
-    console.error("[GRADING-CACHE] bulk-delete error:", err);
-    return res.status(500).json({ error: "failed_to_bulk_delete" });
-  }
-});
+  },
+);
 
 // ---------------------------------------------------------------------------
 // TeacherPoint — point balance per teacher (1 point spent per student doc whose
@@ -802,13 +868,13 @@ async function findTeacherByEmail(email) {
 /** Current point balance of the logged-in teacher (0 when no record yet). */
 app.get("/teacher-points/me", verifyGoogleToken, async (req, res) => {
   try {
-      const snap = await db
-        .collection("TeacherPoint")
-        .where("gmail", "==", (req.userEmail || "").toLowerCase())
-        .limit(1)
-        .get();
-      const point = snap.empty ? 0 : snap.docs[0].data().point ?? 0;
-      return res.json({ point });
+    const snap = await db
+      .collection("TeacherPoint")
+      .where("gmail", "==", (req.userEmail || "").toLowerCase())
+      .limit(1)
+      .get();
+    const point = snap.empty ? 0 : (snap.docs[0].data().point ?? 0);
+    return res.json({ point });
   } catch (err) {
     console.error("[TEACHER-POINTS] me error:", err);
     return res.status(500).json({ error: "failed_to_get_point" });
@@ -877,12 +943,25 @@ app.get("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 /** Editable teacher fields (username/password and system fields are excluded). */
-const TEACHER_EDITABLE_FIELDS = ["name", "gmail", "phone", "dob", "address", "notes"];
+const TEACHER_EDITABLE_FIELDS = [
+  "name",
+  "gmail",
+  "phone",
+  "dob",
+  "address",
+  "notes",
+];
 
 /** Strips the password hash before returning a teacher record to the client. */
 function publicTeacher(id, data, classIds, classNames) {
   const { password, ...rest } = data;
-  return { id, ...rest, isAccountActive: data.isAccountActive !== false, classIds, classNames };
+  return {
+    id,
+    ...rest,
+    isAccountActive: data.isAccountActive !== false,
+    classIds,
+    classNames,
+  };
 }
 
 /** Builds teacherId -> { classIds[], classNames[] } from all class docs. */
@@ -902,27 +981,41 @@ async function buildClassAssignments() {
 }
 
 /** Admin: list/search/filter teachers for the management screen. */
-app.get("/teachers/manage", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const [snap, assignments] = await Promise.all([
-      db.collection("teachers").get(),
-      buildClassAssignments(),
-    ]);
-    const teachers = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    const filtered = teacherFilter.filterTeachers(
-      teachers,
-      { q: req.query.q, classId: req.query.classId, isAccountActive: req.query.isAccountActive },
-      assignments.byTeacher,
-    );
-    const records = filtered.map((t) =>
-      publicTeacher(t.id, t, assignments.byTeacher[t.id] || [], assignments.names[t.id] || []),
-    );
-    return res.json({ teachers: records });
-  } catch (err) {
-    console.error("[TEACHERS] list error:", err);
-    return res.status(500).json({ error: "failed_to_list_teachers" });
-  }
-});
+app.get(
+  "/teachers/manage",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const [snap, assignments] = await Promise.all([
+        db.collection("teachers").get(),
+        buildClassAssignments(),
+      ]);
+      const teachers = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const filtered = teacherFilter.filterTeachers(
+        teachers,
+        {
+          q: req.query.q,
+          classId: req.query.classId,
+          isAccountActive: req.query.isAccountActive,
+        },
+        assignments.byTeacher,
+      );
+      const records = filtered.map((t) =>
+        publicTeacher(
+          t.id,
+          t,
+          assignments.byTeacher[t.id] || [],
+          assignments.names[t.id] || [],
+        ),
+      );
+      return res.json({ teachers: records });
+    } catch (err) {
+      console.error("[TEACHERS] list error:", err);
+      return res.status(500).json({ error: "failed_to_list_teachers" });
+    }
+  },
+);
 
 /** Adds/removes a teacherId on each class's `teacherId[]` to match a new assignment. */
 async function syncClassAssignment(teacherId, oldIds, newIds) {
@@ -930,16 +1023,22 @@ async function syncClassAssignment(teacherId, oldIds, newIds) {
   const ops = [];
   added.forEach((cid) =>
     ops.push(
-      db.collection("classes").doc(cid).update({
-        teacherId: admin.firestore.FieldValue.arrayUnion(teacherId),
-      }),
+      db
+        .collection("classes")
+        .doc(cid)
+        .update({
+          teacherId: admin.firestore.FieldValue.arrayUnion(teacherId),
+        }),
     ),
   );
   removed.forEach((cid) =>
     ops.push(
-      db.collection("classes").doc(cid).update({
-        teacherId: admin.firestore.FieldValue.arrayRemove(teacherId),
-      }),
+      db
+        .collection("classes")
+        .doc(cid)
+        .update({
+          teacherId: admin.firestore.FieldValue.arrayRemove(teacherId),
+        }),
     ),
   );
   await Promise.all(ops);
@@ -948,8 +1047,18 @@ async function syncClassAssignment(teacherId, oldIds, newIds) {
 /** Admin: create a teacher (requires username + password, like signup). */
 app.post("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
-    const { name, phone, dob, address = "", notes = "", username, password } = req.body;
-    const gmail = String(req.body.gmail || "").trim().toLowerCase();
+    const {
+      name,
+      phone,
+      dob,
+      address = "",
+      notes = "",
+      username,
+      password,
+    } = req.body;
+    const gmail = String(req.body.gmail || "")
+      .trim()
+      .toLowerCase();
     const classIds = Array.isArray(req.body.classIds) ? req.body.classIds : [];
 
     if (!name || !phone || !dob || !gmail) {
@@ -963,13 +1072,21 @@ app.post("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
     if (!(await teachersRef.where("gmail", "==", gmail).limit(1).get()).empty) {
       return res.status(409).json({ error: "gmail_exists" });
     }
-    if (!(await teachersRef.where("username", "==", username).limit(1).get()).empty) {
+    if (
+      !(await teachersRef.where("username", "==", username).limit(1).get())
+        .empty
+    ) {
       return res.status(409).json({ error: "username_exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const teacherData = {
-      gmail, name, phone, dob, address, notes,
+      gmail,
+      name,
+      phone,
+      dob,
+      address,
+      notes,
       username,
       password: hashedPassword,
       classIds,
@@ -979,7 +1096,9 @@ app.post("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
     const docRef = await teachersRef.add(teacherData);
     await syncClassAssignment(docRef.id, [], classIds);
 
-    return res.status(201).json(publicTeacher(docRef.id, teacherData, classIds, []));
+    return res
+      .status(201)
+      .json(publicTeacher(docRef.id, teacherData, classIds, []));
   } catch (err) {
     console.error("[TEACHERS] create error:", err);
     return res.status(500).json({ error: "failed_to_create_teacher" });
@@ -987,74 +1106,94 @@ app.post("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
 });
 
 /** Admin: update a teacher. Never touches username/password. */
-app.patch("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const ref = db.collection("teachers").doc(req.params.id);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      return res.status(404).json({ error: "teacher_not_found" });
-    }
-    const current = snap.data();
-    const updates = {};
+app.patch(
+  "/teachers/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const ref = db.collection("teachers").doc(req.params.id);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ error: "teacher_not_found" });
+      }
+      const current = snap.data();
+      const updates = {};
 
-    for (const field of TEACHER_EDITABLE_FIELDS) {
-      if (req.body[field] === undefined) continue;
-      if (field === "gmail") {
-        const gmail = String(req.body.gmail).trim().toLowerCase();
-        if (!gmail) return res.status(400).json({ error: "gmail_required" });
-        if (gmail !== current.gmail) {
-          const dup = await db.collection("teachers").where("gmail", "==", gmail).limit(1).get();
-          if (!dup.empty && dup.docs[0].id !== req.params.id) {
-            return res.status(409).json({ error: "gmail_exists" });
+      for (const field of TEACHER_EDITABLE_FIELDS) {
+        if (req.body[field] === undefined) continue;
+        if (field === "gmail") {
+          const gmail = String(req.body.gmail).trim().toLowerCase();
+          if (!gmail) return res.status(400).json({ error: "gmail_required" });
+          if (gmail !== current.gmail) {
+            const dup = await db
+              .collection("teachers")
+              .where("gmail", "==", gmail)
+              .limit(1)
+              .get();
+            if (!dup.empty && dup.docs[0].id !== req.params.id) {
+              return res.status(409).json({ error: "gmail_exists" });
+            }
           }
+          updates.gmail = gmail;
+        } else {
+          updates[field] = req.body[field];
         }
-        updates.gmail = gmail;
-      } else {
-        updates[field] = req.body[field];
       }
-    }
 
-    if (typeof req.body.isAccountActive === "boolean") {
-      updates.isAccountActive = req.body.isAccountActive;
-    }
+      if (typeof req.body.isAccountActive === "boolean") {
+        updates.isAccountActive = req.body.isAccountActive;
+      }
 
-    let newClassIds = Array.isArray(current.classIds) ? current.classIds : [];
-    if (Array.isArray(req.body.classIds)) {
-      newClassIds = req.body.classIds;
-      updates.classIds = newClassIds;
-      await syncClassAssignment(req.params.id, current.classIds || [], newClassIds);
-    }
+      let newClassIds = Array.isArray(current.classIds) ? current.classIds : [];
+      if (Array.isArray(req.body.classIds)) {
+        newClassIds = req.body.classIds;
+        updates.classIds = newClassIds;
+        await syncClassAssignment(
+          req.params.id,
+          current.classIds || [],
+          newClassIds,
+        );
+      }
 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: "nothing_to_update" });
-    }
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "nothing_to_update" });
+      }
 
-    await ref.update(updates);
+      await ref.update(updates);
 
-    // Keep the TeacherPoint record's denormalized name/gmail in sync. Best-effort:
-    // a failure here must not fail the teacher update (teachers is the source of truth).
-    const pointUpdates = {};
-    if (updates.name !== undefined) pointUpdates.name = updates.name;
-    if (updates.gmail !== undefined) pointUpdates.gmail = updates.gmail;
-    if (Object.keys(pointUpdates).length > 0) {
-      try {
-        const pointRef = db.collection("TeacherPoint").doc(req.params.id);
-        const pointSnap = await pointRef.get();
-        // Only update an existing record — never create a partial one (records are lazy).
-        if (pointSnap.exists) {
-          await pointRef.update(pointUpdates);
+      // Keep the TeacherPoint record's denormalized name/gmail in sync. Best-effort:
+      // a failure here must not fail the teacher update (teachers is the source of truth).
+      const pointUpdates = {};
+      if (updates.name !== undefined) pointUpdates.name = updates.name;
+      if (updates.gmail !== undefined) pointUpdates.gmail = updates.gmail;
+      if (Object.keys(pointUpdates).length > 0) {
+        try {
+          const pointRef = db.collection("TeacherPoint").doc(req.params.id);
+          const pointSnap = await pointRef.get();
+          // Only update an existing record — never create a partial one (records are lazy).
+          if (pointSnap.exists) {
+            await pointRef.update(pointUpdates);
+          }
+        } catch (syncErr) {
+          console.error("[TEACHERS] point sync error:", syncErr);
         }
-      } catch (syncErr) {
-        console.error("[TEACHERS] point sync error:", syncErr);
       }
-    }
 
-    return res.json(publicTeacher(req.params.id, { ...current, ...updates }, newClassIds, []));
-  } catch (err) {
-    console.error("[TEACHERS] update error:", err);
-    return res.status(500).json({ error: "failed_to_update_teacher" });
-  }
-});
+      return res.json(
+        publicTeacher(
+          req.params.id,
+          { ...current, ...updates },
+          newClassIds,
+          [],
+        ),
+      );
+    } catch (err) {
+      console.error("[TEACHERS] update error:", err);
+      return res.status(500).json({ error: "failed_to_update_teacher" });
+    }
+  },
+);
 
 /**
  * Admin: permanently delete a teacher account. Irreversible.
@@ -1065,77 +1204,88 @@ app.patch("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) => 
  *  - otherwise the teacher is just unlinked (arrayRemove) — shared classes are never
  *    deleted, so other teachers on them are unaffected.
  */
-app.delete("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const teacherId = req.params.id;
-    const { deleteClasses = false, deleteStudents = false } = req.body || {};
-    const ref = db.collection("teachers").doc(teacherId);
-    if (!(await ref.get()).exists) {
-      return res.status(404).json({ error: "teacher_not_found" });
-    }
-
-    const classSnap = await db
-      .collection("classes")
-      .where("teacherId", "array-contains", teacherId)
-      .get();
-
-    const classRefsToDelete = []; // sole-owned classes to remove
-    const classIdsToDelete = [];
-    const classRefsToUnlink = []; // shared classes (or when not deleting classes)
-    classSnap.docs.forEach((d) => {
-      const ids = d.data().teacherId;
-      const soleOwner = Array.isArray(ids) && ids.length === 1;
-      if (deleteClasses && soleOwner) {
-        classRefsToDelete.push(d.ref);
-        classIdsToDelete.push(d.id);
-      } else {
-        classRefsToUnlink.push(d.ref);
+app.delete(
+  "/teachers/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const teacherId = req.params.id;
+      const { deleteClasses = false, deleteStudents = false } = req.body || {};
+      const ref = db.collection("teachers").doc(teacherId);
+      if (!(await ref.get()).exists) {
+        return res.status(404).json({ error: "teacher_not_found" });
       }
-    });
 
-    // Collect student docs of the to-be-deleted classes (both real + test tables).
-    const studentRefsToDelete = [];
-    if (deleteStudents && classIdsToDelete.length) {
-      for (const collName of ["students", "students-testing-table"]) {
-        const coll = db.collection(collName);
-        const snaps = await Promise.all(
-          classIdsToDelete.map((cid) => coll.where("classId", "==", cid).get()),
-        );
-        snaps.forEach((snap) => snap.docs.forEach((doc) => studentRefsToDelete.push(doc.ref)));
+      const classSnap = await db
+        .collection("classes")
+        .where("teacherId", "array-contains", teacherId)
+        .get();
+
+      const classRefsToDelete = []; // sole-owned classes to remove
+      const classIdsToDelete = [];
+      const classRefsToUnlink = []; // shared classes (or when not deleting classes)
+      classSnap.docs.forEach((d) => {
+        const ids = d.data().teacherId;
+        const soleOwner = Array.isArray(ids) && ids.length === 1;
+        if (deleteClasses && soleOwner) {
+          classRefsToDelete.push(d.ref);
+          classIdsToDelete.push(d.id);
+        } else {
+          classRefsToUnlink.push(d.ref);
+        }
+      });
+
+      // Collect student docs of the to-be-deleted classes (both real + test tables).
+      const studentRefsToDelete = [];
+      if (deleteStudents && classIdsToDelete.length) {
+        for (const collName of ["students", "students-testing-table"]) {
+          const coll = db.collection(collName);
+          const snaps = await Promise.all(
+            classIdsToDelete.map((cid) =>
+              coll.where("classId", "==", cid).get(),
+            ),
+          );
+          snaps.forEach((snap) =>
+            snap.docs.forEach((doc) => studentRefsToDelete.push(doc.ref)),
+          );
+        }
       }
+
+      // Unlink shared classes (kept) from this teacher.
+      await Promise.all(
+        classRefsToUnlink.map((r) =>
+          r.update({
+            teacherId: admin.firestore.FieldValue.arrayRemove(teacherId),
+          }),
+        ),
+      );
+
+      // Batch-delete classes + their students, then the points + teacher docs.
+      const allDeletes = [
+        ...studentRefsToDelete,
+        ...classRefsToDelete,
+        db.collection("TeacherPoint").doc(teacherId),
+        ref,
+      ];
+      const CHUNK = 400; // Firestore batch limit is 500.
+      for (let i = 0; i < allDeletes.length; i += CHUNK) {
+        const batch = db.batch();
+        allDeletes.slice(i, i + CHUNK).forEach((r) => batch.delete(r));
+        await batch.commit();
+      }
+
+      return res.json({
+        success: true,
+        deletedClasses: classRefsToDelete.length,
+        deletedStudents: studentRefsToDelete.length,
+      });
+    } catch (err) {
+      console.error("[TEACHERS] delete error:", err);
+      return res.status(500).json({ error: "failed_to_delete_teacher" });
     }
-
-    // Unlink shared classes (kept) from this teacher.
-    await Promise.all(
-      classRefsToUnlink.map((r) =>
-        r.update({ teacherId: admin.firestore.FieldValue.arrayRemove(teacherId) }),
-      ),
-    );
-
-    // Batch-delete classes + their students, then the points + teacher docs.
-    const allDeletes = [
-      ...studentRefsToDelete,
-      ...classRefsToDelete,
-      db.collection("TeacherPoint").doc(teacherId),
-      ref,
-    ];
-    const CHUNK = 400; // Firestore batch limit is 500.
-    for (let i = 0; i < allDeletes.length; i += CHUNK) {
-      const batch = db.batch();
-      allDeletes.slice(i, i + CHUNK).forEach((r) => batch.delete(r));
-      await batch.commit();
-    }
-
-    return res.json({
-      success: true,
-      deletedClasses: classRefsToDelete.length,
-      deletedStudents: studentRefsToDelete.length,
-    });
-  } catch (err) {
-    console.error("[TEACHERS] delete error:", err);
-    return res.status(500).json({ error: "failed_to_delete_teacher" });
-  }
-});
+  },
+);
 
 /**
  * Admin: the billing summary. `totalTopUpVnd` is the lifetime revenue (the amount
@@ -1143,20 +1293,25 @@ app.delete("/teachers/:id", verifyGoogleToken, requireAdmin, async (req, res) =>
  * the admin's information only (the saler takes it upfront — it does not reduce
  * the admin's revenue).
  */
-app.get("/teacher-points/billing", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const snap = await db.collection("AdminBilling").doc("summary").get();
-    const data = snap.exists ? snap.data() : {};
-    const totalTopUpVnd = data.totalTopUpVnd ?? 0;
-    return res.json({
-      totalTopUpVnd,
-      totalCommissionVnd: billing.salerCostVnd(totalTopUpVnd),
-    });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] billing error:", err);
-    return res.status(500).json({ error: "failed_to_get_billing" });
-  }
-});
+app.get(
+  "/teacher-points/billing",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const snap = await db.collection("AdminBilling").doc("summary").get();
+      const data = snap.exists ? snap.data() : {};
+      const totalTopUpVnd = data.totalTopUpVnd ?? 0;
+      return res.json({
+        totalTopUpVnd,
+        totalCommissionVnd: billing.salerCostVnd(totalTopUpVnd),
+      });
+    } catch (err) {
+      console.error("[TEACHER-POINTS] billing error:", err);
+      return res.status(500).json({ error: "failed_to_get_billing" });
+    }
+  },
+);
 
 /**
  * Admin: list point rows — ONE PER TEACHER, not one per TeacherPoint doc.
@@ -1165,219 +1320,267 @@ app.get("/teacher-points/billing", verifyGoogleToken, requireAdmin, async (req, 
  * accounts are skipped unless they still hold a point record (so balances are
  * never hidden). The TeacherPoint doc id === teacherId.
  */
-app.get("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    // Teacher ids that own at least one ACTIVE class — used to flag each record
-    // so the FE can default-filter to teachers with active classes.
-    const [activeClassSnap, teacherSnap, pointSnap] = await Promise.all([
-      db.collection("classes").where("isActive", "==", true).get(),
-      db.collection("teachers").get(),
-      db.collection("TeacherPoint").get(),
-    ]);
+app.get(
+  "/teacher-points",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      // Teacher ids that own at least one ACTIVE class — used to flag each record
+      // so the FE can default-filter to teachers with active classes.
+      const [activeClassSnap, teacherSnap, pointSnap] = await Promise.all([
+        db.collection("classes").where("isActive", "==", true).get(),
+        db.collection("teachers").get(),
+        db.collection("TeacherPoint").get(),
+      ]);
 
-    const activeTeacherIds = new Set();
-    activeClassSnap.forEach((doc) => {
-      const ids = doc.data().teacherId;
-      if (Array.isArray(ids)) ids.forEach((id) => activeTeacherIds.add(id));
-    });
+      const activeTeacherIds = new Set();
+      activeClassSnap.forEach((doc) => {
+        const ids = doc.data().teacherId;
+        if (Array.isArray(ids)) ids.forEach((id) => activeTeacherIds.add(id));
+      });
 
-    // Index existing point records by teacherId (doc id === teacherId).
-    const pointByTeacher = new Map();
-    pointSnap.forEach((doc) => {
-      const d = doc.data();
-      pointByTeacher.set(d.teacherId ?? doc.id, { docId: doc.id, ...d });
-    });
+      // Index existing point records by teacherId (doc id === teacherId).
+      const pointByTeacher = new Map();
+      pointSnap.forEach((doc) => {
+        const d = doc.data();
+        pointByTeacher.set(d.teacherId ?? doc.id, { docId: doc.id, ...d });
+      });
 
-    const buildRow = (id, teacherId, source, point) => {
-      const history = Array.isArray(source?.topUpHistory) ? source.topUpHistory : [];
-      const mappedHistory = history.map((h) => ({
-        amountVnd: h.amountVnd ?? 0,
-        points: h.points ?? 0,
-        topUpAt: h.topUpAt?.toDate?.().toISOString() ?? null,
-      }));
-      return {
-        id,
-        teacherId,
-        gmail: source?.gmail ?? "",
-        name: source?.name ?? "",
-        point,
-        topUpCount: mappedHistory.length,
-        lastTopUpAt: mappedHistory.length ? mappedHistory[mappedHistory.length - 1].topUpAt : null,
-        topUpHistory: mappedHistory,
-        hasActiveClass: activeTeacherIds.has(teacherId),
+      const buildRow = (id, teacherId, source, point) => {
+        const history = Array.isArray(source?.topUpHistory)
+          ? source.topUpHistory
+          : [];
+        const mappedHistory = history.map((h) => ({
+          amountVnd: h.amountVnd ?? 0,
+          points: h.points ?? 0,
+          topUpAt: h.topUpAt?.toDate?.().toISOString() ?? null,
+        }));
+        return {
+          id,
+          teacherId,
+          gmail: source?.gmail ?? "",
+          name: source?.name ?? "",
+          point,
+          topUpCount: mappedHistory.length,
+          lastTopUpAt: mappedHistory.length
+            ? mappedHistory[mappedHistory.length - 1].topUpAt
+            : null,
+          topUpHistory: mappedHistory,
+          hasActiveClass: activeTeacherIds.has(teacherId),
+        };
       };
-    };
 
-    const records = [];
-    const seen = new Set();
+      const records = [];
+      const seen = new Set();
 
-    // One row per teacher: active accounts, or closed accounts that still hold
-    // a point record (so their balance stays visible).
-    teacherSnap.forEach((doc) => {
-      const t = doc.data();
-      const pd = pointByTeacher.get(doc.id);
-      if (t.isAccountActive === false && !pd) return;
-      // Prefer the teacher's current name/gmail; fall back to the point record.
-      const source = { ...pd, gmail: t.gmail ?? pd?.gmail, name: t.name ?? pd?.name };
-      records.push(buildRow(pd?.docId ?? doc.id, doc.id, source, pd?.point ?? 0));
-      seen.add(doc.id);
-    });
+      // One row per teacher: active accounts, or closed accounts that still hold
+      // a point record (so their balance stays visible).
+      teacherSnap.forEach((doc) => {
+        const t = doc.data();
+        const pd = pointByTeacher.get(doc.id);
+        if (t.isAccountActive === false && !pd) return;
+        // Prefer the teacher's current name/gmail; fall back to the point record.
+        const source = {
+          ...pd,
+          gmail: t.gmail ?? pd?.gmail,
+          name: t.name ?? pd?.name,
+        };
+        records.push(
+          buildRow(pd?.docId ?? doc.id, doc.id, source, pd?.point ?? 0),
+        );
+        seen.add(doc.id);
+      });
 
-    // Orphan point records whose teacher doc was deleted — keep them visible.
-    pointSnap.forEach((doc) => {
-      const d = doc.data();
-      const teacherId = d.teacherId ?? doc.id;
-      if (seen.has(teacherId)) return;
-      records.push(buildRow(doc.id, teacherId, d, d.point ?? 0));
-    });
+      // Orphan point records whose teacher doc was deleted — keep them visible.
+      pointSnap.forEach((doc) => {
+        const d = doc.data();
+        const teacherId = d.teacherId ?? doc.id;
+        if (seen.has(teacherId)) return;
+        records.push(buildRow(doc.id, teacherId, d, d.point ?? 0));
+      });
 
-    records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    return res.json({ records });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] list error:", err);
-    return res.status(500).json({ error: "failed_to_list" });
-  }
-});
+      records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      return res.json({ records });
+    } catch (err) {
+      console.error("[TEACHER-POINTS] list error:", err);
+      return res.status(500).json({ error: "failed_to_list" });
+    }
+  },
+);
 
 /** Admin: create a TeacherPoint record for a teacher (id = teacherId). */
-app.post("/teacher-points", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const teacherId = req.body.teacherId;
-    const point = Number(req.body.point) || 0;
-    if (!teacherId) {
-      return res.status(400).json({ error: "teacherId_required" });
-    }
-    const teacherDoc = await db.collection("teachers").doc(teacherId).get();
-    if (!teacherDoc.exists) {
-      return res.status(404).json({ error: "teacher_not_found" });
-    }
-    const ref = db.collection("TeacherPoint").doc(teacherId);
-    if ((await ref.get()).exists) {
-      return res.status(409).json({ error: "already_exists" });
-    }
-    const teacher = teacherDoc.data();
-    const data = {
-      teacherId,
-      gmail: teacher.gmail || "",
-      name: teacher.name || "",
-      point,
-      topUpHistory: [],
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    await ref.set(data);
-    return res.status(201).json({ id: teacherId, ...data });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] create error:", err);
-    return res.status(500).json({ error: "failed_to_create" });
-  }
-});
-
-/** Admin: set a teacher's point balance directly (lazy-creates the record). */
-app.patch("/teacher-points/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    if (req.body.point == null || !Number.isFinite(Number(req.body.point))) {
-      return res.status(400).json({ error: "invalid_point" });
-    }
-    const point = Number(req.body.point);
-    const ref = db.collection("TeacherPoint").doc(req.params.id);
-    if ((await ref.get()).exists) {
-      await ref.update({
-        point,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } else {
-      // No record yet — create one (id === teacherId), copying name/gmail.
-      const teacherDoc = await db.collection("teachers").doc(req.params.id).get();
+app.post(
+  "/teacher-points",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const teacherId = req.body.teacherId;
+      const point = Number(req.body.point) || 0;
+      if (!teacherId) {
+        return res.status(400).json({ error: "teacherId_required" });
+      }
+      const teacherDoc = await db.collection("teachers").doc(teacherId).get();
       if (!teacherDoc.exists) {
-        return res.status(404).json({ error: "not_found" });
+        return res.status(404).json({ error: "teacher_not_found" });
+      }
+      const ref = db.collection("TeacherPoint").doc(teacherId);
+      if ((await ref.get()).exists) {
+        return res.status(409).json({ error: "already_exists" });
       }
       const teacher = teacherDoc.data();
-      await ref.set({
-        teacherId: req.params.id,
+      const data = {
+        teacherId,
         gmail: teacher.gmail || "",
         name: teacher.name || "",
         point,
         topUpHistory: [],
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      await ref.set(data);
+      return res.status(201).json({ id: teacherId, ...data });
+    } catch (err) {
+      console.error("[TEACHER-POINTS] create error:", err);
+      return res.status(500).json({ error: "failed_to_create" });
     }
-    return res.json({ id: req.params.id, point });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] update error:", err);
-    return res.status(500).json({ error: "failed_to_update" });
-  }
-});
+  },
+);
+
+/** Admin: set a teacher's point balance directly (lazy-creates the record). */
+app.patch(
+  "/teacher-points/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      if (req.body.point == null || !Number.isFinite(Number(req.body.point))) {
+        return res.status(400).json({ error: "invalid_point" });
+      }
+      const point = Number(req.body.point);
+      const ref = db.collection("TeacherPoint").doc(req.params.id);
+      if ((await ref.get()).exists) {
+        await ref.update({
+          point,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        // No record yet — create one (id === teacherId), copying name/gmail.
+        const teacherDoc = await db
+          .collection("teachers")
+          .doc(req.params.id)
+          .get();
+        if (!teacherDoc.exists) {
+          return res.status(404).json({ error: "not_found" });
+        }
+        const teacher = teacherDoc.data();
+        await ref.set({
+          teacherId: req.params.id,
+          gmail: teacher.gmail || "",
+          name: teacher.name || "",
+          point,
+          topUpHistory: [],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      return res.json({ id: req.params.id, point });
+    } catch (err) {
+      console.error("[TEACHER-POINTS] update error:", err);
+      return res.status(500).json({ error: "failed_to_update" });
+    }
+  },
+);
 
 /** Admin: delete a TeacherPoint record. */
-app.delete("/teacher-points/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const ref = db.collection("TeacherPoint").doc(req.params.id);
-    if (!(await ref.get()).exists) {
-      return res.status(404).json({ error: "not_found" });
+app.delete(
+  "/teacher-points/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const ref = db.collection("TeacherPoint").doc(req.params.id);
+      if (!(await ref.get()).exists) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      await ref.delete();
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("[TEACHER-POINTS] delete error:", err);
+      return res.status(500).json({ error: "failed_to_delete" });
     }
-    await ref.delete();
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] delete error:", err);
-    return res.status(500).json({ error: "failed_to_delete" });
-  }
-});
+  },
+);
 
 /**
  * Admin: top up a teacher's points from a VND amount. Adds the computed points,
  * appends a history entry, and bumps the global admin billing total.
  */
-app.post("/teacher-points/:id/topup", verifyGoogleToken, requireAdmin, async (req, res) => {
-  try {
-    const amountVnd = Number(req.body.amountVnd);
-    if (!isValidTopUp(amountVnd)) {
-      return res.status(400).json({ error: "invalid_amount" });
-    }
-    const ref = db.collection("TeacherPoint").doc(req.params.id);
-    if (!(await ref.get()).exists) {
-      // No record yet — create one (id === teacherId) before topping up.
-      const teacherDoc = await db.collection("teachers").doc(req.params.id).get();
-      if (!teacherDoc.exists) {
-        return res.status(404).json({ error: "not_found" });
+app.post(
+  "/teacher-points/:id/topup",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const amountVnd = Number(req.body.amountVnd);
+      if (!isValidTopUp(amountVnd)) {
+        return res.status(400).json({ error: "invalid_amount" });
       }
-      const teacher = teacherDoc.data();
-      await ref.set({
-        teacherId: req.params.id,
-        gmail: teacher.gmail || "",
-        name: teacher.name || "",
-        point: 0,
-        topUpHistory: [],
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      const ref = db.collection("TeacherPoint").doc(req.params.id);
+      if (!(await ref.get()).exists) {
+        // No record yet — create one (id === teacherId) before topping up.
+        const teacherDoc = await db
+          .collection("teachers")
+          .doc(req.params.id)
+          .get();
+        if (!teacherDoc.exists) {
+          return res.status(404).json({ error: "not_found" });
+        }
+        const teacher = teacherDoc.data();
+        await ref.set({
+          teacherId: req.params.id,
+          gmail: teacher.gmail || "",
+          name: teacher.name || "",
+          point: 0,
+          topUpHistory: [],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      const points = amountVnd / VND_PER_POINT;
+      await ref.update({
+        point: admin.firestore.FieldValue.increment(points),
+        topUpHistory: admin.firestore.FieldValue.arrayUnion({
+          amountVnd,
+          points,
+          topUpAt: admin.firestore.Timestamp.now(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      // Bump the admin billing total (lazy-create the singleton).
+      await db
+        .collection("AdminBilling")
+        .doc("summary")
+        .set(
+          {
+            totalTopUpVnd: admin.firestore.FieldValue.increment(amountVnd),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      const updated = await ref.get();
+      return res.json({
+        id: req.params.id,
+        point: updated.data().point ?? 0,
+        addedPoints: points,
+      });
+    } catch (err) {
+      console.error("[TEACHER-POINTS] topup error:", err);
+      return res.status(500).json({ error: "failed_to_topup" });
     }
-    const points = amountVnd / VND_PER_POINT;
-    await ref.update({
-      point: admin.firestore.FieldValue.increment(points),
-      topUpHistory: admin.firestore.FieldValue.arrayUnion({
-        amountVnd,
-        points,
-        topUpAt: admin.firestore.Timestamp.now(),
-      }),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    // Bump the admin billing total (lazy-create the singleton).
-    await db.collection("AdminBilling").doc("summary").set(
-      {
-        totalTopUpVnd: admin.firestore.FieldValue.increment(amountVnd),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    const updated = await ref.get();
-    return res.json({ id: req.params.id, point: updated.data().point ?? 0, addedPoints: points });
-  } catch (err) {
-    console.error("[TEACHER-POINTS] topup error:", err);
-    return res.status(500).json({ error: "failed_to_topup" });
-  }
-});
+  },
+);
 
 /**
  * 1. Endpoint đổi 'code' lấy Access Token & Refresh Token (Lúc mới Login)
@@ -1408,13 +1611,18 @@ app.post("/auth/username-password", async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
-    return res.status(400).json({ error: "username and password are required" });
+    return res
+      .status(400)
+      .json({ error: "username and password are required" });
   }
 
   try {
     // Query Firestore for teacher with matching username
-    const teachersRef = db.collection('teachers');
-    const snapshot = await teachersRef.where('username', '==', username).limit(1).get();
+    const teachersRef = db.collection("teachers");
+    const snapshot = await teachersRef
+      .where("username", "==", username)
+      .limit(1)
+      .get();
 
     if (snapshot.empty) {
       return res.status(401).json({ error: "Invalid username or password" });
@@ -1428,7 +1636,10 @@ app.post("/auth/username-password", async (req, res) => {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, teacherData.password);
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      teacherData.password,
+    );
     if (!isPasswordValid) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
@@ -1440,15 +1651,24 @@ app.post("/auth/username-password", async (req, res) => {
 
     // Generate JWT tokens
     const access_token = jwt.sign(
-      { id: teacherDoc.id, email: teacherData.gmail, username: teacherData.username },
+      {
+        id: teacherDoc.id,
+        email: teacherData.gmail,
+        username: teacherData.username,
+      },
       JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: "1h" },
     );
 
     const refresh_token = jwt.sign(
-      { id: teacherDoc.id, email: teacherData.gmail, username: teacherData.username, type: 'refresh' },
+      {
+        id: teacherDoc.id,
+        email: teacherData.gmail,
+        username: teacherData.username,
+        type: "refresh",
+      },
       JWT_SECRET,
-      { expiresIn: '30d' }
+      { expiresIn: "30d" },
     );
 
     const expires_in = 3600; // 1 hour in seconds
@@ -1468,7 +1688,7 @@ app.post("/auth/username-password", async (req, res) => {
       expires_in,
       refresh_token,
       refresh_token_expires_date,
-      google_access_token
+      google_access_token,
     });
   } catch (error) {
     console.error("Error in username/password login:", error);
@@ -1505,8 +1725,8 @@ app.post("/auth/refresh", async (req, res) => {
     // First, try JWT refresh token
     try {
       const decoded = jwt.verify(refreshToken, JWT_SECRET);
-      if (decoded.type !== 'refresh') {
-        throw new Error('Invalid refresh token type');
+      if (decoded.type !== "refresh") {
+        throw new Error("Invalid refresh token type");
       }
 
       // A closed account cannot refresh its session (so a close takes effect
@@ -1526,7 +1746,7 @@ app.post("/auth/refresh", async (req, res) => {
       const access_token = jwt.sign(
         { id: decoded.id, email: decoded.email, username: decoded.username },
         JWT_SECRET,
-        { expiresIn: '1h' }
+        { expiresIn: "1h" },
       );
 
       // Also hand back a fresh Google token for the Docs API.
@@ -1534,7 +1754,10 @@ app.post("/auth/refresh", async (req, res) => {
       try {
         google_access_token = await getServiceAccountGoogleToken();
       } catch (tokenError) {
-        console.error("Failed to mint Google access token:", tokenError.message);
+        console.error(
+          "Failed to mint Google access token:",
+          tokenError.message,
+        );
       }
 
       return res.json({
@@ -1542,7 +1765,7 @@ app.post("/auth/refresh", async (req, res) => {
         expiry_date: Date.now() + 3600 * 1000,
         refresh_token: refreshToken, // Keep the same refresh token
         refresh_token_expires_date: Date.now() + 30 * 24 * 60 * 60 * 1000,
-        google_access_token
+        google_access_token,
       });
     } catch (jwtError) {
       // If JWT fails, try Google refresh token
@@ -1571,45 +1794,66 @@ app.post("/auth/refresh", async (req, res) => {
 app.get("/teacher-info", verifyGoogleToken, async (req, res) => {
   try {
     const userEmail = req.userEmail;
-    const teachersRef = db.collection('teachers');
-    const snapshot = await teachersRef.where('gmail', '==', userEmail).limit(1).get();
+    const teachersRef = db.collection("teachers");
+    const snapshot = await teachersRef
+      .where("gmail", "==", userEmail)
+      .limit(1)
+      .get();
 
     if (snapshot.empty) {
-      return res.status(403).json({ error: 'Teacher not found' });
+      return res.status(403).json({ error: "Teacher not found" });
     }
 
     const teacherDoc = snapshot.docs[0];
     res.json({ id: teacherDoc.id, ...teacherDoc.data() });
   } catch (error) {
-    console.error('Error fetching teacher info:', error);
-    res.status(500).json({ error: 'Failed to fetch teacher info' });
+    console.error("Error fetching teacher info:", error);
+    res.status(500).json({ error: "Failed to fetch teacher info" });
   }
 });
 
 app.post("/teacher-signup", async (req, res) => {
-  
   try {
-    const { name, phone, dob, address = '', notes = '', username, password, gmail } = req.body;
+    const {
+      name,
+      phone,
+      dob,
+      address = "",
+      notes = "",
+      username,
+      password,
+      gmail,
+    } = req.body;
     const userEmail = gmail?.trim().toLowerCase();
 
     if (!name || !phone || !dob) {
-      return res.status(400).json({ error: 'Missing required fields: name, phone, dob' });
+      return res
+        .status(400)
+        .json({ error: "Missing required fields: name, phone, dob" });
     }
 
     if (!username || !password) {
-      return res.status(400).json({ error: 'Missing required fields: username, password' });
+      return res
+        .status(400)
+        .json({ error: "Missing required fields: username, password" });
     }
 
-    const teachersRef = db.collection('teachers');
+    const teachersRef = db.collection("teachers");
     // Check if teacher with this email already exists
-    const existingEmailSnapshot = await teachersRef.where('gmail', '==', userEmail).limit(1).get();
+    const existingEmailSnapshot = await teachersRef
+      .where("gmail", "==", userEmail)
+      .limit(1)
+      .get();
     if (!existingEmailSnapshot.empty) {
-      return res.status(409).json({ error: 'Teacher already exists' });
+      return res.status(409).json({ error: "Teacher already exists" });
     }
     // Check if username already exists
-    const existingUsernameSnapshot = await teachersRef.where('username', '==', username).limit(1).get();
+    const existingUsernameSnapshot = await teachersRef
+      .where("username", "==", username)
+      .limit(1)
+      .get();
     if (!existingUsernameSnapshot.empty) {
-      return res.status(409).json({ error: 'Username already exists' });
+      return res.status(409).json({ error: "Username already exists" });
     }
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -1633,17 +1877,22 @@ app.post("/teacher-signup", async (req, res) => {
     delete responseData.password;
     res.status(201).json({ id: newDocRef.id, ...responseData });
   } catch (error) {
-    console.error('Error creating teacher:', error);
-    res.status(500).json({ error: 'Failed to create teacher record' });
+    console.error("Error creating teacher:", error);
+    res.status(500).json({ error: "Failed to create teacher record" });
   }
 });
 
 app.post("/classes", verifyGoogleToken, async (req, res) => {
   try {
-    const { name, classType = 'basic', currentLesson = null, teacherId } = req.body;
+    const {
+      name,
+      classType = "basic",
+      currentLesson = null,
+      teacherId,
+    } = req.body;
 
     if (!name) {
-      return res.status(400).json({ error: 'Missing required field: name' });
+      return res.status(400).json({ error: "Missing required field: name" });
     }
 
     // const teacherSnapshot = await db.collection('teachers')
@@ -1664,7 +1913,9 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
     const isDuplicated = await isClassNameDuplicated(name);
 
     if (isDuplicated) {
-      return res.status(409).json({ error: 'Class name already exists for this teacher' });
+      return res
+        .status(409)
+        .json({ error: "Class name already exists for this teacher" });
     }
 
     const classData = {
@@ -1676,11 +1927,11 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    const classRef = await db.collection('classes').add(classData);
+    const classRef = await db.collection("classes").add(classData);
     res.status(201).json({ id: classRef.id, ...classData });
   } catch (error) {
-    console.error('Error creating class:', error);
-    res.status(500).json({ error: 'Failed to create class' });
+    console.error("Error creating class:", error);
+    res.status(500).json({ error: "Failed to create class" });
   }
 });
 
@@ -1688,13 +1939,13 @@ app.get("/classes/check-name", verifyGoogleToken, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) {
-      return res.status(400).json({ error: 'Class name is required' });
+      return res.status(400).json({ error: "Class name is required" });
     }
     const isDuplicated = await isClassNameDuplicated(name);
     res.json({ exists: isDuplicated });
   } catch (error) {
-    console.error('Error checking class name:', error);
-    res.status(500).json({ error: 'Failed to verify class name' });
+    console.error("Error checking class name:", error);
+    res.status(500).json({ error: "Failed to verify class name" });
   }
 });
 
@@ -1704,32 +1955,34 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
     const { classId, students } = req.body;
 
     if (!classId || !Array.isArray(students) || students.length === 0) {
-      return res.status(400).json({ error: 'Missing required fields: classId, students' });
+      return res
+        .status(400)
+        .json({ error: "Missing required fields: classId, students" });
     }
     const batch = db.batch();
     const studentsToSave = students
       .map((student) => ({
         classId: classId,
-        gmail: student.gmail?.trim() || '',
+        gmail: student.gmail?.trim() || "",
         name: student.name?.trim(),
-        ggDocLink: student.ggDocLink?.trim() || '',
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        ggDocLink: student.ggDocLink?.trim() || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       }))
       // Gmail is temporarily optional; only require a name.
       .filter((student) => student.name);
 
     studentsToSave.forEach((student) => {
-      const docRef = db.collection('students').doc();
+      const docRef = db.collection("students").doc();
       batch.set(docRef, {
-        ...student
+        ...student,
       });
     });
 
     await batch.commit();
     res.status(201).json({ inserted: studentsToSave.length });
   } catch (error) {
-    console.error('Error saving students:', error);
-    res.status(500).json({ error: 'Failed to save students' });
+    console.error("Error saving students:", error);
+    res.status(500).json({ error: "Failed to save students" });
   }
 });
 
@@ -1740,15 +1993,17 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
   try {
     const teacherId = req.query.teacherId;
     if (!teacherId) {
-      return res.status(400).json({ error: 'teacherId is required' });
+      return res.status(400).json({ error: "teacherId is required" });
     }
-    const classesRef = db.collection('classes');
-    let snapshot = await classesRef.where('teacherId', 'array-contains', teacherId).get();
+    const classesRef = db.collection("classes");
+    let snapshot = await classesRef
+      .where("teacherId", "array-contains", teacherId)
+      .get();
     if (snapshot.empty) {
       return res.json([]);
     }
     const classes = [];
-    snapshot.forEach(doc => {
+    snapshot.forEach((doc) => {
       classes.push({ id: doc.id, ...doc.data() });
     });
 
@@ -1764,7 +2019,7 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
  */
 app.get("/class-types", verifyGoogleToken, async (req, res) => {
   try {
-    const classTypeRef = db.collection('classType');
+    const classTypeRef = db.collection("classType");
     const snapshot = await classTypeRef.get();
 
     const classTypes = [];
@@ -1788,11 +2043,13 @@ app.get("/lessons", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "classType is required" });
     }
 
-    const lessonsRef = db.collection('lesson');
-    const snapshot = await lessonsRef.where('classType', 'array-contains', classType).get();
+    const lessonsRef = db.collection("lesson");
+    const snapshot = await lessonsRef
+      .where("classType", "array-contains", classType)
+      .get();
 
     const lessons = [];
-    snapshot.forEach(doc => {
+    snapshot.forEach((doc) => {
       lessons.push({ id: doc.id, ...doc.data() });
     });
 
@@ -1813,7 +2070,7 @@ app.get("/current-lesson", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "classId is required" });
     }
 
-    const classRef = db.collection('classes').doc(classId);
+    const classRef = db.collection("classes").doc(classId);
     const classDoc = await classRef.get();
 
     if (!classDoc.exists) {
@@ -1833,10 +2090,12 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
   try {
     const { classId, currentLesson } = req.body;
     if (!classId || !currentLesson) {
-      return res.status(400).json({ error: "classId and currentLesson are required" });
+      return res
+        .status(400)
+        .json({ error: "classId and currentLesson are required" });
     }
 
-    const classRef = db.collection('classes').doc(classId);
+    const classRef = db.collection("classes").doc(classId);
     const classDoc = await classRef.get();
     if (!classDoc.exists) {
       return res.status(404).json({ error: "Class not found" });
@@ -1858,7 +2117,7 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
 app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
     const [classSnap, teacherSnap] = await Promise.all([
-      db.collection("classes").get(),
+      db.collection("classes").where("isActive", "==", true).get(),
       db.collection("teachers").get(),
     ]);
     const teacherNameById = new Map();
@@ -1875,15 +2134,15 @@ app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
         name: d.name ?? "",
         classType: d.classType ?? "",
         currentLesson: d.currentLesson ?? null,
-        isActive: d.isActive !== false,
+        isActive: d.isActive,
         teacherId: teacherIds,
         teacherNames: teacherIds.map((id) => teacherNameById.get(id) || id),
       });
     });
     res.json(classes);
   } catch (error) {
-    console.error("Error fetching all classes:", error);
-    res.status(500).json({ error: "Failed to fetch all classes" });
+    console.error("Error fetching active classes:", error);
+    res.status(500).json({ error: "Failed to fetch active classes" });
   }
 });
 
@@ -1943,11 +2202,11 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "classId is required" });
     }
 
-    const studentsRef = db.collection('students');
-    const snapshot = await studentsRef.where('classId', '==', classId).get();
+    const studentsRef = db.collection("students");
+    const snapshot = await studentsRef.where("classId", "==", classId).get();
 
     const students = [];
-    snapshot.forEach(doc => {
+    snapshot.forEach((doc) => {
       students.push({ id: doc.id, ...doc.data() });
     });
 
@@ -1958,6 +2217,6 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`);
 });
