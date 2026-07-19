@@ -19,13 +19,17 @@ function isActive(teacher) {
  */
 function filterTeachers(teachers, opts = {}, classIdsByTeacher = {}) {
   const list = Array.isArray(teachers) ? teachers : [];
-  const q = String(opts.q ?? "").trim().toLowerCase();
+  const q = String(opts.q ?? "")
+    .trim()
+    .toLowerCase();
 
   // Normalize the status filter: accept boolean or "true"/"false" string; anything
   // else (undefined / "all" / "") means no status filtering.
   let statusFilter = null;
-  if (opts.isAccountActive === true || opts.isAccountActive === "true") statusFilter = true;
-  else if (opts.isAccountActive === false || opts.isAccountActive === "false") statusFilter = false;
+  if (opts.isAccountActive === true || opts.isAccountActive === "true")
+    statusFilter = true;
+  else if (opts.isAccountActive === false || opts.isAccountActive === "false")
+    statusFilter = false;
 
   const filtered = list.filter((tch) => {
     if (statusFilter !== null && isActive(tch) !== statusFilter) return false;
@@ -48,7 +52,10 @@ function filterTeachers(teachers, opts = {}, classIdsByTeacher = {}) {
   }
 
   // Name matches first, then gmail-only matches; alphabetical within each group.
-  const nameMatch = (t) => String(t.name ?? "").toLowerCase().includes(q);
+  const nameMatch = (t) =>
+    String(t.name ?? "")
+      .toLowerCase()
+      .includes(q);
   return filtered.sort((a, b) => {
     const an = nameMatch(a);
     const bn = nameMatch(b);

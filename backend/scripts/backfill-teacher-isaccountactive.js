@@ -29,7 +29,9 @@ async function main() {
     console.log(`Updated ${updated}/${toUpdate.length}…`);
   }
 
-  console.log(`Done. Backfilled isAccountActive=true on ${updated} document(s).`);
+  console.log(
+    `Done. Backfilled isAccountActive=true on ${updated} document(s).`,
+  );
 }
 
 main()

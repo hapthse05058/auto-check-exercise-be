@@ -82,7 +82,10 @@ async function checkGuard(toEnv, apply, hasYesFlag) {
     console.log("⚠️  --yes: proceeding with PRODUCTION sync (CI mode).");
     return true;
   }
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
   return new Promise((resolve) => {
     rl.question(
       "\n⚠️  You are about to write DIRECTLY into the PRODUCTION database.\n" +
@@ -116,7 +119,8 @@ async function syncCollection(name, srcDb, dstDb, opts) {
   const skippedDrafts = !opts.includeDrafts
     ? srcDocs.filter((d) => !isPublishable(d.data())).length
     : 0;
-  if (!opts.includeDrafts) srcDocs = srcDocs.filter((d) => isPublishable(d.data()));
+  if (!opts.includeDrafts)
+    srcDocs = srcDocs.filter((d) => isPublishable(d.data()));
 
   const dstSnap = await dstDb.collection(name).get();
   const dstIds = new Set(dstSnap.docs.map((d) => d.id));
@@ -135,7 +139,10 @@ async function syncCollection(name, srcDb, dstDb, opts) {
   if (!opts.apply) return;
 
   const CHUNK = 400; // < 500 per Firestore batch limit
-  const writes = srcDocs.map((d) => ({ ref: dstDb.collection(name).doc(d.id), data: d.data() }));
+  const writes = srcDocs.map((d) => ({
+    ref: dstDb.collection(name).doc(d.id),
+    data: d.data(),
+  }));
   for (let i = 0; i < writes.length; i += CHUNK) {
     const batch = dstDb.batch();
     writes.slice(i, i + CHUNK).forEach((w) => batch.set(w.ref, w.data));
@@ -143,7 +150,9 @@ async function syncCollection(name, srcDb, dstDb, opts) {
   }
   for (let i = 0; i < toPrune.length; i += CHUNK) {
     const batch = dstDb.batch();
-    toPrune.slice(i, i + CHUNK).forEach((id) => batch.delete(dstDb.collection(name).doc(id)));
+    toPrune
+      .slice(i, i + CHUNK)
+      .forEach((id) => batch.delete(dstDb.collection(name).doc(id)));
     await batch.commit();
   }
 }
@@ -158,7 +167,9 @@ async function main() {
     `\nSync reference data: ${opts.from} (${DB_ID[opts.from]}) → ${opts.to} (${DB_ID[opts.to]})`,
   );
   console.log(`Collections: ${collections.join(", ")}`);
-  console.log(opts.apply ? "Mode: APPLY (will write)" : "Mode: DRY-RUN (no writes)");
+  console.log(
+    opts.apply ? "Mode: APPLY (will write)" : "Mode: DRY-RUN (no writes)",
+  );
 
   await checkGuard(opts.to, opts.apply, opts.yes);
 
@@ -166,7 +177,11 @@ async function main() {
     await syncCollection(name, srcDb, dstDb, opts);
   }
 
-  console.log(opts.apply ? "\n✅ Done." : "\n✅ Dry-run complete (re-run with --apply to write).");
+  console.log(
+    opts.apply
+      ? "\n✅ Done."
+      : "\n✅ Dry-run complete (re-run with --apply to write).",
+  );
 }
 
 main()

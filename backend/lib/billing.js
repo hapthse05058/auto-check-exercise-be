@@ -13,7 +13,7 @@ const COMMISSION_VND_PER_POINT = 100;
  */
 function salerCostVnd(totalTopUpVnd) {
   const total = Number(totalTopUpVnd) || 0;
-  return Math.round((total ) / 6);
+  return Math.round(total / 6);
 }
 
 module.exports = {
