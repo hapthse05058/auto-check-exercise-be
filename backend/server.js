@@ -1592,6 +1592,36 @@ app.post("/auth/google", async (req, res) => {
     // tokens sẽ chứa: access_token, refresh_token, expiry_date...
     tokens.refresh_token_expires_date =
       Date.now() + tokens.refresh_token_expires_in * 1000;
+
+    // Attach the signed-in user's email + full name so the website's teacher
+    // signup screen can pre-fill them (Gmail read-only, name editable). They
+    // live in the OpenID id_token (scopes openid/email/profile). Best-effort:
+    // login must still succeed even if extraction fails.
+    try {
+      if (tokens.id_token) {
+        let payload;
+        try {
+          const ticket = await oAuth2Client.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: CLIENT_ID,
+          });
+          payload = ticket.getPayload();
+        } catch (verifyErr) {
+          // The id_token came straight from Google's token endpoint, so fall
+          // back to decoding its payload without re-verifying the signature.
+          payload = JSON.parse(
+            Buffer.from(tokens.id_token.split(".")[1], "base64").toString(),
+          );
+        }
+        tokens.email = payload?.email || "";
+      }
+    } catch (profileErr) {
+      console.warn(
+        "Could not extract profile from id_token:",
+        profileErr.message,
+      );
+    }
+
     res.json(tokens);
   } catch (error) {
     console.error("Error exchanging code:", error);
