@@ -8,7 +8,9 @@ WORKDIR /usr/src/app
 COPY backend/package*.json ./
 
 # 4. Cài đặt thư viện (chỉ cài những cái cần cho production)
-RUN npm install --only=production
+# --ignore-scripts: bỏ qua "prepare" (husky git hooks) — container prod không cần,
+# và husky là devDependency nên không có mặt ở đây.
+RUN npm install --omit=dev --ignore-scripts
 
 # 5. Copy toàn bộ mã nguồn từ backend folder vào container
 COPY backend/ .
