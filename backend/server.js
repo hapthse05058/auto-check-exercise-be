@@ -114,7 +114,7 @@ async function verifyToken(req, res, next) {
       const decoded = jwt.verify(token, JWT_SECRET);
       req.userEmail = decoded.email;
       return next();
-    } catch (jwtError) {
+    } catch {
       // If JWT fails, try Google token verification
     }
 
@@ -1628,7 +1628,7 @@ app.post("/auth/google", async (req, res) => {
             audience: CLIENT_ID,
           });
           payload = ticket.getPayload();
-        } catch (verifyErr) {
+        } catch {
           // The id_token came straight from Google's token endpoint, so fall
           // back to decoding its payload without re-verifying the signature.
           payload = JSON.parse(
@@ -1819,7 +1819,7 @@ app.post("/auth/refresh", async (req, res) => {
         refresh_token_expires_date: Date.now() + 30 * 24 * 60 * 60 * 1000,
         google_access_token,
       });
-    } catch (jwtError) {
+    } catch {
       // If JWT fails, try Google refresh token
     }
 
@@ -2003,7 +2003,6 @@ app.get("/classes/check-name", verifyGoogleToken, async (req, res) => {
 
 app.post("/students", verifyGoogleToken, async (req, res) => {
   try {
-    const userEmail = req.userEmail;
     const { classId, students } = req.body;
 
     if (!classId || !Array.isArray(students) || students.length === 0) {
@@ -2088,7 +2087,6 @@ app.get("/class-types", verifyGoogleToken, async (req, res) => {
 
 app.get("/lessons", verifyGoogleToken, async (req, res) => {
   try {
-    const userEmail = req.userEmail;
     const classType = req.query.classType;
 
     if (!classType) {
@@ -2247,7 +2245,6 @@ app.patch("/classes/:id", verifyGoogleToken, async (req, res) => {
  */
 app.get("/students", verifyGoogleToken, async (req, res) => {
   try {
-    const userEmail = req.userEmail;
     const classId = req.query.classId;
 
     if (!classId) {
@@ -2270,5 +2267,6 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
+  // eslint-disable-next-line no-console
   console.log(`Server is running on port ${PORT}`);
 });

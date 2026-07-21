@@ -11,8 +11,9 @@
     "sync-structure": "npx @colbymchenry/codegraph & npx gitnexus analyze",
     "sync:reference": "node scripts/sync-reference-data.js --from dev --to prod",
     "lint": "eslint .",
+    "prettier": "prettier --check .",
     "format": "eslint . --fix && prettier --write .",
-    "format:check": "prettier --check .",
+    "validate": "eslint . && prettier --check .",
     "prepare": "cd .. && husky backend/.husky"
   },
   "lint-staged": {

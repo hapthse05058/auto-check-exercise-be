@@ -27,8 +27,12 @@ module.exports = [
     plugins: { import: importPlugin },
     rules: {
       "no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+        },
       ],
       "import/order": [
         "warn",
@@ -50,6 +54,11 @@ module.exports = [
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "prefer-const": "error",
     },
+  },
+  // One-off CLI scripts: console output is the whole point.
+  {
+    files: ["scripts/**/*.js"],
+    rules: { "no-console": "off" },
   },
 
   // Keep Prettier last so it disables all stylistic rules it owns.
