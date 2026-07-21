@@ -54,6 +54,9 @@ const googleDocsAuth = fs.existsSync(serviceAccountPath)
   ? new GoogleAuth({
       keyFile: serviceAccountPath,
       scopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
         "https://www.googleapis.com/auth/documents",
         "https://www.googleapis.com/auth/drive",
       ],
