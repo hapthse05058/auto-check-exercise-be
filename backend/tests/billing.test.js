@@ -1,5 +1,6 @@
-const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { test } = require("node:test");
+
 const { salerCostVnd, VND_PER_POINT } = require("../lib/billing.js");
 
 test("VND_PER_POINT is 600 (60.000đ → 100 points)", () => {

@@ -1,6 +1,7 @@
 const js = require("@eslint/js");
-const globals = require("globals");
 const prettier = require("eslint-config-prettier");
+const importPlugin = require("eslint-plugin-import");
+const globals = require("globals");
 
 module.exports = [
   {
@@ -23,11 +24,31 @@ module.exports = [
       sourceType: "commonjs",
       globals: { ...globals.node },
     },
+    plugins: { import: importPlugin },
     rules: {
       "no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "import/order": [
+        "warn",
+        {
+          groups: [
+            "builtin",
+            "external",
+            "internal",
+            ["parent", "sibling"],
+            "index",
+          ],
+          "newlines-between": "always",
+        },
+      ],
+      "import/no-duplicates": "error",
+
+      // JS General
+      eqeqeq: ["error", "always"],
+      "no-console": ["warn", { allow: ["warn", "error"] }],
+      "prefer-const": "error",
     },
   },
 

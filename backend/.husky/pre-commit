@@ -1,0 +1,4 @@
+# package.json lives in backend/, but git runs hooks from the repo root,
+# so enter backend/ before running lint-staged (resolves node_modules + staged files there).
+cd backend || exit 1
+npx lint-staged

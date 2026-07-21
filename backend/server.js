@@ -1,20 +1,22 @@
 const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
-const express = require("express");
-const axios = require("axios");
-const OpenAI = require("openai");
-// Firebase Admin + the Firestore handle (database chosen by FIRESTORE_DATABASE_ID).
-// `serviceAccountPath` is reused below for the Google Docs auth client.
-const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 
-const { OAuth2Client, GoogleAuth } = require("google-auth-library");
-const billing = require("./lib/billing.js");
-const teacherFilter = require("./lib/teacherFilter.js");
+const axios = require("axios");
+const bcrypt = require("bcryptjs");
 const cors = require("cors");
+const express = require("express");
+const { OAuth2Client, GoogleAuth } = require("google-auth-library");
+const jwt = require("jsonwebtoken");
+const OpenAI = require("openai");
+
+// Firebase Admin + the Firestore handle (database chosen by FIRESTORE_DATABASE_ID).
+// `serviceAccountPath` is reused below for the Google Docs auth client.
+const billing = require("./lib/billing.js");
+const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
+const teacherFilter = require("./lib/teacherFilter.js");
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -426,7 +428,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
   const tableByStt = parseGradedTable(aiResponse);
   return group.map((_, i) => {
     const fb = tableByStt[String(i + 1)];
-    return fb != null && fb !== "" ? fb : null;
+    return fb !== null && fb !== undefined && fb !== "" ? fb : null;
   });
 }
 
@@ -447,7 +449,14 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
     // 1. Defensive dedupe by (question, answer); FE already dedupes.
     const uniqueMap = new Map();
     for (const item of items) {
-      if (!item || item.question == null || item.answer == null) continue;
+      if (
+        !item ||
+        item.question === null ||
+        item.question === undefined ||
+        item.answer === null ||
+        item.answer === undefined
+      )
+        continue;
       const key = `${normalizeForKey(item.question)}${normalizeForKey(item.answer)}`;
       if (!uniqueMap.has(key)) {
         uniqueMap.set(key, { question: item.question, answer: item.answer });
@@ -474,7 +483,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
         snaps.forEach((snap) => {
           if (snap.exists) {
             const data = snap.data();
-            if (data && data.feedback != null) {
+            if (data && data.feedback !== null && data.feedback !== undefined) {
               feedbackById.set(snap.id, data.feedback);
             }
           }
@@ -516,7 +525,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
           );
           group.forEach((it, i) => {
             const fb = feedbacks[i];
-            if (fb != null) {
+            if (fb !== null && fb !== undefined) {
               feedbackById.set(ids[it.idx], fb);
               it._feedback = fb; // mark for cache write
             }
@@ -535,7 +544,9 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       // success:true with all-null feedback hides a total outage, so surface
       // it as a real error instead. Partial failures still pass through and
       // retry on the next run.
-      const graded = uncached.some((it) => it._feedback != null);
+      const graded = uncached.some(
+        (it) => it._feedback !== null && it._feedback !== undefined,
+      );
       if (!graded && groupErrors.length > 0) {
         const cause = groupErrors[0];
         const err = new Error(
@@ -548,7 +559,9 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       // 5. Persist newly graded feedback (chunked batch writes, <500/batch).
       //    Skipped when caching is off — AI feedback is not stored.
       if (useCache) {
-        const toWrite = uncached.filter((it) => it._feedback != null);
+        const toWrite = uncached.filter(
+          (it) => it._feedback !== null && it._feedback !== undefined,
+        );
         const WRITE_CHUNK = 400;
         for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
           const batch = db.batch();
@@ -610,13 +623,18 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 /** Whitelist the fields a client may write, coercing types. */
 function sanitizeCacheInput(body, existing = {}) {
   const out = { ...existing };
-  if (body.question != null) out.question = String(body.question);
-  if (body.answer != null) out.answer = String(body.answer);
-  if (body.feedback != null) out.feedback = String(body.feedback);
-  if (body.model != null) out.model = String(body.model);
-  if (body.promptVersion != null)
+  if (body.question !== null && body.question !== undefined)
+    out.question = String(body.question);
+  if (body.answer !== null && body.answer !== undefined)
+    out.answer = String(body.answer);
+  if (body.feedback !== null && body.feedback !== undefined)
+    out.feedback = String(body.feedback);
+  if (body.model !== null && body.model !== undefined)
+    out.model = String(body.model);
+  if (body.promptVersion !== null && body.promptVersion !== undefined)
     out.promptVersion = String(body.promptVersion);
-  if (body.hitCount != null) out.hitCount = Number(body.hitCount) || 0;
+  if (body.hitCount !== null && body.hitCount !== undefined)
+    out.hitCount = Number(body.hitCount) || 0;
   return out;
 }
 
@@ -1455,7 +1473,11 @@ app.patch(
   requireAdmin,
   async (req, res) => {
     try {
-      if (req.body.point == null || !Number.isFinite(Number(req.body.point))) {
+      if (
+        req.body.point === null ||
+        req.body.point === undefined ||
+        !Number.isFinite(Number(req.body.point))
+      ) {
         return res.status(400).json({ error: "invalid_point" });
       }
       const point = Number(req.body.point);
@@ -2026,7 +2048,7 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
       return res.status(400).json({ error: "teacherId is required" });
     }
     const classesRef = db.collection("classes");
-    let snapshot = await classesRef
+    const snapshot = await classesRef
       .where("teacherId", "array-contains", teacherId)
       .get();
     if (snapshot.empty) {

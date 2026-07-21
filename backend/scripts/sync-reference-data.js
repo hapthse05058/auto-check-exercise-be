@@ -23,6 +23,7 @@
  *   node scripts/sync-reference-data.js --from dev --to prod --apply --yes
  */
 const readline = require("readline");
+
 const { getDb } = require("../lib/firestore.js");
 
 // Collections that are safe to promote. gradingCache is opt-in (--include-cache).

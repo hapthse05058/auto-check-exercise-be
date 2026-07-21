@@ -11,6 +11,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+
 // Load .env by ABSOLUTE path so it works no matter the cwd a script is run from
 // (dotenv otherwise resolves relative to process.cwd()).
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
