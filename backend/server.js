@@ -13,8 +13,11 @@ const OpenAI = require("openai");
 
 // Firebase Admin + the Firestore handle (database chosen by FIRESTORE_DATABASE_ID).
 // `serviceAccountPath` is reused below for the Google Docs auth client.
+const auditActions = require("./lib/auditActions.js");
+const auditLog = require("./lib/auditLog.js");
 const billing = require("./lib/billing.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
+const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const teacherFilter = require("./lib/teacherFilter.js");
 
 const app = express();
@@ -36,6 +39,90 @@ app.use(cors());
 // Increase allowed payload size to avoid PayloadTooLargeError for large requests
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+/**
+ * Audit trail for every state-changing request (see lib/auditActions.js for the
+ * route→action table and lib/auditLog.js for the writer).
+ *
+ * Mounted here on purpose: AFTER the body parsers, so req.body exists, and
+ * BEFORE every route, so nothing can slip past it.
+ *
+ * The entry is assembled in res.on("finish") — that is the only point where the
+ * status code is known AND req.userEmail has been set by verifyToken, which
+ * runs per-route and therefore AFTER this middleware's body.
+ */
+function auditMiddleware(req, res, next) {
+  if (!auditActions.shouldAudit(req.method, req.path)) return next();
+
+  const requestId = crypto.randomUUID();
+  req.requestId = requestId;
+  res.setHeader("x-request-id", requestId);
+
+  const startedAt = Date.now();
+  // Deep copy: handlers mutate req.body in place, and we log after they finish.
+  const body = auditLog.snapshotBody(req.body);
+
+  res.on("finish", () => {
+    (async () => {
+      const statusCode = res.statusCode;
+      // Routes that answer 2xx but failed in business terms set this flag.
+      const success =
+        typeof res.locals.auditSuccess === "boolean"
+          ? res.locals.auditSuccess
+          : statusCode < 400;
+
+      const descriptor = auditActions.matchAction(req.method, req.path);
+      let action = descriptor.action;
+      let severity = descriptor.severity;
+      if (!success) {
+        if (descriptor.failedAction) action = descriptor.failedAction;
+        severity = descriptor.failedSeverity || severity;
+        // A failure is never merely informational.
+        if (severity === "INFO") severity = "WARN";
+      }
+
+      // Authenticated routes carry the actor on the token; the login/signup/
+      // reset routes run before any verification, so fall back to the body.
+      let actorEmail = req.userEmail || null;
+      let actorResolvedFrom = "unknown";
+      let actorName = null;
+      let actorId = null;
+      if (actorEmail) {
+        actorResolvedFrom = "token";
+        const actor = await auditLog.resolveActor(db, actorEmail);
+        actorName = actor.name;
+        actorId = actor.id;
+      } else if (body && typeof body === "object") {
+        actorEmail = body.username || body.email || body.gmail || null;
+        if (actorEmail) actorResolvedFrom = "body";
+      }
+
+      auditLog.recordAudit(db, admin, {
+        requestId,
+        actorEmail,
+        actorName,
+        actorId,
+        actorResolvedFrom,
+        action,
+        resourceType: descriptor.resourceType,
+        severity,
+        method: req.method,
+        path: req.path,
+        entityId: auditActions.entityIdFromPath(req.path),
+        statusCode,
+        success,
+        durationMs: Date.now() - startedAt,
+        detail: auditLog.summarizeBody(body),
+        ip: (req.headers["x-forwarded-for"] || "").split(",")[0] || req.ip,
+        userAgent: req.headers["user-agent"] || "",
+      });
+    })().catch((err) => console.error("[AUDIT] middleware failed:", err));
+  });
+
+  next();
+}
+
+app.use(auditMiddleware);
 
 // Firebase Admin + Firestore (`admin`, `db`) are initialized in ./lib/firestore.js
 // and imported at the top of this file.
@@ -854,6 +941,185 @@ app.post(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// Audit log — read side. Entries are written by auditMiddleware above; nothing
+// here creates them except the narrow client-event endpoint (logout).
+// Admin-only, matching the /admin/audit-logs screen on the website.
+// ---------------------------------------------------------------------------
+
+/**
+ * Filterable fields and how their values are matched:
+ *   "enum" → comma-separated list, exact match, OR semantics (multiselect UI)
+ *   "text" → case-insensitive substring (free-text UI)
+ */
+const AUDIT_FILTER_FIELDS = {
+  action: "enum",
+  resourceType: "enum",
+  severity: "enum",
+  method: "enum",
+  success: "enum",
+  actorEmail: "text",
+  actorName: "text",
+  entityId: "text",
+  path: "text",
+  detail: "text",
+  ip: "text",
+  requestId: "text",
+};
+
+const AUDIT_PAGE_SIZE_MAX = 100;
+const AUDIT_DEFAULT_WINDOW_DAYS = 7;
+
+/** GET /audit-logs/filter-options — dropdown values for the enum filters. */
+app.get(
+  "/audit-logs/filter-options",
+  verifyGoogleToken,
+  requireAdmin,
+  (req, res) => {
+    // Derived from the AUDIT_ACTIONS table, so the UI never hard-codes actions.
+    return res.json({
+      fields: AUDIT_FILTER_FIELDS,
+      options: auditActions.filterOptions(),
+    });
+  },
+);
+
+/**
+ * GET /audit-logs — paged, filtered audit trail (newest first).
+ *
+ * The date range is the only Firestore-side filter, so the query needs no
+ * composite index; field/q filtering happens in memory afterwards, which is
+ * comfortable at this scale (30-day retention, tens of teachers).
+ * SCALING NOTE: past roughly 50k documents in the retention window, move the
+ * enum filters (action / resourceType / severity) into .where() clauses and add
+ * the matching composite indexes with createdAt.
+ */
+app.get("/audit-logs", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const field = Object.prototype.hasOwnProperty.call(
+      AUDIT_FILTER_FIELDS,
+      req.query.field,
+    )
+      ? req.query.field
+      : "action";
+    const fieldType = AUDIT_FILTER_FIELDS[field];
+    const rawQuery = (req.query.q || "").toString().trim();
+
+    const pageSize = Math.min(
+      Math.max(Number(req.query.pageSize) || 50, 1),
+      AUDIT_PAGE_SIZE_MAX,
+    );
+    const page = Math.max(Number(req.query.page) || 1, 1);
+
+    const from = req.query.from
+      ? new Date(req.query.from)
+      : new Date(Date.now() - AUDIT_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    // A date-only "to" means the whole of that day.
+    const to = req.query.to
+      ? new Date(`${req.query.to}T23:59:59.999`)
+      : new Date();
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return res.status(400).json({ error: "invalid_date_range" });
+    }
+
+    const snapshot = await db
+      .collection("auditLogs")
+      .where("createdAt", ">=", admin.firestore.Timestamp.fromDate(from))
+      .where("createdAt", "<=", admin.firestore.Timestamp.fromDate(to))
+      .orderBy("createdAt", "desc")
+      .get();
+
+    let rows = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      rows.push({
+        id: doc.id,
+        requestId: data.requestId ?? "",
+        createdAt: data.createdAt?.toDate?.().toISOString() ?? null,
+        actorEmail: data.actorEmail ?? "",
+        actorName: data.actorName ?? "",
+        actorResolvedFrom: data.actorResolvedFrom ?? "unknown",
+        action: data.action ?? "",
+        resourceType: data.resourceType ?? "",
+        severity: data.severity ?? "INFO",
+        method: data.method ?? "",
+        path: data.path ?? "",
+        entityId: data.entityId ?? "",
+        statusCode: data.statusCode ?? null,
+        success: data.success !== false,
+        durationMs: data.durationMs ?? null,
+        detail: data.detail ?? "",
+        ip: data.ip ?? "",
+      });
+    });
+
+    if (rawQuery) {
+      if (fieldType === "enum") {
+        const wanted = new Set(
+          rawQuery
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        );
+        if (wanted.size > 0) {
+          rows = rows.filter((row) => wanted.has(String(row[field])));
+        }
+      } else {
+        const needle = rawQuery.toLowerCase();
+        rows = rows.filter((row) =>
+          String(row[field] ?? "")
+            .toLowerCase()
+            .includes(needle),
+        );
+      }
+    }
+
+    const total = rows.length;
+    const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * pageSize;
+    const results = rows.slice(start, start + pageSize);
+
+    return res.json({ results, total, page: safePage, pageSize, totalPages });
+  } catch (err) {
+    console.error("[AUDIT] list error:", err);
+    return res.status(500).json({ error: "failed_to_list" });
+  }
+});
+
+/**
+ * POST /audit-logs/client-event — records the few actions that never reach a
+ * route of their own (logout). Only whitelisted action names are accepted and
+ * the actor always comes from the token, so a client cannot forge entries.
+ */
+app.post("/audit-logs/client-event", verifyGoogleToken, async (req, res) => {
+  const action = String(req.body?.action || "");
+  const config = auditActions.CLIENT_ACTIONS[action];
+  if (!config) {
+    return res.status(400).json({ error: "unknown_client_action" });
+  }
+  const actor = await auditLog.resolveActor(db, req.userEmail);
+  await auditLog.recordAudit(db, admin, {
+    requestId: req.requestId,
+    actorEmail: req.userEmail,
+    actorName: actor.name,
+    actorId: actor.id,
+    actorResolvedFrom: "token",
+    action,
+    resourceType: config.resourceType,
+    severity: config.severity,
+    method: "CLIENT",
+    path: `/client/${action}`,
+    statusCode: 200,
+    success: true,
+    durationMs: 0,
+    detail: "",
+    ip: (req.headers["x-forwarded-for"] || "").split(",")[0] || req.ip,
+    userAgent: req.headers["user-agent"] || "",
+  });
+  return res.json({ ok: true });
+});
 
 // ---------------------------------------------------------------------------
 // TeacherPoint — point balance per teacher (1 point spent per student doc whose
@@ -2025,6 +2291,20 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
       // Gmail is temporarily optional; only require a name.
       .filter((student) => student.name);
 
+    // One Google Doc belongs to exactly one student, so refuse the whole batch
+    // when a doc id is already taken in this class or repeated in the payload.
+    // The UI checks this too; this is the guard against a double submit or a
+    // co-teacher adding the same student at the same time.
+    const existingSnapshot = await db
+      .collection("students")
+      .where("classId", "==", classId)
+      .get();
+    const existingStudents = existingSnapshot.docs.map((doc) => doc.data());
+    const duplicates = findDuplicateDocs(studentsToSave, existingStudents);
+    if (duplicates.length > 0) {
+      return res.status(409).json({ error: "duplicate_doc", duplicates });
+    }
+
     studentsToSave.forEach((student) => {
       const docRef = db.collection("students").doc();
       batch.set(docRef, {
@@ -2037,6 +2317,50 @@ app.post("/students", verifyGoogleToken, async (req, res) => {
   } catch (error) {
     console.error("Error saving students:", error);
     res.status(500).json({ error: "Failed to save students" });
+  }
+});
+
+/**
+ * Remove several students from their class at once. A student belongs to a class
+ * through their own `classId` field, so removing them from the class means
+ * deleting the student document.
+ *
+ * Declared before DELETE /students/:id so "bulk-delete" is never read as an id.
+ */
+app.post("/students/bulk-delete", verifyGoogleToken, async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids is required" });
+    }
+
+    const refs = ids.map((id) => db.collection("students").doc(String(id)));
+    const CHUNK = 400; // Firestore batch limit is 500.
+    for (let i = 0; i < refs.length; i += CHUNK) {
+      const batch = db.batch();
+      refs.slice(i, i + CHUNK).forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
+
+    res.json({ success: true, deleted: refs.length });
+  } catch (error) {
+    console.error("Error deleting students:", error);
+    res.status(500).json({ error: "Failed to delete students" });
+  }
+});
+
+/** Remove one student from their class (deletes the student document). */
+app.delete("/students/:id", verifyGoogleToken, async (req, res) => {
+  try {
+    const ref = db.collection("students").doc(req.params.id);
+    if (!(await ref.get()).exists) {
+      return res.status(404).json({ error: "student_not_found" });
+    }
+    await ref.delete();
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting student:", error);
+    res.status(500).json({ error: "Failed to delete student" });
   }
 });
 
