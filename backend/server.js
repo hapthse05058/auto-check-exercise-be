@@ -21,8 +21,6 @@ const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const teacherFilter = require("./lib/teacherFilter.js");
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
@@ -36,7 +34,18 @@ const JWT_SECRET =
 // feedback is keyed on promptVersion + model + question + answer.
 const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
 app.use(cors());
-// Increase allowed payload size to avoid PayloadTooLargeError for large requests
+// Body size limit. Register the parsers EXACTLY ONCE: body-parser sets
+// req._body after the first parse, so an earlier app.use(express.json())
+// without a limit would win and silently cap every request at its 100kb
+// default, turning these two lines into a no-op. That is precisely what made
+// buổi 16/17 fail with "Payload Too Large" - those lessons put "câu đơn" +
+// "câu phức" in one cell, so a class of ~23 students already exceeded 100kb.
+//
+// cors() must stay ABOVE these: PayloadTooLargeError is raised inside the
+// parser and jumps straight to the error handler, skipping every plain
+// middleware that follows. Mounted below, cors() would be skipped on exactly
+// the response that needs it, and the browser would report an opaque network
+// error instead of the real 413.
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
