@@ -151,16 +151,19 @@ test("matchAction: more specific point routes win over /teacher-points/:id", () 
     "points.topup",
   );
   assert.equal(
-    matchAction("POST", "/teacher-points/consume").action,
-    "points.consume",
-  );
-  assert.equal(
     matchAction("PATCH", "/teacher-points/abc").action,
     "points.update",
   );
   assert.equal(
     matchAction("DELETE", "/teacher-points/abc").action,
     "points.delete",
+  );
+});
+
+test("matchAction: the run summary replaces the per-charge point entry", () => {
+  assert.equal(
+    matchAction("POST", "/grading-summary").action,
+    "grading.pointsSummary",
   );
 });
 
@@ -224,6 +227,8 @@ test("shouldAudit: writes yes, reads and token churn no", () => {
   assert.equal(shouldAudit("GET", "/auth/google-token"), false);
   // Writes its own entry (auth.logout); auditing the POST too would double-log.
   assert.equal(shouldAudit("POST", "/audit-logs/client-event"), false);
+  // Charges fire many times per grading run; /grading-summary covers the run.
+  assert.equal(shouldAudit("POST", "/teacher-points/consume"), false);
 });
 
 // --- entityIdFromPath -----------------------------------------------------

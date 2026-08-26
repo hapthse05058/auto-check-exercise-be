@@ -121,7 +121,9 @@ function auditMiddleware(req, res, next) {
         statusCode,
         success,
         durationMs: Date.now() - startedAt,
-        detail: auditLog.summarizeBody(body),
+        // A route that knows a readable summary of itself sets
+        // res.locals.auditDetail; everything else falls back to the body.
+        detail: res.locals.auditDetail ?? auditLog.summarizeBody(body),
         ip: (req.headers["x-forwarded-for"] || "").split(",")[0] || req.ip,
         userAgent: req.headers["user-agent"] || "",
       });
@@ -445,6 +447,16 @@ function gradingCacheId(question, answer, model) {
   return gradingCacheKey(PROMPT_VERSION, model, question, answer);
 }
 
+/**
+ * Deterministic TeacherPointLedger document id — the receipt for one student
+ * doc. Keyed on payer + doc + lesson so charging the same doc twice (a retry,
+ * a re-run) is a no-op instead of a double charge.
+ */
+function pointLedgerId(payerTeacherId, docId, lessonId) {
+  const raw = `${payerTeacherId}|${normalizeForKey(docId)}|${normalizeForKey(lessonId)}`;
+  return crypto.createHash("sha1").update(raw).digest("hex");
+}
+
 // Admin allow-list for the gradingCache management endpoints (comma-separated).
 const ADMIN_EMAILS = (
   process.env.ADMIN_EMAILS || "phamhongha.innerpiece@gmail.com"
@@ -542,6 +554,26 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
+  }
+
+  // Audit detail for this run. The default (a truncated dump of `items`) tells
+  // an admin nothing, so name the class and lesson and say how much work this
+  // run represents. Never let a failure here break the grading itself.
+  try {
+    const [classSnap, lessonSnap] = await Promise.all([
+      req.body.classId
+        ? db.collection("classes").doc(String(req.body.classId)).get()
+        : null,
+      req.body.lessonId
+        ? db.collection("lesson").doc(String(req.body.lessonId)).get()
+        : null,
+    ]);
+    res.locals.auditDetail =
+      `Lớp: ${classSnap?.data()?.name || "?"} · ` +
+      `Buổi: ${lessonSnap?.data()?.name || "?"} · ` +
+      `Số bài chưa chấm: ${Number(req.body.pendingCount) || 0}`;
+  } catch (err) {
+    console.error("[GRADE-CACHED] audit detail failed:", err);
   }
 
   try {
@@ -1161,15 +1193,38 @@ async function findTeacherByEmail(email) {
   return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
 }
 
+/**
+ * Resolves WHO PAYS for grading a class.
+ *
+ * Admins grade on behalf of the class's teacher, so the class record decides;
+ * everyone else pays for themselves. Always resolved here from `classes`, never
+ * taken from the request body — otherwise a teacher could bill someone else.
+ * A class carries `teacherId` as an ARRAY; the first entry is the owner.
+ */
+async function resolvePayer(callerEmail, classId) {
+  const isAdmin = ADMIN_EMAILS.includes((callerEmail || "").toLowerCase());
+  if (!isAdmin) return findTeacherByEmail(callerEmail);
+  if (!classId) return null;
+  const classSnap = await db.collection("classes").doc(String(classId)).get();
+  if (!classSnap.exists) return null;
+  const teacherIds = Array.isArray(classSnap.data().teacherId)
+    ? classSnap.data().teacherId
+    : [];
+  if (!teacherIds.length) return null; // class with no teacher — nobody to bill
+  const snap = await db.collection("teachers").doc(teacherIds[0]).get();
+  return snap.exists ? { id: snap.id, ...snap.data() } : null;
+}
+
 /** Current point balance of the logged-in teacher (0 when no record yet). */
 app.get("/teacher-points/me", verifyGoogleToken, async (req, res) => {
   try {
-    const snap = await db
-      .collection("TeacherPoint")
-      .where("gmail", "==", (req.userEmail || "").toLowerCase())
-      .limit(1)
-      .get();
-    const point = snap.empty ? 0 : (snap.docs[0].data().point ?? 0);
+    // Resolve through the teacher record: TeacherPoint is keyed BY TEACHER ID
+    // and that is the doc /teacher-points/consume debits. Querying by gmail
+    // here instead would read one record while the charge lands on another.
+    const teacher = await findTeacherByEmail(req.userEmail);
+    if (!teacher) return res.json({ point: 0 });
+    const snap = await db.collection("TeacherPoint").doc(teacher.id).get();
+    const point = snap.exists ? (snap.data().point ?? 0) : 0;
     return res.json({ point });
   } catch (err) {
     console.error("[TEACHER-POINTS] me error:", err);
@@ -1177,40 +1232,149 @@ app.get("/teacher-points/me", verifyGoogleToken, async (req, res) => {
   }
 });
 
-/** Spends `count` points for the logged-in teacher (after successful writes). */
+/**
+ * Balance of whoever pays for grading this class — the class's teacher when an
+ * admin is grading, the caller otherwise. Lets the grading screen check the
+ * right person's balance before it writes anything into a student doc.
+ */
+app.get("/teacher-points/payer", verifyGoogleToken, async (req, res) => {
+  try {
+    const payer = await resolvePayer(req.userEmail, req.query.classId);
+    if (!payer) return res.status(403).json({ error: "payer_not_found" });
+    const snap = await db.collection("TeacherPoint").doc(payer.id).get();
+    return res.json({
+      point: snap.exists ? (snap.data().point ?? 0) : 0,
+      teacherId: payer.id,
+      teacherName: payer.name || payer.gmail || "",
+    });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] payer error:", err);
+    return res.status(500).json({ error: "failed_to_get_payer" });
+  }
+});
+
+/**
+ * Spends 1 point per student doc whose feedback was just written.
+ *
+ * The client sends the docs it has finished, NOT an amount: what those docs
+ * cost is the server's decision. Each doc gets a TeacherPointLedger receipt
+ * keyed by pointLedgerId(), and only docs without one are billable — so a
+ * retry (whole or partial) settles exactly what is still owed and never
+ * double-charges. The balance check and the debit share one transaction, which
+ * is what keeps the balance from going negative.
+ */
 app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
   try {
-    const count = Number(req.body.count);
-    if (!Number.isFinite(count) || count <= 0) {
-      return res.status(400).json({ error: "invalid_count" });
+    const docIds = [
+      ...new Set(
+        (Array.isArray(req.body.docIds) ? req.body.docIds : [])
+          .filter(Boolean)
+          .map(String),
+      ),
+    ];
+    if (!docIds.length || docIds.length > 10) {
+      return res.status(400).json({ error: "invalid_doc_ids" });
     }
-    const teacher = await findTeacherByEmail(req.userEmail);
-    if (!teacher) {
-      return res.status(403).json({ error: "teacher_not_found" });
+    const payer = await resolvePayer(req.userEmail, req.body.classId);
+    if (!payer) {
+      return res.status(403).json({ error: "payer_not_found" });
     }
-    const ref = db.collection("TeacherPoint").doc(teacher.id);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      await ref.set({
-        teacherId: teacher.id,
-        gmail: teacher.gmail,
-        name: teacher.name || "",
-        point: -count,
-        topUpHistory: [],
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+
+    const lessonId = req.body.lessonId || null;
+    const pointRef = db.collection("TeacherPoint").doc(payer.id);
+    const ledgerRefs = docIds.map((docId) =>
+      db
+        .collection("TeacherPointLedger")
+        .doc(pointLedgerId(payer.id, docId, lessonId)),
+    );
+
+    const result = await db.runTransaction(async (tx) => {
+      // Every read must happen before the first write in a transaction.
+      const ledgerSnaps = await tx.getAll(...ledgerRefs);
+      const pointSnap = await tx.get(pointRef);
+      const current = pointSnap.exists ? (pointSnap.data().point ?? 0) : 0;
+
+      const billable = docIds.filter((_, i) => !ledgerSnaps[i].exists);
+      if (!billable.length) return { point: current, charged: 0 };
+      if (current < billable.length) {
+        return { point: current, charged: 0, need: billable.length };
+      }
+
+      // set+merge with increment also covers "no record yet", so there is no
+      // read-then-create race between two concurrent charges.
+      tx.set(
+        pointRef,
+        {
+          teacherId: payer.id,
+          gmail: payer.gmail || "",
+          name: payer.name || "",
+          point: admin.firestore.FieldValue.increment(-billable.length),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      billable.forEach((docId) => {
+        tx.set(
+          db
+            .collection("TeacherPointLedger")
+            .doc(pointLedgerId(payer.id, docId, lessonId)),
+          {
+            payerTeacherId: payer.id,
+            classId: req.body.classId || null,
+            docId,
+            lessonId,
+            chargedByEmail: req.userEmail,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        );
       });
-      return res.json({ point: -count });
-    }
-    await ref.update({
-      point: admin.firestore.FieldValue.increment(-count),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      return { point: current - billable.length, charged: billable.length };
     });
-    const updated = await ref.get();
-    return res.json({ point: updated.data().point ?? 0 });
+
+    if (result.need) {
+      return res.status(402).json({
+        error: "insufficient_points",
+        point: result.point,
+        need: result.need,
+      });
+    }
+    return res.json({
+      point: result.point,
+      charged: result.charged,
+      payerTeacherId: payer.id,
+      payerName: payer.name || payer.gmail || "",
+    });
   } catch (err) {
     console.error("[TEACHER-POINTS] consume error:", err);
     return res.status(500).json({ error: "failed_to_consume" });
+  }
+});
+
+/**
+ * One audit line closing out a grading run: which class, which lesson, how many
+ * points it cost. The individual charges are deliberately NOT audited (there
+ * are many per run) — TeacherPointLedger is the per-doc record of the spend.
+ */
+app.post("/grading-summary", verifyGoogleToken, async (req, res) => {
+  try {
+    const [payer, classSnap, lessonSnap] = await Promise.all([
+      resolvePayer(req.userEmail, req.body.classId),
+      req.body.classId
+        ? db.collection("classes").doc(String(req.body.classId)).get()
+        : null,
+      req.body.lessonId
+        ? db.collection("lesson").doc(String(req.body.lessonId)).get()
+        : null,
+    ]);
+    res.locals.auditDetail =
+      `Lớp: ${classSnap?.data()?.name || "?"} · ` +
+      `Buổi: ${lessonSnap?.data()?.name || "?"} · ` +
+      `Tổng point bị trừ: ${Number(req.body.totalPoints) || 0} · ` +
+      `GV: ${payer?.name || payer?.gmail || "?"}`;
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[TEACHER-POINTS] grading summary error:", err);
+    return res.status(500).json({ error: "failed_to_record_summary" });
   }
 });
 

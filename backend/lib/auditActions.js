@@ -115,15 +115,19 @@ const AUDIT_ACTIONS = [
     resourceType: "grading",
     severity: "INFO",
   },
-
-  // --- points (money) ---
+  // Closes out a run: class, lesson, and the total points it cost. Stands in
+  // for the per-charge entries that SKIP_PATHS drops.
   {
     method: "POST",
-    pattern: /^\/teacher-points\/consume$/,
-    action: "points.consume",
+    pattern: /^\/grading-summary$/,
+    action: "grading.pointsSummary",
     resourceType: "points",
     severity: "INFO",
   },
+
+  // --- points (money) ---
+  // NOTE: /teacher-points/consume is NOT here — see SKIP_PATHS. One grading run
+  // charges repeatedly, so auditing each charge buries every real action.
   // Must precede /teacher-points/:id — the topup path has an extra segment.
   {
     method: "POST",
@@ -233,12 +237,17 @@ const AUDITED_GETS = [];
  * proactiveTokenRefresh every 60s per open tab; auditing them would bury the
  * real actions. /audit-logs/client-event writes its own (meaningful) entry, so
  * auditing the POST as well would double-log every logout.
+ *
+ * /teacher-points/consume fires once per pair of graded docs, so a single class
+ * would add dozens of rows. The money trail is not lost: every charge writes a
+ * TeacherPointLedger receipt, and /grading-summary logs one row per run.
  */
 const SKIP_PATHS = [
   "/auth/refresh",
   "/auth/google-token",
   "/exchange-token",
   "/audit-logs/client-event",
+  "/teacher-points/consume",
 ];
 
 /** Actions the middleware never produces, so filter-options must add them. */
