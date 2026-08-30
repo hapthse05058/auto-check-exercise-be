@@ -1366,10 +1366,12 @@ app.post("/grading-summary", verifyGoogleToken, async (req, res) => {
         ? db.collection("lesson").doc(String(req.body.lessonId)).get()
         : null,
     ]);
+    // Point total leads: the audit screen clips the detail column at 220px, so
+    // whatever comes first is the only part read without hovering.
     res.locals.auditDetail =
+      `Tổng point bị trừ: ${Number(req.body.totalPoints) || 0} · ` +
       `Lớp: ${classSnap?.data()?.name || "?"} · ` +
       `Buổi: ${lessonSnap?.data()?.name || "?"} · ` +
-      `Tổng point bị trừ: ${Number(req.body.totalPoints) || 0} · ` +
       `GV: ${payer?.name || payer?.gmail || "?"}`;
     return res.json({ ok: true });
   } catch (err) {
@@ -1377,6 +1379,46 @@ app.post("/grading-summary", verifyGoogleToken, async (req, res) => {
     return res.status(500).json({ error: "failed_to_record_summary" });
   }
 });
+
+/**
+ * One audit line for a "clear feedback" run. Like /grading-summary, the real
+ * work happens browser-side against the Docs API, so nothing else would record
+ * it. Admin-only, mirroring the button that triggers it.
+ */
+app.post(
+  "/feedback-clear-summary",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      // Firestore .doc("") throws, and String() on an array/object yields a
+      // junk id ("a,b", "[object Object]") — reject both up front.
+      const classId = String(req.body?.classId || "");
+      const lessonId = String(req.body?.lessonId || "");
+      if (!classId || !lessonId) {
+        return res
+          .status(400)
+          .json({ error: "classId and lessonId are required" });
+      }
+      const clearedDocs = Math.max(0, Number(req.body?.clearedDocs) || 0);
+      const clearedCells = Math.max(0, Number(req.body?.clearedCells) || 0);
+
+      const [classSnap, lessonSnap] = await Promise.all([
+        db.collection("classes").doc(classId).get(),
+        db.collection("lesson").doc(lessonId).get(),
+      ]);
+      res.locals.auditDetail =
+        `Số ô đã xóa: ${clearedCells} · ` +
+        `Số tài liệu: ${clearedDocs} · ` +
+        `Lớp: ${classSnap.data()?.name || "?"} · ` +
+        `Buổi: ${lessonSnap.data()?.name || "?"}`;
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error("[FEEDBACK-CLEAR] summary error:", err);
+      return res.status(500).json({ error: "failed_to_record_summary" });
+    }
+  },
+);
 
 /** Admin: list teachers (for the create dropdown). */
 app.get("/teachers", verifyGoogleToken, requireAdmin, async (req, res) => {
@@ -2646,12 +2688,23 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
     }
 
     const classRef = db.collection("classes").doc(classId);
-    const classDoc = await classRef.get();
+    // The lesson doc is read only for the audit line; both ids are already
+    // guarded non-empty above, so neither .doc() call can throw on "".
+    const [classDoc, lessonSnap] = await Promise.all([
+      classRef.get(),
+      db.collection("lesson").doc(String(currentLesson)).get(),
+    ]);
     if (!classDoc.exists) {
       return res.status(404).json({ error: "Class not found" });
     }
 
     await classRef.update({ currentLesson });
+    // Without this the middleware falls back to summarizeBody(), which dumps
+    // opaque Firestore ids — unreadable in the audit log. Lesson names already
+    // start with "BUỔI", so no extra "buổi" word here.
+    res.locals.auditDetail =
+      `Đổi thành ${lessonSnap.data()?.name || currentLesson} ` +
+      `cho lớp ${classDoc.data()?.name || classId}`;
     res.json({ success: true, currentLesson });
   } catch (error) {
     console.error("Error updating current lesson:", error);

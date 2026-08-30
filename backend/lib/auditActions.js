@@ -125,6 +125,16 @@ const AUDIT_ACTIONS = [
     severity: "INFO",
   },
 
+  // Feedback is written to (and cleared from) Google Docs straight from the
+  // browser, so no route ever sees it — the website reports the run itself.
+  {
+    method: "POST",
+    pattern: /^\/feedback-clear-summary$/,
+    action: "doc.feedback.clear",
+    resourceType: "grading",
+    severity: "WARN",
+  },
+
   // --- points (money) ---
   // NOTE: /teacher-points/consume is NOT here — see SKIP_PATHS. One grading run
   // charges repeatedly, so auditing each charge buries every real action.
