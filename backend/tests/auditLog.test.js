@@ -257,3 +257,64 @@ test("filterOptions: derived from the action table, no hard-coded copy", () => {
   assert.deepEqual(options.severity, ["INFO", "WARN", "CRITICAL"]);
   assert.deepEqual(options.success, ["true", "false"]);
 });
+
+// --- push/FCM token redaction ---------------------------------------------
+
+test("redact: hides FCM / web-push registration tokens under every spelling", () => {
+  const out = redact({
+    token: "fcm-A",
+    fcmToken: "fcm-B",
+    fcm_token: "fcm-C",
+    registrationToken: "fcm-D",
+    deviceToken: "fcm-E",
+    messagingToken: "fcm-F",
+    vapidKey: "vapid-G",
+    tokenHash: "safe-hash",
+  });
+  for (const key of [
+    "token",
+    "fcmToken",
+    "fcm_token",
+    "registrationToken",
+    "deviceToken",
+    "messagingToken",
+    "vapidKey",
+  ]) {
+    assert.equal(out[key], "[REDACTED]", `${key} must be redacted`);
+  }
+  // tokenHash is a SHA-256 digest, not a capability — it stays readable so the
+  // admin screen can still identify which device a row is about.
+  assert.equal(out.tokenHash, "safe-hash");
+});
+
+test("redact: a push token nested in a device registration body is caught", () => {
+  const out = redact({
+    device: { platform: "web", fcmToken: "fcm-secret" },
+    devices: [{ registration_token: "fcm-secret-2" }],
+  });
+  assert.equal(out.device.fcmToken, "[REDACTED]");
+  assert.equal(out.devices[0].registration_token, "[REDACTED]");
+});
+
+// --- notification / balance routes ----------------------------------------
+
+test("entityIdFromPath: notification and balance routes", () => {
+  assert.equal(entityIdFromPath("/notifications/abc123/read"), "abc123");
+  assert.equal(entityIdFromPath("/notifications/read-all"), null);
+  assert.equal(entityIdFromPath("/notifications/devices"), null);
+  // Only the SHA-256 hash appears in the URL, never the token itself.
+  assert.equal(entityIdFromPath("/notifications/devices/deadbeef"), "deadbeef");
+});
+
+test("filterOptions: includes background SYSTEM actions the middleware never sees", () => {
+  const options = filterOptions();
+  assert.ok(options.action.includes("ai.lowBalanceAlert"));
+  assert.ok(options.action.includes("ai.balanceUnavailable"));
+  assert.ok(options.action.includes("ai.balanceRecovered"));
+  assert.ok(options.action.includes("ai.balanceCheckFailed"));
+  assert.ok(options.action.includes("ai.balanceCheck.manual")); // route-produced
+  assert.ok(options.action.includes("notification.device.register"));
+  assert.ok(options.resourceType.includes("ai"));
+  assert.ok(options.resourceType.includes("notification"));
+  assert.ok(options.method.includes("SYSTEM"));
+});

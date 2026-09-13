@@ -11,8 +11,10 @@
  * Audit log section of README.md and scripts/purgeAuditLogs.js.
  */
 
-/** Retention window. Also documented in README.md (TTL policy) — keep in sync. */
-const AUDIT_RETENTION_DAYS = 30;
+/** Retention window. Also documented in README.md (TTL policy) — keep in sync.
+ *  Changing this only affects NEW rows; documents already written keep the
+ *  expireAt they were stamped with. */
+const AUDIT_RETENTION_DAYS = 60;
 
 /** `detail` is a debugging aid, not a data mirror — cap it hard. */
 const MAX_DETAIL_LENGTH = 500;
@@ -36,6 +38,18 @@ const REDACT_KEYS = [
   "currentpassword",
   "confirmpassword",
   "token",
+  // FCM/web-push registration tokens: a capability to push to a device,
+  // so they must never be readable from an audit row.
+  "fcmtoken",
+  "fcm_token",
+  "registrationtoken",
+  "registration_token",
+  "devicetoken",
+  "device_token",
+  "messagingtoken",
+  "messaging_token",
+  "vapidkey",
+  "vapid_key",
   "refreshtoken",
   "refresh_token",
   "accesstoken",

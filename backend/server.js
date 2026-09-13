@@ -15,9 +15,12 @@ const OpenAI = require("openai");
 // `serviceAccountPath` is reused below for the Google Docs auth client.
 const auditActions = require("./lib/auditActions.js");
 const auditLog = require("./lib/auditLog.js");
+const balanceMonitor = require("./lib/balanceMonitor.js");
 const billing = require("./lib/billing.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
+const notifications = require("./lib/notifications.js");
+const pushDevices = require("./lib/pushDevices.js");
 const teacherFilter = require("./lib/teacherFilter.js");
 
 const app = express();
@@ -396,6 +399,16 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
       model,
     );
 
+    // Same opportunistic balance check as /grade-cached (throttled inside).
+    balanceMonitor
+      .maybeCheckAndAlert({
+        db,
+        admin,
+        adminEmails: ADMIN_EMAILS,
+        requestId: req.requestId,
+      })
+      .catch((err) => console.error("[BALANCE] check failed:", err.message));
+
     if (!aiResponse) {
       throw new Error("Assistant returned no output.");
     }
@@ -669,6 +682,22 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
         }
       });
       await runWithConcurrency(tasks, CONCURRENCY);
+
+      // Opportunistic DeepSeek balance check (throttled to ~1/hour inside).
+      // Deliberately NOT awaited and NOT in res.on("finish"): steps 5-7 below
+      // still run, so this finishes while Cloud Run still guarantees CPU.
+      // Placed BEFORE the "every group failed" throw on purpose — a drained
+      // account is exactly what makes every group fail, so this is the most
+      // valuable moment to look. .catch() is mandatory: an unhandled rejection
+      // would take the process down.
+      balanceMonitor
+        .maybeCheckAndAlert({
+          db,
+          admin,
+          adminEmails: ADMIN_EMAILS,
+          requestId: req.requestId,
+        })
+        .catch((err) => console.error("[BALANCE] check failed:", err.message));
 
       // If EVERY group failed (e.g. a misconfigured AI key/model in this
       // environment), the AI produced no feedback at all. Returning
@@ -1163,6 +1192,157 @@ app.post("/audit-logs/client-event", verifyGoogleToken, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Notifications — the in-app bell + FCM web-push device registry.
+//
+// Two producers today: the DeepSeek balance monitor (lib/balanceMonitor.js),
+// addressed to ADMIN_EMAILS, and "an admin graded on your behalf", addressed to
+// the class's own teacher (see POST /grading-summary).
+//
+// AUTHORISATION IS BY RECIPIENT, NOT BY ROLE — which is why these routes carry
+// verifyGoogleToken but deliberately NOT requireAdmin. Every read is scoped to
+// req.userEmail through the `recipients` array inside lib/notifications.js, so a
+// teacher sees their own notifications and cannot see an admin's balance alert
+// (their address is not in its recipients; mark-read on it returns 404). Adding
+// requireAdmin back would not harden anything — it would just lock teachers out
+// of their own bell.
+//
+// GET /notifications is deliberately NOT in AUDITED_GETS — the bell polls it
+// every 60s per open tab, and auditing it would bury the real actions, exactly
+// like /auth/refresh already does via SKIP_PATHS.
+// ---------------------------------------------------------------------------
+
+app.get("/notifications", verifyGoogleToken, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const result = await notifications.listNotifications(db, {
+      email: req.userEmail,
+      limit,
+      unreadOnly: req.query.status === "unread",
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error("[NOTIFY] list failed:", err.message);
+    return res.status(500).json({ error: "notifications_list_failed" });
+  }
+});
+
+app.post("/notifications/read-all", verifyGoogleToken, async (req, res) => {
+  try {
+    const count = await notifications.markAllRead(db, admin, req.userEmail);
+    res.locals.auditDetail = `Đánh dấu đã đọc ${count} thông báo`;
+    return res.json({ ok: true, count });
+  } catch (err) {
+    console.error("[NOTIFY] read-all failed:", err.message);
+    return res.status(500).json({ error: "notifications_read_all_failed" });
+  }
+});
+
+app.post("/notifications/:id/read", verifyGoogleToken, async (req, res) => {
+  try {
+    const ok = await notifications.markRead(
+      db,
+      admin,
+      req.params.id,
+      req.userEmail,
+    );
+    if (!ok) return res.status(404).json({ error: "notification_not_found" });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[NOTIFY] read failed:", err.message);
+    return res.status(500).json({ error: "notification_read_failed" });
+  }
+});
+
+/**
+ * Registers (or refreshes) this browser's FCM token.
+ *
+ * The body field is named `token` ON PURPOSE: auditLog's REDACT_KEYS masks it,
+ * so the raw registration token — a capability to push to that device — never
+ * lands in an audit row. That leaves the audit body useless, hence the explicit
+ * auditDetail below. The response returns only the SHA-256 hash, which is what
+ * the client stores and what the unregister URL carries.
+ */
+app.post("/notifications/devices", verifyGoogleToken, async (req, res) => {
+  const token = String(req.body?.token || "").trim();
+  if (!token) return res.status(400).json({ error: "missing_token" });
+
+  try {
+    const teacher = await findTeacherByEmail(req.userEmail);
+    const { tokenHash, created } = await pushDevices.saveDevice(db, admin, {
+      token,
+      email: req.userEmail,
+      teacherId: teacher?.id || null,
+      userAgent: req.headers["user-agent"] || "",
+      platform: String(req.body?.platform || "web"),
+    });
+    res.locals.auditDetail =
+      `FCM device ${tokenHash.slice(0, 12)}… ` +
+      `(${req.body?.platform || "web"}) cho ${req.userEmail}` +
+      (created ? " — đăng ký mới" : " — làm mới");
+    return res.json({ ok: true, tokenHash });
+  } catch (err) {
+    console.error("[PUSH] register failed:", err.message);
+    return res.status(500).json({ error: "device_register_failed" });
+  }
+});
+
+app.delete(
+  "/notifications/devices/:tokenHash",
+  verifyGoogleToken,
+  async (req, res) => {
+    try {
+      const removed = await pushDevices.removeDevice(
+        db,
+        req.params.tokenHash,
+        req.userEmail,
+      );
+      res.locals.auditDetail = `Huỷ đăng ký FCM device ${String(
+        req.params.tokenHash,
+      ).slice(0, 12)}…`;
+      return res.json({ ok: true, removed });
+    } catch (err) {
+      console.error("[PUSH] unregister failed:", err.message);
+      return res.status(500).json({ error: "device_unregister_failed" });
+    }
+  },
+);
+
+/**
+ * Manual DeepSeek balance check. `?force=1` bypasses BOTH the hourly throttle
+ * and the re-alert gate, which is what makes the feature testable without
+ * waiting an hour or actually draining the account (raise the threshold env var
+ * instead — see the plan's verification section).
+ */
+app.post(
+  "/admin/deepseek-balance/check",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const force = ["1", "true", "yes"].includes(
+        String(req.query.force || "").toLowerCase(),
+      );
+      const result = await balanceMonitor.maybeCheckAndAlert({
+        db,
+        admin,
+        adminEmails: ADMIN_EMAILS,
+        force,
+        requestId: req.requestId,
+      });
+      res.locals.auditDetail = result.skipped
+        ? `Bỏ qua: ${result.skipped}`
+        : `${result.evaluation?.reason || "?"} — ${
+            result.alerted ? "đã gửi cảnh báo" : "không cảnh báo"
+          }`;
+      return res.json(result);
+    } catch (err) {
+      console.error("[BALANCE] manual check failed:", err.message);
+      return res.status(500).json({ error: "balance_check_failed" });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // TeacherPoint — point balance per teacher (1 point spent per student doc whose
 // feedback is written), top-up history, and an admin billing summary.
 //   point = topUpVnd / 700 ;  saler commission = topUpVnd / 700 * 100
@@ -1355,6 +1535,111 @@ app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
  * points it cost. The individual charges are deliberately NOT audited (there
  * are many per run) — TeacherPointLedger is the per-doc record of the spend.
  */
+/**
+ * Notifies a teacher that an admin graded their class on their behalf.
+ *
+ * Only fires when the caller is an admin AND the payer resolved to somebody
+ * else — an admin grading their own class, or a teacher grading normally, is
+ * not news to anyone.
+ *
+ * Deduplicated per class + lesson + DAY via the deterministic notification id,
+ * so several runs on the same lesson in one day collapse onto a single bell
+ * entry. Rewriting that entry deliberately resets readBy and bumps createdAt
+ * (see createNotification), so a later run pops back to the top as unread
+ * instead of silently updating something already dismissed.
+ *
+ * Never throws: the caller fires it without awaiting.
+ */
+async function notifyTeacherGradedByAdmin({
+  actorEmail,
+  payer,
+  classSnap,
+  lessonSnap,
+  classId,
+  lessonId,
+  totalPoints,
+  requestId,
+}) {
+  const actor = String(actorEmail || "").toLowerCase();
+  const recipient = String(payer?.gmail || "").toLowerCase();
+
+  const isAdmin = ADMIN_EMAILS.includes(actor);
+  if (!isAdmin || !recipient || recipient === actor) return;
+  // A closed account should not be pinged, and cannot log in to read it anyway.
+  if (payer?.isAccountActive === false) return;
+  // classId is what the whole notification is keyed on; without it there is
+  // nothing meaningful to dedupe against.
+  const classKey = typeof classId === "string" ? classId.trim() : "";
+  if (!classKey) return;
+
+  const lessonKey = typeof lessonId === "string" ? lessonId.trim() : "";
+  const className = classSnap?.data()?.name || "?";
+  const lessonName = lessonSnap?.data()?.name || "?";
+  // totalPoints comes straight from the browser — display only, never trusted.
+  const count = Math.max(0, Math.trunc(Number(totalPoints) || 0));
+
+  const title = "Admin đã chấm bài giúp bạn";
+  const body =
+    `Lớp ${className} · Buổi ${lessonName}` +
+    (count > 0 ? ` · ${count} bài đã được chấm.` : ".");
+
+  const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const id = notifications.notificationId(
+    "grading.doneByAdmin",
+    `${classKey}|${lessonKey}`,
+    day,
+  );
+
+  const notificationId = await notifications.createNotification(db, admin, {
+    id,
+    type: "grading.doneByAdmin",
+    severity: "INFO",
+    title,
+    body,
+    data: {
+      className,
+      lessonName,
+      totalPoints: count,
+      classId: classKey,
+      lessonId: lessonKey || null,
+      byEmail: actor,
+    },
+    recipients: [recipient],
+    sourceRequestId: requestId || null,
+  });
+
+  // Push is the best-effort half; the bell entry above is already durable.
+  try {
+    const devices = await pushDevices.listActiveTokens(db, [recipient]);
+    const push = await pushDevices.sendPush(admin, db, {
+      tokens: devices,
+      title,
+      body,
+      data: { type: "grading.doneByAdmin", notificationId },
+      link: process.env.PUBLIC_WEB_URL || undefined,
+    });
+    await notifications.recordPushResult(db, admin, notificationId, push);
+  } catch (err) {
+    console.error("[NOTIFY] graded-by-admin push failed:", err.message);
+  }
+
+  // No HTTP request of its own produced this, so the middleware cannot see it.
+  const descriptor = auditActions.SYSTEM_ACTIONS["grading.notifiedTeacher"];
+  await auditLog.recordAudit(db, admin, {
+    requestId: requestId || null,
+    actorEmail: actor,
+    actorResolvedFrom: "token",
+    action: "grading.notifiedTeacher",
+    resourceType: descriptor.resourceType,
+    severity: descriptor.severity,
+    method: "SYSTEM",
+    path: "/system/graded-by-admin",
+    entityId: notificationId,
+    success: true,
+    detail: `Báo cho ${recipient}: ${body}`,
+  });
+}
+
 app.post("/grading-summary", verifyGoogleToken, async (req, res) => {
   try {
     const [payer, classSnap, lessonSnap] = await Promise.all([
@@ -1373,6 +1658,23 @@ app.post("/grading-summary", verifyGoogleToken, async (req, res) => {
       `Lớp: ${classSnap?.data()?.name || "?"} · ` +
       `Buổi: ${lessonSnap?.data()?.name || "?"} · ` +
       `GV: ${payer?.name || payer?.gmail || "?"}`;
+
+    // Tell the teacher when an ADMIN graded their class for them. Best effort
+    // and fully isolated: this route exists to record an audit line, so a
+    // failure here must never turn into an error the grading run sees.
+    notifyTeacherGradedByAdmin({
+      actorEmail: req.userEmail,
+      payer,
+      classSnap,
+      lessonSnap,
+      classId: req.body.classId,
+      lessonId: req.body.lessonId,
+      totalPoints: req.body.totalPoints,
+      requestId: req.requestId,
+    }).catch((err) =>
+      console.error("[NOTIFY] graded-by-admin failed:", err.message),
+    );
+
     return res.json({ ok: true });
   } catch (err) {
     console.error("[TEACHER-POINTS] grading summary error:", err);

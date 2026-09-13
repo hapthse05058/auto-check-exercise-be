@@ -223,6 +223,48 @@ const AUDIT_ACTIONS = [
     resourceType: "auth",
     severity: "CRITICAL",
   },
+
+  // --- notifications (admin) ---
+  // The body field is named `token`, which REDACT_KEYS already masks, so the
+  // FCM token never reaches a row. See the auditDetail set by the route.
+  {
+    method: "POST",
+    pattern: /^\/notifications\/devices$/,
+    action: "notification.device.register",
+    resourceType: "notification",
+    severity: "INFO",
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/notifications\/devices\/[^/]+$/,
+    action: "notification.device.unregister",
+    resourceType: "notification",
+    severity: "INFO",
+  },
+  // Must precede /notifications/:id/read — both are POSTs under /notifications.
+  {
+    method: "POST",
+    pattern: /^\/notifications\/read-all$/,
+    action: "notification.readAll",
+    resourceType: "notification",
+    severity: "INFO",
+  },
+  {
+    method: "POST",
+    pattern: /^\/notifications\/[^/]+\/read$/,
+    action: "notification.read",
+    resourceType: "notification",
+    severity: "INFO",
+  },
+
+  // --- AI provider ---
+  {
+    method: "POST",
+    pattern: /^\/admin\/deepseek-balance\/check$/,
+    action: "ai.balanceCheck.manual",
+    resourceType: "ai",
+    severity: "WARN",
+  },
 ];
 
 /**
@@ -232,6 +274,24 @@ const AUDIT_ACTIONS = [
  */
 const CLIENT_ACTIONS = {
   "auth.logout": { resourceType: "auth", severity: "INFO" },
+};
+
+/**
+ * Background events produced by server-side code with no HTTP request of their
+ * own, so the middleware can never see them — but they must still reach the
+ * audit trail and its filter dropdowns. Written via recordAudit with
+ * method: "SYSTEM" and no actor. Same idea as CLIENT_ACTIONS: this file stays
+ * the single place that knows every action name.
+ */
+const SYSTEM_ACTIONS = {
+  "ai.lowBalanceAlert": { resourceType: "ai", severity: "CRITICAL" },
+  "ai.balanceUnavailable": { resourceType: "ai", severity: "CRITICAL" },
+  "ai.balanceRecovered": { resourceType: "ai", severity: "INFO" },
+  "ai.balanceCheckFailed": { resourceType: "ai", severity: "WARN" },
+  "grading.notifiedTeacher": {
+    resourceType: "notification",
+    severity: "INFO",
+  },
 };
 
 /**
@@ -261,7 +321,10 @@ const SKIP_PATHS = [
 ];
 
 /** Actions the middleware never produces, so filter-options must add them. */
-const EXTRA_ACTIONS = Object.keys(CLIENT_ACTIONS);
+const EXTRA_ACTIONS = [
+  ...Object.keys(CLIENT_ACTIONS),
+  ...Object.keys(SYSTEM_ACTIONS),
+];
 
 /**
  * Resolves a request to its audit descriptor.
@@ -322,6 +385,10 @@ const TRAILING_ACTION_SEGMENTS = [
   "refresh",
   "all",
   "me",
+  "read",
+  "read-all",
+  "devices",
+  "check",
 ];
 
 /**
@@ -362,11 +429,15 @@ function filterOptions() {
   Object.values(CLIENT_ACTIONS).forEach((entry) =>
     resourceTypes.add(entry.resourceType),
   );
+  Object.values(SYSTEM_ACTIONS).forEach((entry) =>
+    resourceTypes.add(entry.resourceType),
+  );
   return {
     action: [...actions].sort(),
     resourceType: [...resourceTypes].sort(),
     severity: [...SEVERITIES],
-    method: ["POST", "PATCH", "PUT", "DELETE", "GET"],
+    // SYSTEM covers background events (SYSTEM_ACTIONS) that no route produces.
+    method: ["POST", "PATCH", "PUT", "DELETE", "GET", "SYSTEM"],
     success: ["true", "false"],
   };
 }
@@ -376,6 +447,7 @@ module.exports = {
   AUDITED_GETS,
   CLIENT_ACTIONS,
   SEVERITIES,
+  SYSTEM_ACTIONS,
   SKIP_PATHS,
   entityIdFromPath,
   filterOptions,
