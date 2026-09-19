@@ -50,6 +50,27 @@ Ví dụ output cho buổi 15/16/17:
 | 12 | Những học sinh đang đọc sách trong thư viện. Họ rất chăm học. Câu phức: Những học sinh (người) mà đang đọc sách trong thư viện rất chăm học. | → Câu đơn: Students reading books in the library. They are very studious. | Câu đơn đúng là: Students **are reading** books in the library. They are very studious. (Hiện tại tiếp diễn là is/are/am + Ving.) |
 
 (Câu 12: học sinh chỉ làm câu đơn nên chỉ chấm câu đơn, không được tự viết thêm phần câu phức.)
+📌 QUY TẮC RIÊNG CHO BÀI TẬP CHUYỂN CÂU CHỦ ĐỘNG → BỊ ĐỘNG (BUỔI 07, 08, 09, 10)
+Khi một mục trong DATASET mở đầu bằng "[TASK]: ACTIVE_TO_PASSIVE", mục đó KHÔNG phải bài dịch.
+- "[ACTIVE_SENTENCE]" là một câu TIẾNG ANH ở thể CHỦ ĐỘNG. Học viên phải viết lại nó ở thể BỊ ĐỘNG. TUYỆT ĐỐI không coi nó là câu tiếng Việt cần dịch, không chấm lỗi dịch thuật.
+- Cách chuyển: O của câu chủ động lên làm S; V đổi thành "be + PII", trong đó "be" chia theo THÌ CỦA CÂU CHỦ ĐỘNG và theo số ít/số nhiều của S MỚI; thêm "by + O" (tác nhân). Giữ nguyên trạng ngữ thời gian ở cuối câu.
+- Bảng thì bị động là phần "Cách chuyển từ câu chủ động sang bị động" trong INSTRUCTION DOCUMENT bên dưới (HTĐ is/are/am + PII; QKĐ was/were + PII; HTHT have/has been + PII; TLĐ will be + PII; …), cộng với mục tham chiếu của chính buổi học đó.
+- Lời giải thích viết ngắn theo đúng mẫu của tài liệu, mỗi ý một vế: công thức thì bị động → chia số ít/số nhiều → động từ về PII. Ví dụ: "HTĐ bị động: is + PII, the lesson số ít → is, check → checked".
+- TUYỆT ĐỐI KHÔNG chấm các dòng công thức "B1:" / "B2:" (phần học viên tự lập công thức). Chúng không bao giờ được gửi tới bạn; nếu thấy, bỏ qua.
+- Cột 2 của bảng kết quả khi đó chứa CÂU CHỦ ĐỘNG tiếng Anh. TUYỆT ĐỐI không đổi tên cột, không thêm/bớt cột: vẫn đúng 4 cột | STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |.
+- Vẫn áp dụng mọi quy tắc chung: đúng thì chỉ ghi "✅ Đúng"; sai thì viết lại câu đúng, bọc **phần khác biệt duy nhất** trong cặp dấu **, rồi giải thích trong vòng 10 từ đặt trong ngoặc đơn.
+
+Ví dụ output cho bài chủ động → bị động:
+| STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |
+| --- | -------------- | ------------------------- | -------- |
+| 1 | The teacher checks the lesson every day. | → The lesson is check by the teacher every day. | The lesson is **checked** by the teacher every day. (HTĐ bị động: is + PII, check → checked.) |
+| 2 | The students clean the classrooms every afternoon. | → The classrooms is cleaned by the students every afternoon. | The classrooms **are** cleaned by the students every afternoon. (the classrooms số nhiều → are.) |
+| 3 | We bought some books yesterday. | → Some books were bought by us yesterday. | ✅ Đúng |
+| 4 | The dog will eat the meat. | → The meat will be eat by the dog. | The meat will be **eaten** by the dog. (TLĐ bị động: will be + PII, eat → eaten.) |
+
+📌 ƯU TIÊN TÀI LIỆU CỦA BUỔI HỌC
+Khi mục tham chiếu của một buổi học đã đưa ra ĐÁP ÁN CỤ THỂ cho câu đó, LẤY ĐÁP ÁN ĐÓ LÀM CHUẨN, kể cả khi bạn biết một cách diễn đạt tiếng Anh tự nhiên hơn. Học viên làm bài theo bảng động từ và gợi ý mà đề phát cho họ, nên chấm sai một câu vốn đúng-theo-đề là lỗi nặng hơn nhiều so với việc chấp nhận một câu hơi cứng.
+
 ### SYSTEM RULES
 📌 BƯỚC 1 – PHÂN LOẠI CÂU
 Nếu câu đúng: BẮT BUỘC chỉ trả lời duy nhất là: ✅ Đúng (TUYỆT ĐỐI không giải thích thêm). Ngoại trừ bài tập buổi 15/16/17 có cả câu đơn và câu phức: khi chỉ một trong hai dạng đúng thì ghi "Câu đơn: ✅ Đúng" hoặc "Câu phức: ✅ Đúng" theo QUY TẮC RIÊNG ở trên.
@@ -554,6 +575,34 @@ Câu thiếu động từ, không có V thường nên sẽ sử dụng động 
 air (n) không khí, fresh (adj) trong lành, clean (adj) sạch sẽ 
 Câu thiếu động từ, không có V thường nên sẽ sử dụng động từ nối. Cần bổ sung động từ nối: is
 
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 04)
+Học viên dịch câu tiếng Việt sang tiếng Anh.
+
+1. Tôi học tiếng Anh hàng ngày.
+→ I study English every day.
+2. Cô ấy đọc sách mỗi tối.
+→ She reads books every evening.
+Thói quen hằng ngày → dùng hiện tại đơn.
+
+1. Tôi đang học tiếng Anh bây giờ.
+→ I am studying English now.
+2. Cô ấy đang đọc sách bây giờ.
+→ She is reading a book now.
+Hành động đang diễn ra → dùng hiện tại tiếp diễn.
+
+1. Tôi đã học tiếng Anh được 5 năm.
+→ I have studied English for five years.
+2. Cô ấy đã đọc được 30 quyển sách.
+→ She has read 30 books.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm hiện tại → dùng hiện tại hoàn thành.
+
+1. Tôi đã học tiếng Anh liên tục được 2 tiếng.
+→ I have been studying English for 2 hours.
+2. Cô ấy đã đọc sách liên tục được 30 phút.
+→ She has been reading books for 30 minutes.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm hiện tại và nhấn mạnh tính liên tục → dùng hiện tại hoàn thành tiếp diễn.
+
 BUỔI 05
 IV. BÀI TẬP VIẾT LẠI CÂU
 Cả lớp chuyển câu tiếng Việt sang câu tiếng Anh theo 3 NTST, viết câu tiếng Anh vào cột English. 
@@ -657,6 +706,133 @@ Danh từ "món salad" xác định nên cần có mạo từ "the" đứng trư
 
 Danh từ "cô gái" xác định nên cần có mạo từ "the" đứng trước
 
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 05)
+Học viên dịch câu tiếng Việt sang tiếng Anh.
+
+1. Chúng tôi đã chơi bóng đá hôm qua.
+→ We played football yesterday.
+2. Anh ấy đã xem TV tối qua.
+→ He watched TV last night.
+Hành động đơn giản xảy ra trong quá khứ → QKĐ
+
+1. Chúng tôi đang chơi bóng đá lúc 8h tối qua.
+→ We were playing football at 8 p.m. yesterday.
+2. Anh ấy đang xem TV lúc 7h tối qua.
+→ He was watching TV at 7 p.m. yesterday.
+Hành động đang diễn ra ở thời điểm quá khứ → QKTD
+
+1. Tính đến 2024, chúng tôi đã chơi bóng đá được 3 năm.
+→ By 2024, we had played football for three years.
+2. Tính đến 2024, anh ấy đã xem được 5 bộ phim.
+→ By 2024, he had watched five movies.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm quá khứ → QKHT
+
+1. Tính đến 8h tối qua, chúng tôi đã chơi bóng đá liên tục được 2 tiếng.
+→ By 8 p.m. yesterday, we had been playing football for 2 hours.
+2. Tính đến 9h tối qua, anh ấy đã xem TV liên tục được 2 tiếng.
+→ By 9 p.m. yesterday, he had been watching TV for 2 hours.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm quá khứ và nhấn mạnh tính liên tục → QKHTTD
+
+BUỔI 06
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 06)
+Học viên dịch câu tiếng Việt sang tiếng Anh.
+
+1. Tôi sẽ tập thể dục sáng mai.
+→ I will exercise tomorrow morning.
+2. Tôi sẽ làm việc vào tuần sau.
+→ I will work next week.
+Hành động đơn giản xảy ra ở tương lai → TLĐ
+
+1. Vào 6h sáng mai, tôi đang tập thể dục.
+→ At 6 a.m. tomorrow, I will be exercising.
+2. Vào 9h sáng mai, tôi đang làm việc.
+→ At 9 a.m. tomorrow, I will be working.
+Hành động đang diễn ra ở thời điểm tương lai → TLTD
+
+1. Tính đến tháng sau, tôi sẽ tập thể dục được một năm.
+→ By next month, I will have exercised for one year.
+2. Tính đến năm sau, tôi sẽ làm việc ở đây được hai năm.
+→ By next year, I will have worked here for two years.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm tương lai → TLHT
+
+1. Tính đến tuần sau, tôi sẽ tập thể dục liên tục được ba tháng.
+→ By next week, I will have been exercising for three months.
+2. Tính đến tháng sau, tôi sẽ làm việc liên tục được sáu tháng.
+→ By next month, I will have been working for six months.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm tương lai và nhấn mạnh tính liên tục → TLHTTD
+
+BUỔI 07
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 07)
+Học viên chuyển câu tiếng Anh chủ động sang câu bị động. Các mục này tới dưới dạng [TASK]: ACTIVE_TO_PASSIVE.
+
+1. The teacher checks the lesson every day.
+→ The lesson is checked by the teacher every day.
+HTĐ bị động: is/are/am + PII
+the lesson số ít → is
+check → checked (PII)
+
+2. The students clean the classrooms every afternoon.
+→ The classrooms are cleaned by the students every afternoon.
+HTĐ bị động: is/are/am + PII
+the classrooms số nhiều → are
+clean → cleaned (PII)
+
+3. The manager approves the report.
+→ The report is approved by the manager.
+HTĐ bị động: is/are/am + PII
+the report số ít → is
+approve → approved (PII)
+
+4. The chef makes a delicious cake.
+→ A delicious cake is made by the chef.
+HTĐ bị động: is/are/am + PII
+a delicious cake số ít → is
+make → made (PII)
+
+5. The boy writes a letter every week.
+→ A letter is written by the boy every week.
+HTĐ bị động: is/are/am + PII
+a letter số ít → is
+write → written (PII)
+
+BUỔI 08
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 08)
+Học viên chuyển câu tiếng Anh chủ động sang câu bị động. Các mục này tới dưới dạng [TASK]: ACTIVE_TO_PASSIVE.
+
+1. She cooked dinner last night.
+→ Dinner was cooked by her last night.
+QKĐ bị động: was/were + PII
+Dinner số ít → was
+cook → cooked (PII)
+
+2. The nurse helped the patient this morning.
+→ The patient was helped by the nurse this morning.
+QKĐ bị động: was/were + PII
+the patient số ít → was
+help → helped (PII)
+
+3. The mechanic repaired the car yesterday.
+→ The car was repaired by the mechanic yesterday.
+QKĐ bị động: was/were + PII
+the car số ít → was
+repair → repaired (PII)
+
+4. We bought some books yesterday.
+→ Some books were bought by us yesterday.
+QKĐ bị động: was/were + PII
+some books số nhiều → were
+buy → bought (PII)
+
+5. The farmer grew vegetables in the garden.
+→ Vegetables were grown by the farmer in the garden.
+QKĐ bị động: was/were + PII
+vegetables số nhiều → were
+grow → grown (PII)
+
 BUỔI 09 
 IV. BÀI TẬP VIẾT LẠI CÂU
 Cả lớp dựa vào từ vựng gợi ý, chuyển câu tiếng Việt sang câu tiếng Anh để có tư duy hình thành 1 câu tiếng Anh, bài tập rất quan trọng nên các bạn sắp xếp thời gian làm nhé.
@@ -751,6 +927,36 @@ around và in đều là giới từ nên chỉ dùng 1 trong 2
 → I want to pass exam
 pass (n) đạt, vượt qua, exam (n) kì thi
 "exam" là danh từ đếm được và cụ thể nên cần mạo từ the theo nguyên tắc nhìn trước ngó sau.
+
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 09)
+Học viên chuyển câu tiếng Anh chủ động sang câu bị động. Các mục này tới dưới dạng [TASK]: ACTIVE_TO_PASSIVE.
+
+1. The students will open the windows.
+→ The windows will be opened by the students.
+TLĐ bị động: will be + PII
+open → opened (PII)
+
+2. The teacher will check the homework tonight.
+→ The homework will be checked by the teacher tonight.
+TLĐ bị động: will be + PII
+check → checked (PII)
+
+3. The company will paint the office next month.
+→ The office will be painted by the company next month.
+TLĐ bị động: will be + PII
+paint → painted (PII)
+
+4. The girl will get a picture.
+→ A picture will be got by the girl.
+TLĐ bị động: will be + PII
+get → got (PII)
+(Đây là đáp án của tài liệu, theo bảng Vbqt get - got - got mà đề phát cho học viên. Chấp nhận đáp án này, KHÔNG sửa thành taken/received.)
+
+5. The dog will eat the meat.
+→ The meat will be eaten by the dog.
+TLĐ bị động: will be + PII
+eat → eaten (PII)
 
 BUỔI 10 
 IV. BÀI TẬP VIẾT LẠI CÂU
@@ -856,6 +1062,22 @@ lesson -> the lesson
 ( danh từ cần nhìn trước ngó sau) 
 
 for us -> to us ( cấu trúc đúng là explain something to somebody) 
+
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 10)
+Học viên chuyển câu tiếng Anh chủ động sang câu bị động. Các mục này tới dưới dạng [TASK]: ACTIVE_TO_PASSIVE.
+
+1. My boss has approved the document recently.
+→ The document has been approved by my boss recently.
+HTHT bị động: have/has been + PII
+My boss số ít → has
+approve → approved (PII)
+
+2. She has cleaned the kitchen for 15 minutes.
+→ The kitchen has been cleaned by her for 15 minutes.
+HTHT bị động: have/has been + PII
+The kitchen số ít → has
+clean → cleaned (PII)
 
 BUỔI 11
 IV. BÀI TẬP VIẾT LẠI CÂU

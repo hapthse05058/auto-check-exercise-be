@@ -19,6 +19,13 @@ const balanceMonitor = require("./lib/balanceMonitor.js");
 const billing = require("./lib/billing.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
+const {
+  TASK_ACTIVE_PASSIVE,
+  TASK_TYPES,
+  gradingCacheKey,
+  normalizeForKey,
+  normalizeTaskType,
+} = require("./lib/gradingKey.js");
 const notifications = require("./lib/notifications.js");
 const pushDevices = require("./lib/pushDevices.js");
 const teacherFilter = require("./lib/teacherFilter.js");
@@ -36,6 +43,7 @@ const JWT_SECRET =
 // Bump this (or change AI_MODEL) to invalidate the gradingCache: cached
 // feedback is keyed on promptVersion + model + question + answer.
 const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
+
 app.use(cors());
 // Body size limit. Register the parsers EXACTLY ONCE: body-parser sets
 // req._body after the first parse, so an earlier app.use(express.json())
@@ -436,28 +444,14 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
 // (question, answer) pair and writes it into the right doc row by question index.
 // ---------------------------------------------------------------------------
 
-/** Normalizes a string for cache keying: collapse whitespace + trim. */
-function normalizeForKey(value) {
-  return String(value ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Deterministic gradingCache document id from explicit key fields. Keyed on
- * promptVersion + model + normalized question + normalized answer, so identical
- * answers share one doc and prompt/model changes naturally invalidate old
- * feedback. Used both by grading and by the admin management endpoints (which
- * must re-key a doc when any key field is edited).
- */
-function gradingCacheKey(promptVersion, model, question, answer) {
-  const raw = `${promptVersion}|${model}|${normalizeForKey(question)}|${normalizeForKey(answer)}`;
-  return crypto.createHash("sha1").update(raw).digest("hex");
-}
+// `normalizeForKey` và `gradingCacheKey` sống ở ./lib/gradingKey.js — tách ra
+// để test được mà không phải khởi động Express + firebase-admin, vì tính chất
+// quan trọng nhất ở đó (khoá của bài dịch KHÔNG đổi) chỉ chứng minh được bằng
+// test.
 
 /** gradingCache id for the current PROMPT_VERSION (used by the grading flow). */
-function gradingCacheId(question, answer, model) {
-  return gradingCacheKey(PROMPT_VERSION, model, question, answer);
+function gradingCacheId(question, answer, model, taskType) {
+  return gradingCacheKey(PROMPT_VERSION, model, question, answer, taskType);
 }
 
 /**
@@ -493,6 +487,7 @@ const GRADING_CACHE_FIELDS = [
   "feedback",
   "model",
   "promptVersion",
+  "taskType",
 ];
 
 /** Runs async task factories with a bounded concurrency. */
@@ -542,6 +537,12 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
       const question = hasLeadingNumber
         ? String(item.question).replace(/^\s*\d+\s*\./, `${seq}.`)
         : `${seq}. ${item.question}`;
+      // Bài chuyển chủ động → bị động có "đề bài" là câu TIẾNG ANH, không phải
+      // câu tiếng Việt cần dịch. Gắn nhãn [VIETNAMESE] cho nó là nói dối model,
+      // và prompt sẽ chấm như một bài dịch hỏng.
+      if (item.taskType === TASK_ACTIVE_PASSIVE) {
+        return `\n[TASK]: ACTIVE_TO_PASSIVE\n[ACTIVE_SENTENCE]: ${question}\n[STUDENT_ANSWER]: ${item.answer}`;
+      }
       return `\n[VIETNAMESE]: ${question}\n[STUDENT_ANSWER]: ${item.answer}`;
     })
     .join("\n");
@@ -590,7 +591,11 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
   }
 
   try {
-    // 1. Defensive dedupe by (question, answer); FE already dedupes.
+    // 1. Defensive dedupe by (question, answer, taskType); FE already dedupes.
+    //    taskType THUỘC VỀ KHOÁ: một câu tiếng Anh giống hệt nhau có thể vừa là
+    //    ĐÁP ÁN của bài dịch, vừa là ĐỀ BÀI của bài chuyển sang bị động. Thiếu
+    //    nó, hai thứ đó sập thành MỘT item, chấm một lần, rồi cùng nhận một
+    //    feedback sai loại.
     const uniqueMap = new Map();
     for (const item of items) {
       if (
@@ -601,9 +606,14 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
         item.answer === undefined
       )
         continue;
-      const key = `${normalizeForKey(item.question)}${normalizeForKey(item.answer)}`;
+      const taskType = normalizeTaskType(item.taskType ?? item.type);
+      const key = `${normalizeForKey(item.question)}${normalizeForKey(item.answer)}${taskType}`;
       if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, { question: item.question, answer: item.answer });
+        uniqueMap.set(key, {
+          question: item.question,
+          answer: item.answer,
+          taskType,
+        });
       }
     }
     const uniqueItems = [...uniqueMap.values()];
@@ -613,7 +623,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 
     const cacheRef = db.collection("gradingCache");
     const ids = uniqueItems.map((it) =>
-      gradingCacheId(it.question, it.answer, model),
+      gradingCacheId(it.question, it.answer, model, it.taskType),
     );
 
     // 2. Read existing feedback from the cache (chunked getAll). Skipped when
@@ -654,8 +664,15 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 
       const GROUP_SIZE = 15;
       const groups = [];
-      for (let i = 0; i < uncached.length; i += GROUP_SIZE) {
-        groups.push(uncached.slice(i, i + GROUP_SIZE));
+      // Chia theo LOẠI BÀI trước khi chia theo kích thước: một lần gọi AI chỉ
+      // được chứa một chế độ, nếu không thì phần đánh số lại 1..k trộn lẫn hai
+      // kiểu đề và model phải đoán xem dòng nào là bài dịch, dòng nào là bài
+      // bị động.
+      for (const taskType of TASK_TYPES) {
+        const ofType = uncached.filter((it) => it.taskType === taskType);
+        for (let i = 0; i < ofType.length; i += GROUP_SIZE) {
+          groups.push(ofType.slice(i, i + GROUP_SIZE));
+        }
       }
 
       const CONCURRENCY = Number(process.env.GRADE_GROUP_CONCURRENCY || 4);
@@ -732,6 +749,7 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
               feedback: it._feedback,
               model: model,
               promptVersion: PROMPT_VERSION,
+              taskType: it.taskType,
               hitCount: 0,
               createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -757,11 +775,16 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       await batch.commit();
     }
 
-    // 7. Return feedback per unique (question, answer). The FE maps these back
-    //    to each student by the same pair and writes by question index.
+    // 7. Return feedback per unique (question, answer, taskType). The FE maps
+    //    these back to each student by the same triple.
+    //
+    //    `taskType` BẮT BUỘC có mặt: FE dựng lại khoá tra cứu TỪ RESPONSE NÀY,
+    //    nên bỏ nó đi thì mọi lookup trượt và KHÔNG tài liệu nào được ghi —
+    //    lỗi im lặng, không có ngoại lệ nào được ném ra để lần theo.
     const results = uniqueItems.map((it, idx) => ({
       question: it.question,
       answer: it.answer,
+      taskType: it.taskType,
       feedback: feedbackById.get(ids[idx]) ?? null,
     }));
 
@@ -795,6 +818,8 @@ function sanitizeCacheInput(body, existing = {}) {
     out.promptVersion = String(body.promptVersion);
   if (body.hitCount !== null && body.hitCount !== undefined)
     out.hitCount = Number(body.hitCount) || 0;
+  // Bản ghi cũ không có trường này; mặc định về bài dịch để khoá không đổi.
+  out.taskType = normalizeTaskType(body.taskType ?? existing.taskType);
   return out;
 }
 
@@ -877,6 +902,7 @@ app.post(
         data.model,
         data.question,
         data.answer,
+        data.taskType,
       );
       const ref = db.collection("gradingCache").doc(id);
       if ((await ref.get()).exists) {
@@ -928,6 +954,7 @@ app.patch(
         merged.model,
         merged.question,
         merged.answer,
+        merged.taskType,
       );
 
       if (newId === id) {
@@ -938,6 +965,7 @@ app.patch(
           feedback: merged.feedback,
           model: merged.model,
           promptVersion: merged.promptVersion,
+          taskType: merged.taskType,
           hitCount: merged.hitCount,
         });
         return res.json({ id, ...merged });
