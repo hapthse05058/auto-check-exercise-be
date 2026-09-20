@@ -22,6 +22,7 @@ const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const {
   TASK_ACTIVE_PASSIVE,
   TASK_TYPES,
+  cleanContent,
   gradingCacheKey,
   normalizeForKey,
   normalizeTaskType,
@@ -591,7 +592,11 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
   }
 
   try {
-    // 1. Defensive dedupe by (question, answer, taskType); FE already dedupes.
+    // 1. Dedupe by the CLEANED (question, answer, taskType): cleaning strips the
+    //    "1." / "→" / trailing "." noise, so the same answer typed slightly
+    //    differently shares one cache record and one AI grading. Each unique
+    //    item remembers the ORIGINAL items mapped onto it — the FE rebuilds its
+    //    lookup key from the raw text it sent, so the response echoes that.
     //    taskType THUỘC VỀ KHOÁ: một câu tiếng Anh giống hệt nhau có thể vừa là
     //    ĐÁP ÁN của bài dịch, vừa là ĐỀ BÀI của bài chuyển sang bị động. Thiếu
     //    nó, hai thứ đó sập thành MỘT item, chấm một lần, rồi cùng nhận một
@@ -607,14 +612,24 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
       )
         continue;
       const taskType = normalizeTaskType(item.taskType ?? item.type);
-      const key = `${normalizeForKey(item.question)}${normalizeForKey(item.answer)}${taskType}`;
+      const question = cleanContent(item.question);
+      const answer = cleanContent(item.answer);
+      if (!answer) continue;
+      // Same normalization as the cache key, so two items never dedupe apart
+      // yet land on one cache id.
+      const key = JSON.stringify([
+        normalizeForKey(question),
+        normalizeForKey(answer),
+        taskType,
+      ]);
       if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, {
-          question: item.question,
-          answer: item.answer,
-          taskType,
-        });
+        uniqueMap.set(key, { question, answer, taskType, originals: [] });
       }
+      uniqueMap.get(key).originals.push({
+        question: item.question,
+        answer: item.answer,
+        taskType,
+      });
     }
     const uniqueItems = [...uniqueMap.values()];
     if (uniqueItems.length === 0) {
@@ -781,12 +796,14 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
     //    `taskType` BẮT BUỘC có mặt: FE dựng lại khoá tra cứu TỪ RESPONSE NÀY,
     //    nên bỏ nó đi thì mọi lookup trượt và KHÔNG tài liệu nào được ghi —
     //    lỗi im lặng, không có ngoại lệ nào được ném ra để lần theo.
-    const results = uniqueItems.map((it, idx) => ({
-      question: it.question,
-      answer: it.answer,
-      taskType: it.taskType,
-      feedback: feedbackById.get(ids[idx]) ?? null,
-    }));
+    //    One result per ORIGINAL item, echoing the raw question/answer the FE
+    //    sent (the cache and the AI only ever see the cleaned text).
+    const results = uniqueItems.flatMap((it, idx) =>
+      it.originals.map((orig) => ({
+        ...orig,
+        feedback: feedbackById.get(ids[idx]) ?? null,
+      })),
+    );
 
     return res.json({ success: true, results });
   } catch (err) {
@@ -806,10 +823,12 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 /** Whitelist the fields a client may write, coercing types. */
 function sanitizeCacheInput(body, existing = {}) {
   const out = { ...existing };
+  // Cleaned the same way as the grading flow, so a record added here is stored
+  // (and keyed) exactly like one the grader would have written.
   if (body.question !== null && body.question !== undefined)
-    out.question = String(body.question);
+    out.question = cleanContent(body.question);
   if (body.answer !== null && body.answer !== undefined)
-    out.answer = String(body.answer);
+    out.answer = cleanContent(body.answer);
   if (body.feedback !== null && body.feedback !== undefined)
     out.feedback = String(body.feedback);
   if (body.model !== null && body.model !== undefined)
