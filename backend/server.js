@@ -21,12 +21,12 @@ const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const {
   TASK_ACTIVE_PASSIVE,
-  TASK_TYPES,
   cleanContent,
   gradingCacheKey,
   normalizeForKey,
   normalizeTaskType,
 } = require("./lib/gradingKey.js");
+const { parseGradedTable } = require("./lib/parseGradedTable.js");
 const notifications = require("./lib/notifications.js");
 const pushDevices = require("./lib/pushDevices.js");
 const teacherFilter = require("./lib/teacherFilter.js");
@@ -509,21 +509,6 @@ async function runWithConcurrency(taskFactories, limit) {
   return results;
 }
 
-/** Parses the AI markdown table into a { STT -> "Chữa bài" } map. */
-function parseGradedTable(aiText) {
-  const map = {};
-  for (const line of aiText.split("\n")) {
-    if (!line.includes("|") || line.includes("---")) continue;
-    const cleanLine = line.trim().replace(/^\||\|$/g, "");
-    const columns = cleanLine.split("|").map((col) => col.trim());
-    // Real rows have >=4 columns and a numeric STT in column 0.
-    if (columns.length >= 4 && /^\d+$/.test(columns[0])) {
-      map[columns[0]] = columns[3];
-    }
-  }
-  return map;
-}
-
 /**
  * Grades ONE group of uncached items with OpenAI. Each item is renumbered
  * 1..k (unique within the group) so the returned table maps back
@@ -551,7 +536,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
   const inputText = `DATASET TO EVALUATE:\`\`\`\n${studentExercises}\n\n\`\`\`[CRITICAL RULE]: Evaluate each item above strictly against the instruction guide. Output a single combined Markdown table. You must provide the clear reason/evaluation for the grade inside the table if the answer is incorrect.`;
 
   const aiResponse = await callGrader(instruction, inputText, model);
-  const tableByStt = parseGradedTable(aiResponse);
+  const tableByStt = parseGradedTable(aiResponse, group.length);
   return group.map((_, i) => {
     const fb = tableByStt[String(i + 1)];
     return fb !== null && fb !== undefined && fb !== "" ? fb : null;
@@ -679,15 +664,15 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 
       const GROUP_SIZE = 15;
       const groups = [];
-      // Chia theo LOẠI BÀI trước khi chia theo kích thước: một lần gọi AI chỉ
-      // được chứa một chế độ, nếu không thì phần đánh số lại 1..k trộn lẫn hai
-      // kiểu đề và model phải đoán xem dòng nào là bài dịch, dòng nào là bài
-      // bị động.
-      for (const taskType of TASK_TYPES) {
-        const ofType = uncached.filter((it) => it.taskType === taskType);
-        for (let i = 0; i < ofType.length; i += GROUP_SIZE) {
-          groups.push(ofType.slice(i, i + GROUP_SIZE));
-        }
+      // Một request được phép chứa CẢ HAI loại bài: mỗi mục tự mang nhãn của
+      // nó ([VIETNAMESE] / [TASK]: ACTIVE_TO_PASSIVE) và prompt có section
+      // "QUY TẮC CHO DATASET HỖN HỢP" dạy model đọc nhãn để chọn quy tắc chấm.
+      // Nhờ vậy nhóm dở dang của loại này không còn tốn riêng một lần gọi AI.
+      // Chốt chặn nếu model vẫn lẫn: parseGradedTable ném lỗi khi STT trùng
+      // hoặc vượt 1..group.length — group đó fail và chấm lại, thay vì ghi
+      // feedback SAI NGƯỜI vào gradingCache vĩnh viễn.
+      for (let i = 0; i < uncached.length; i += GROUP_SIZE) {
+        groups.push(uncached.slice(i, i + GROUP_SIZE));
       }
 
       const CONCURRENCY = Number(process.env.GRADE_GROUP_CONCURRENCY || 4);

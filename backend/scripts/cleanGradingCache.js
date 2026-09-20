@@ -9,6 +9,7 @@
 // are summed, the rest are deleted.
 //
 //   node scripts/cleanGradingCache.js --dry-run
+//   node scripts/cleanGradingCache.js --no-delete   (chi ghi ban sach, chua xoa)
 //   node scripts/cleanGradingCache.js
 //   node scripts/cleanGradingCache.js --database="(default)" --dry-run
 //
@@ -21,6 +22,9 @@ const SAMPLE_COUNT = 10;
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+// Viec ghi la thu PHUC HOI cache hit; viec xoa chi don rac. Tach duoc hai buoc
+// nay de chay phan can gap truoc, roi xin duyet rieng cho lan xoa hang loat.
+const noDelete = args.includes("--no-delete");
 const dbArg = args.find((a) => a.startsWith("--database="));
 const databaseId = dbArg
   ? dbArg.slice("--database=".length)
@@ -30,7 +34,7 @@ const oneLine = (s) => JSON.stringify(String(s ?? ""));
 
 (async () => {
   console.log(
-    `${dryRun ? "DRY RUN — no writes" : "APPLYING"} | database: ${databaseId}\n`,
+    `${dryRun ? "DRY RUN — no writes" : "APPLYING"}${noDelete ? " (writes only)" : ""} | database: ${databaseId}\n`,
   );
 
   const db = getDb(databaseId);
@@ -49,8 +53,12 @@ const oneLine = (s) => JSON.stringify(String(s ?? ""));
   );
   console.log(`to delete        ${deletes.length}`);
   if (skipped.length) {
+    // Chỉ in vài id làm mẫu: in hết (hàng trăm id) thì trôi mất mọi dòng
+    // thống kê ở trên, mà đó mới là thứ cần đọc trước khi chạy thật.
+    const sample = skipped.slice(0, 5).map((s) => s.id);
     console.log(
-      `skipped          ${skipped.length} (empty after cleaning): ${skipped.map((s) => s.id).join(", ")}`,
+      `skipped          ${skipped.length} (empty after cleaning) e.g. ${sample.join(", ")}` +
+        (skipped.length > sample.length ? ", …" : ""),
     );
   }
 
@@ -85,16 +93,19 @@ const oneLine = (s) => JSON.stringify(String(s ?? ""));
       .forEach((w) => batch.set(cacheRef.doc(w.id), w.data));
     await batch.commit();
   }
-  for (let i = 0; i < deletes.length; i += WRITE_CHUNK) {
-    const batch = db.batch();
-    deletes
-      .slice(i, i + WRITE_CHUNK)
-      .forEach((id) => batch.delete(cacheRef.doc(id)));
-    await batch.commit();
+  if (!noDelete) {
+    for (let i = 0; i < deletes.length; i += WRITE_CHUNK) {
+      const batch = db.batch();
+      deletes
+        .slice(i, i + WRITE_CHUNK)
+        .forEach((id) => batch.delete(cacheRef.doc(id)));
+      await batch.commit();
+    }
   }
 
   console.log(
-    `\nwrote ${writes.length}, deleted ${deletes.length} document(s)`,
+    `\nwrote ${writes.length}, deleted ${noDelete ? 0 : deletes.length} document(s)` +
+      (noDelete ? ` (${deletes.length} stale left for a later run)` : ""),
   );
   process.exit(0);
 })().catch((err) => {
