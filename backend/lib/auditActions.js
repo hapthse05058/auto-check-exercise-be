@@ -115,6 +115,15 @@ const AUDIT_ACTIONS = [
     resourceType: "grading",
     severity: "INFO",
   },
+  // Starts a background grading job (lib/gradingJobs.js). The job closes itself
+  // out with a SYSTEM "grading.pointsSummary" row, like the website used to.
+  {
+    method: "POST",
+    pattern: /^\/grading-jobs$/,
+    action: "grading.jobStart",
+    resourceType: "grading",
+    severity: "INFO",
+  },
   // Closes out a run: class, lesson, and the total points it cost. Stands in
   // for the per-charge entries that SKIP_PATHS drops.
   {
@@ -311,6 +320,9 @@ const AUDITED_GETS = [];
  * /teacher-points/consume fires once per pair of graded docs, so a single class
  * would add dozens of rows. The money trail is not lost: every charge writes a
  * TeacherPointLedger receipt, and /grading-summary logs one row per run.
+ *
+ * /internal/tasks/grading is Cloud Tasks calling back for every step of every
+ * grading job — several per student doc. The job records its own summary row.
  */
 const SKIP_PATHS = [
   "/auth/refresh",
@@ -318,6 +330,7 @@ const SKIP_PATHS = [
   "/exchange-token",
   "/audit-logs/client-event",
   "/teacher-points/consume",
+  "/internal/tasks/grading",
 ];
 
 /** Actions the middleware never produces, so filter-options must add them. */

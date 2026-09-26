@@ -82,6 +82,76 @@ Since your app requires Google OAuth2:
 3. Add your Cloud Run URL to authorized redirect URIs
 4. Update `REDIRECT_URI` environment variable
 
+### Step 5: Background grading jobs (Cloud Tasks)
+
+Grading runs on the backend, so teachers can close the tab once a job has
+started (`POST /grading-jobs`, see `backend/lib/gradingJobs.js`). Each step of a
+job is a Cloud Tasks task that calls back `POST /internal/tasks/grading`. Do
+this once per environment (dev and prod), **before** deploying the website build
+that uses `/grading-jobs`.
+
+```bash
+PROJECT=YOUR_PROJECT_ID
+REGION=YOUR_REGION            # same region as the Cloud Run service
+SERVICE=auto-check-exercise-be
+SERVICE_URL=$(gcloud run services describe $SERVICE --region $REGION --format 'value(status.url)')
+# The service's runtime identity (empty = the default compute service account).
+RUN_SA=$(gcloud run services describe $SERVICE --region $REGION --format 'value(spec.template.spec.serviceAccountName)')
+
+gcloud services enable cloudtasks.googleapis.com
+
+# 1. The queue. These numbers are load-bearing:
+#    - 4 concurrent writes keep Docs API usage well under 60 writes/min/user
+#      and the shared TeacherPoint document under ~1 write/sec;
+#    - JOB_STALE_MS in lib/gradingJobs.js (2h) is derived from the 30-min task
+#      deadline + --max-retry-duration. Change them together.
+gcloud tasks queues create grading-jobs --location=$REGION \
+  --max-concurrent-dispatches=4 \
+  --max-attempts=5 \
+  --max-retry-duration=3600s \
+  --min-backoff=10s --max-backoff=300s
+
+# 2. The identity Cloud Tasks signs its calls with. The route accepts ONLY
+#    OIDC tokens for this account, with the route URL as audience.
+gcloud iam service-accounts create grading-tasks-invoker
+INVOKER=grading-tasks-invoker@$PROJECT.iam.gserviceaccount.com
+
+# 3. The service creates tasks (enqueuer) that act as the invoker (actAs).
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member=serviceAccount:$RUN_SA --role=roles/cloudtasks.enqueuer
+gcloud iam service-accounts add-iam-policy-binding $INVOKER \
+  --member=serviceAccount:$RUN_SA --role=roles/iam.serviceAccountUser
+# Only needed if the service is ever made private (no --allow-unauthenticated):
+gcloud run services add-iam-policy-binding $SERVICE --region $REGION \
+  --member=serviceAccount:$INVOKER --role=roles/run.invoker
+
+# 4. Key that encrypts stored Google refresh tokens (32 random bytes).
+node -e "process.stdout.write('v1:' + require('crypto').randomBytes(32).toString('base64'))" \
+  | gcloud secrets create grading-token-enc-keys --data-file=-
+gcloud secrets add-iam-policy-binding grading-token-enc-keys \
+  --member=serviceAccount:$RUN_SA --role=roles/secretmanager.secretAccessor
+
+# 5. Wire it up. --timeout=1800 lets the prepare step (read + grade a whole
+#    class) run up to the 30-min task deadline.
+gcloud run services update $SERVICE --region $REGION --timeout=1800 \
+  --update-secrets GOOGLE_TOKEN_ENC_KEYS=grading-token-enc-keys:latest \
+  --update-env-vars TASKS_MODE=cloud,TASKS_PROJECT=$PROJECT,TASKS_LOCATION=$REGION,TASKS_QUEUE=grading-jobs,TASKS_TARGET_URL=$SERVICE_URL/internal/tasks/grading,TASKS_INVOKER_SA=$INVOKER,GOOGLE_TOKEN_ENC_KEY_CURRENT=v1
+```
+
+**Firestore rules.** The backend reaches Firestore through the Admin SDK only.
+Make sure the security rules of BOTH databases deny client access to
+`teacherGoogleTokens`, `gradingJobs` and `gradingJobLocks` (a rule set that
+denies everything by default already does).
+
+**Rotating the token key.** Add a new version to the secret
+(`v1:<old>,v2:<new>`), set `GOOGLE_TOKEN_ENC_KEY_CURRENT=v2`, deploy. Tokens are
+re-encrypted under v2 the next time they are used; remove v1 only after that.
+
+**Checking a job.** `gradingJobs/{jobId}` holds the status and counters,
+`gradingJobs/{jobId}/docs/{docId}` each doc's outcome and warnings. Failed
+tasks show up in the Cloud Tasks console for the `grading-jobs` queue, and in
+the service logs under `[GRADING-JOB]`.
+
 ### Pros
 - ✅ Generous free tier
 - ✅ Auto-scaling
