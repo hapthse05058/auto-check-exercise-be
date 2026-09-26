@@ -3763,9 +3763,18 @@ app.get("/grading-schedules", verifyGoogleToken, async (req, res) => {
  */
 app.get("/grading-schedules/preview", verifyGoogleToken, async (req, res) => {
   try {
+    // ?slots=s1-g1,s2-g2 (epoch ms), or the one pair of an older website.
+    const slots =
+      typeof req.query.slots === "string"
+        ? req.query.slots.split(",").map((pair) => {
+            const [studentDeadlineAt, graderDeadlineAt] = pair.split("-");
+            return { studentDeadlineAt, graderDeadlineAt };
+          })
+        : undefined;
     const preview = await gradingSchedules.preview({
       viewer: viewerOf(req),
       classId: req.query.classId,
+      slots,
       studentDeadlineAt: req.query.studentDeadlineAt,
       graderDeadlineAt: req.query.graderDeadlineAt,
     });
@@ -3799,6 +3808,7 @@ app.put("/grading-schedules/:classId", verifyGoogleToken, async (req, res) => {
     const schedule = await gradingSchedules.upsert({
       viewer: viewerOf(req),
       classId: req.params.classId,
+      slots: req.body?.slots,
       studentDeadlineAt: req.body?.studentDeadlineAt,
       graderDeadlineAt: req.body?.graderDeadlineAt,
     });
@@ -3806,8 +3816,12 @@ app.put("/grading-schedules/:classId", verifyGoogleToken, async (req, res) => {
       `${weekday === 0 ? "Chủ nhật" : `Thứ ${weekday + 1}`} ${time}`;
     res.locals.auditDetail =
       `Hẹn giờ chấm lớp ${schedule.className || req.params.classId}: ` +
-      `hạn nộp ${day(schedule.studentDeadline)}, ` +
-      `hạn chấm ${day(schedule.graderDeadline)}`;
+      schedule.slots
+        .map(
+          (slot) =>
+            `hạn nộp ${day(slot.studentDeadline)} → hạn chấm ${day(slot.graderDeadline)}`,
+        )
+        .join("; ");
     return res.json({ schedule });
   } catch (err) {
     return sendScheduleError(res, err, "save");

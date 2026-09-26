@@ -83,6 +83,8 @@ const DEFAULTS = {
   /** Shortest allowed gap between the two deadlines (UI says 2 hours). */
   minGapMs: 2 * HOUR,
   maxGapMs: WEEK,
+  /** A class may meet this many times a week, each with its own deadlines. */
+  maxSlots: 7,
   /** Classes are spread over this much of the off-peak window. */
   jitterMs: 20 * MINUTE,
   /**
@@ -198,14 +200,40 @@ function vnParts(ms) {
 }
 
 /**
- * Occurrence `index` of a schedule: the week's two deadlines, its run key and
- * when grading happens. Asserts the time invariant
+ * The weekly slots of a schedule — one per lesson the class has in a week —
+ * in week order, each {anchorStudentAt, gapMs}: the first students' deadline
+ * and how long after it the teacher's deadline falls. `define` keeps them
+ * sorted within one week of the first and never overlapping (a slot's grading
+ * deadline is at or before the next slot's students' deadline), so the
+ * occurrences of all slots, taken in index order, are in time order and at
+ * most one is ever open. A schedule saved before slots existed is one slot.
+ */
+function slotsOf(schedule) {
+  if (Array.isArray(schedule.slots) && schedule.slots.length) {
+    return schedule.slots;
+  }
+  return [{ anchorStudentAt: schedule.anchorStudentAt, gapMs: schedule.gapMs }];
+}
+
+/** One occurrence's id: the students' deadline, Vietnam time (2026-09-29-2000). */
+function runKeyOf(studentDeadlineAt) {
+  const p = vnParts(studentDeadlineAt);
+  return `${p.date}-${p.time.replace(":", "")}`;
+}
+
+/**
+ * Occurrence `index` of a schedule — slot `index mod n` of week
+ * `floor(index / n)`: its two deadlines, run key and when grading happens.
+ * Asserts the time invariant
  *   studentDeadline + grace ≤ runAt − remind < runAt ≤ graderDeadline − margin
  * which the minimum gap guarantees.
  */
 function occurrence(schedule, index, opts) {
-  const studentDeadlineAt = schedule.anchorStudentAt + index * WEEK;
-  const graderDeadlineAt = studentDeadlineAt + schedule.gapMs;
+  const slots = slotsOf(schedule);
+  const n = slots.length;
+  const slot = slots[((index % n) + n) % n];
+  const studentDeadlineAt = slot.anchorStudentAt + Math.floor(index / n) * WEEK;
+  const graderDeadlineAt = studentDeadlineAt + slot.gapMs;
   const ws = studentDeadlineAt + opts.graceMs + opts.remindMs;
   const we = graderDeadlineAt - opts.runMarginMs;
   if (we < ws) throw new Error("schedule window is too short");
@@ -223,7 +251,7 @@ function occurrence(schedule, index, opts) {
   }
   return {
     index,
-    runKey: vnParts(studentDeadlineAt).date,
+    runKey: runKeyOf(studentDeadlineAt),
     studentDeadlineAt,
     graderDeadlineAt,
     runAt,
@@ -242,10 +270,12 @@ function reachable(occ, nowMs, opts) {
 /** The first occurrence from `fromIndex` on that can still be graded. */
 function firstReachable(schedule, fromIndex, nowMs, opts) {
   let index = Math.max(0, fromIndex);
+  const n = slotsOf(schedule).length;
   const base = occurrence(schedule, 0, opts);
-  // Skip whole weeks in one step; the loop below settles the last one.
-  const behind = Math.floor((nowMs - base.graderDeadlineAt) / WEEK);
-  if (behind > index) index = behind;
+  // Skip whole weeks in one step — all but the last one surely over (slots
+  // end within a week of the first) — and let the loop settle the rest.
+  const behind = Math.floor((nowMs - base.graderDeadlineAt) / WEEK) - 1;
+  if (behind * n > index) index = behind * n;
   for (let guard = 0; guard < 1000; guard++, index++) {
     const occ = occurrence(schedule, index, opts);
     if (reachable(occ, nowMs, opts)) return occ;
@@ -1096,41 +1126,94 @@ function createGradingSchedules(deps) {
     return { id: classId, ...cls };
   }
 
-  /** Validates two first-week deadlines and derives the weekly definition. */
-  function define(classId, studentDeadlineAt, graderDeadlineAt) {
-    const s = Number(studentDeadlineAt);
-    const g = Number(graderDeadlineAt);
-    if (!Number.isFinite(s) || !Number.isFinite(g)) {
-      throw new JobError(400, "invalid_deadlines");
+  /**
+   * The slots a request asks for: `slots` [{studentDeadlineAt,
+   * graderDeadlineAt}], or the single pair of a client from before slots.
+   */
+  function slotInput({ slots, studentDeadlineAt, graderDeadlineAt }) {
+    if (Array.isArray(slots)) return slots;
+    return [{ studentDeadlineAt, graderDeadlineAt }];
+  }
+
+  /**
+   * Validates the first deadlines of every weekly slot and derives the weekly
+   * definition: slots sorted within one week of the earliest, each one's
+   * grading deadline no later than the next one's students' deadline.
+   */
+  function define(classId, input) {
+    if (!Array.isArray(input) || input.length === 0) {
+      throw new JobError(400, "slots_required");
     }
-    const gapMs = g - s;
-    if (gapMs < opts.minGapMs) {
-      throw new JobError(400, "deadline_gap_too_short", {
-        minHours: opts.minGapMs / HOUR,
-      });
+    if (input.length > opts.maxSlots) {
+      throw new JobError(400, "too_many_slots", { max: opts.maxSlots });
     }
-    if (gapMs > opts.maxGapMs) throw new JobError(400, "deadline_gap_too_long");
-    const sp = vnParts(s);
-    const gp = vnParts(g);
+    const raw = input.map((slot, i) => {
+      const s = Number(slot?.studentDeadlineAt);
+      const g = Number(slot?.graderDeadlineAt);
+      if (!Number.isFinite(s) || !Number.isFinite(g)) {
+        throw new JobError(400, "invalid_deadlines", { slot: i + 1 });
+      }
+      const gapMs = g - s;
+      if (gapMs < opts.minGapMs) {
+        throw new JobError(400, "deadline_gap_too_short", {
+          minHours: opts.minGapMs / HOUR,
+          slot: i + 1,
+        });
+      }
+      if (gapMs > opts.maxGapMs) {
+        throw new JobError(400, "deadline_gap_too_long", { slot: i + 1 });
+      }
+      return { s, gapMs, input: i + 1 };
+    });
+    // Bring every slot into the week that starts at the earliest deadline.
+    const first = Math.min(...raw.map((r) => r.s));
+    const slots = raw
+      .map((r) => ({ ...r, s: r.s - Math.floor((r.s - first) / WEEK) * WEEK }))
+      .sort((a, b) => a.s - b.s);
+    slots.forEach((slot, i) => {
+      const nextStart =
+        i + 1 < slots.length ? slots[i + 1].s : slots[0].s + WEEK;
+      if (slot.s + slot.gapMs > nextStart) {
+        throw new JobError(400, "slots_overlap", {
+          slot: slot.input,
+          other: (i + 1 < slots.length ? slots[i + 1] : slots[0]).input,
+        });
+      }
+    });
     return {
       classId,
-      anchorStudentAt: s,
-      gapMs,
-      studentDeadline: { weekday: sp.weekday, time: sp.time },
-      graderDeadline: { weekday: gp.weekday, time: gp.time },
+      slots: slots.map(({ s, gapMs }) => {
+        const sp = vnParts(s);
+        const gp = vnParts(s + gapMs);
+        return {
+          anchorStudentAt: s,
+          gapMs,
+          studentDeadline: { weekday: sp.weekday, time: sp.time },
+          graderDeadline: { weekday: gp.weekday, time: gp.time },
+        };
+      }),
     };
   }
 
   /** Side-effect free: what saving these deadlines would schedule. */
-  async function preview({
-    viewer,
-    classId,
-    studentDeadlineAt,
-    graderDeadlineAt,
-  }) {
+  async function preview({ viewer, classId, ...deadlines }) {
     const cls = await loadManagedClass(viewer, classId);
-    const def = define(cls.id, studentDeadlineAt, graderDeadlineAt);
-    const occ = firstReachable(def, 0, now(), opts);
+    const def = define(cls.id, slotInput(deadlines));
+    // Reads only. Like upsert: after the last graded occurrence is over — a
+    // reminded one that saving would forget does not count.
+    const sSnap = await scheduleRef(cls.id).get();
+    const old = sSnap.exists ? sSnap.data() : null;
+    let bound = -Infinity;
+    if (old?.lastRunKey) {
+      const last = (await runRef(cls.id, old.lastRunKey).get()).data();
+      const forgotten =
+        last?.state === "reminded" && old.next?.runKey === old.lastRunKey;
+      if (last && !forgotten) bound = last.graderDeadlineAt;
+    }
+    let occ = firstReachable(def, 0, now(), opts);
+    for (let i = 0; occ.studentDeadlineAt < bound && i < 1000; i++) {
+      occ = occurrence(def, occ.index + 1, opts);
+    }
     return {
       ...def,
       next: { ...occ, remindAt: remindAtOf(occ) },
@@ -1167,16 +1250,11 @@ function createGradingSchedules(deps) {
     return { keep: run.state === "starting" };
   }
 
-  async function upsert({
-    viewer,
-    classId,
-    studentDeadlineAt,
-    graderDeadlineAt,
-  }) {
+  async function upsert({ viewer, classId, ...deadlines }) {
     const cls = await loadManagedClass(viewer, classId);
     if (cls.isActive === false) throw new JobError(409, "class_inactive");
     if (!cls.currentLesson) throw new JobError(409, "no_current_lesson");
-    const def = define(cls.id, studentDeadlineAt, graderDeadlineAt);
+    const def = define(cls.id, slotInput(deadlines));
     const email = String(viewer.email || "").toLowerCase();
     const authKind = viewer.authKind === "google" ? "google" : "jwt";
     if (authKind === "google" && !(await hasRefreshToken(email))) {
@@ -1185,10 +1263,12 @@ function createGradingSchedules(deps) {
     const payer = await resolvePayer(email, cls.id);
     if (!payer) throw new JobError(403, "payer_not_found");
 
-    // Candidate first weeks, in order; the first with no run of its own wins.
+    // Candidate first occurrences, in order (two weeks of slots and then
+    // some); the first free one wins — see below.
     const first = firstReachable(def, 0, now(), opts);
-    const candidates = [0, 1, 2].map((k) =>
-      occurrence(def, first.index + k, opts),
+    const candidates = Array.from(
+      { length: 2 * def.slots.length + 2 },
+      (_, k) => occurrence(def, first.index + k, opts),
     );
 
     const saved = await db.runTransaction(async (tx) => {
@@ -1201,6 +1281,17 @@ function createGradingSchedules(deps) {
       const oldJob = oldRun?.jobId
         ? await tx.get(jobDocRef(oldRun.jobId))
         : null;
+      const oldRunForgotten =
+        oldRun &&
+        (oldRun.state === "reminded" ||
+          (oldRun.state === "starting" && !oldJob?.exists));
+      // The last occurrence that actually happened (its run stays).
+      const lastKey = old?.lastRunKey;
+      const lastRunSnap =
+        lastKey && !(oldRunForgotten && lastKey === oldRun.runKey)
+          ? await tx.get(runRef(cls.id, lastKey))
+          : null;
+      const lastRun = lastRunSnap?.exists ? lastRunSnap.data() : null;
       const candidateSnaps = await tx.getAll(
         ...candidates.map((c) => runRef(cls.id, c.runKey)),
       );
@@ -1221,15 +1312,16 @@ function createGradingSchedules(deps) {
           "edit",
         );
       }
+      // Free: no run of its own (the old one we are about to delete counts
+      // as none), and not before the last graded occurrence was over — moving
+      // tonight's deadline by an hour after tonight's grading must not grade
+      // the class again tonight, on the lesson it has just moved on to.
       const freeIndex = candidates.findIndex((c, i) => {
+        if (lastRun && c.studentDeadlineAt < lastRun.graderDeadlineAt) {
+          return false;
+        }
         if (!candidateSnaps[i].exists) return true;
-        // The old week's run we are about to delete counts as free.
-        return (
-          oldRun &&
-          c.runKey === oldRun.runKey &&
-          (oldRun.state === "reminded" ||
-            (oldRun.state === "starting" && !oldJob?.exists))
-        );
+        return oldRunForgotten && c.runKey === oldRun.runKey;
       });
       const occ =
         candidates[freeIndex >= 0 ? freeIndex : candidates.length - 1];
@@ -1301,10 +1393,16 @@ function createGradingSchedules(deps) {
       classId: s.classId,
       className: s.className,
       enabled: Boolean(s.enabled),
-      studentDeadline: s.studentDeadline,
-      graderDeadline: s.graderDeadline,
-      anchorStudentAt: s.anchorStudentAt,
-      gapMs: s.gapMs,
+      slots: slotsOf(s).map((slot) => {
+        const sp = vnParts(slot.anchorStudentAt);
+        const gp = vnParts(slot.anchorStudentAt + slot.gapMs);
+        return {
+          anchorStudentAt: slot.anchorStudentAt,
+          gapMs: slot.gapMs,
+          studentDeadline: { weekday: sp.weekday, time: sp.time },
+          graderDeadline: { weekday: gp.weekday, time: gp.time },
+        };
+      }),
       next:
         s.enabled && s.next
           ? {
@@ -1446,6 +1544,8 @@ module.exports = {
   firstReachable,
   jitterFor,
   nextLessonId,
+  runKeyOf,
+  slotsOf,
   occurrence,
   offPeakSegments,
   parseOffPeak,

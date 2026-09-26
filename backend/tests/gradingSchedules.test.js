@@ -28,7 +28,7 @@ const CLASS_TYPE = "basic_since_01042026";
 /** Tuesday 29/09/2026 20:00 in Vietnam, and Wednesday 12:00 the day after. */
 const T0 = Date.UTC(2026, 8, 29, 13, 0);
 const G0 = Date.UTC(2026, 8, 30, 5, 0);
-const KEY = "2026-09-29";
+const KEY = "2026-09-29-2000";
 const TEACHER = { email: "teacher@x.com", authKind: "google", isAdmin: false };
 
 const WINDOWS = parseOffPeak(DEFAULTS.offPeakUtc);
@@ -303,7 +303,7 @@ describe("time: when to grade", () => {
     const sunday = Date.UTC(2026, 9, 4, 15, 0); // Sun 04/10 22:00 VN
     const def = { classId: "c1", anchorStudentAt: sunday, gapMs: 12 * HOUR };
     const occ = occurrence(def, 1, OPTS);
-    assert.equal(occ.runKey, "2026-10-11");
+    assert.equal(occ.runKey, "2026-10-11-2200");
     assert.equal(vnParts(occ.graderDeadlineAt).weekday, 1);
     assert.equal(occ.studentDeadlineAt, sunday + WEEK);
   });
@@ -349,6 +349,131 @@ describe("next lesson", () => {
 // setting a schedule up
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// several lessons a week
+// ---------------------------------------------------------------------------
+
+describe("several lessons a week", () => {
+  // Tuesday 20:00 → Wednesday 12:00, and Thursday 20:00 → Friday 12:00.
+  const TUE = { studentDeadlineAt: T0, graderDeadlineAt: G0 };
+  const THU = {
+    studentDeadlineAt: T0 + 2 * DAY,
+    graderDeadlineAt: G0 + 2 * DAY,
+  };
+  const saveSlots = (h, slots) =>
+    h.s.upsert({ viewer: TEACHER, classId: "c1", slots });
+
+  it("keeps the slots in week order, whatever order they come in", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await saveSlots(h, [THU, TUE]);
+    const s = h.schedule();
+    assert.deepEqual(
+      s.slots.map((x) => x.studentDeadline),
+      [
+        { weekday: 2, time: "20:00" },
+        { weekday: 4, time: "20:00" },
+      ],
+    );
+    assert.equal(s.next.runKey, KEY);
+  });
+
+  it("brings a slot given in a later week into the first one", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await saveSlots(h, [
+      TUE,
+      {
+        studentDeadlineAt: THU.studentDeadlineAt + WEEK,
+        graderDeadlineAt: THU.graderDeadlineAt + WEEK,
+      },
+    ]);
+    assert.equal(h.schedule().slots[1].anchorStudentAt, THU.studentDeadlineAt);
+  });
+
+  it("refuses slots whose grading would overlap the next one, and too many slots", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await assert.rejects(
+      saveSlots(h, [
+        { studentDeadlineAt: T0, graderDeadlineAt: T0 + 3 * DAY },
+        THU,
+      ]),
+      (e) => e.code === "slots_overlap",
+    );
+    // The last slot of the week against the first of the next one.
+    await assert.rejects(
+      saveSlots(h, [
+        TUE,
+        {
+          studentDeadlineAt: T0 + 6 * DAY,
+          graderDeadlineAt: T0 + 7 * DAY + HOUR,
+        },
+      ]),
+      (e) => e.code === "slots_overlap",
+    );
+    await assert.rejects(
+      saveSlots(
+        h,
+        Array.from({ length: 8 }, (_, i) => ({
+          studentDeadlineAt: T0 + i * 20 * HOUR,
+          graderDeadlineAt: T0 + i * 20 * HOUR + 3 * HOUR,
+        })),
+      ),
+      (e) => e.code === "too_many_slots",
+    );
+    await assert.rejects(saveSlots(h, []), (e) => e.code === "slots_required");
+    assert.equal(h.schedule(), undefined);
+  });
+
+  it("occurrences alternate between the slots, week after week", () => {
+    const def = {
+      classId: "c1",
+      slots: [
+        { anchorStudentAt: T0, gapMs: G0 - T0 },
+        { anchorStudentAt: T0 + 2 * DAY, gapMs: G0 - T0 },
+      ],
+    };
+    const keys = [0, 1, 2, 3].map((i) => occurrence(def, i, OPTS).runKey);
+    assert.deepEqual(keys, [
+      "2026-09-29-2000",
+      "2026-10-01-2000",
+      "2026-10-06-2000",
+      "2026-10-08-2000",
+    ]);
+    // Wednesday afternoon: Tuesday's is over, Thursday's is next.
+    assert.equal(firstReachable(def, 0, G0 + HOUR, OPTS).index, 1);
+    assert.equal(firstReachable(def, 0, G0 + 10 * WEEK, OPTS).index, 21);
+  });
+
+  it("preview takes the slots too, without writing", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    const before = h.db.clock;
+    const p = await h.s.preview({
+      viewer: TEACHER,
+      classId: "c1",
+      slots: [THU, TUE],
+    });
+    assert.equal(p.slots.length, 2);
+    assert.equal(p.next.runKey, KEY);
+    assert.equal(h.db.clock, before);
+  });
+
+  it("grades Tuesday, moves the lesson on, then Thursday takes the next lesson", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await saveSlots(h, [TUE, THU]);
+    await h.at(h.schedule().nextDueAt); // remind Tuesday
+    await h.at(h.schedule().nextDueAt); // grade Tuesday
+    assert.equal(h.runDoc().state, "done");
+    assert.equal(h.lessonOf(), "lesson11");
+    assert.equal(h.schedule().next.runKey, "2026-10-01-2000");
+
+    // Thursday grades BUỔI 11, which nobody has done in this test.
+    await h.at(h.schedule().nextDueAt);
+    const thu = h.runDoc("c1", "2026-10-01-2000");
+    assert.equal(thu.lessonId, "lesson11");
+    assert.equal(thu.state, "cancelled_no_submissions");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
+  });
+});
+
 describe("saving a schedule", () => {
   it("plans the first week: reminder 30′ before an off-peak run", async () => {
     const h = scheduleHarness({ tabs: { docA: pending() } });
@@ -358,8 +483,9 @@ describe("saving a schedule", () => {
     assert.equal(s.nextStep, "remind");
     assert.equal(s.next.runKey, KEY);
     assert.equal(s.nextDueAt, s.next.runAt - 30 * MIN);
-    assert.deepEqual(s.studentDeadline, { weekday: 2, time: "20:00" });
-    assert.deepEqual(s.graderDeadline, { weekday: 3, time: "12:00" });
+    assert.equal(s.slots.length, 1);
+    assert.deepEqual(s.slots[0].studentDeadline, { weekday: 2, time: "20:00" });
+    assert.deepEqual(s.slots[0].graderDeadline, { weekday: 3, time: "12:00" });
     assert.equal(saved.next.remindAt, s.nextDueAt);
   });
 
@@ -452,7 +578,7 @@ describe("reminder", () => {
     assert.equal(h.runDoc().state, "cancelled_no_submissions");
     assert.deepEqual(h.types(), ["grading.autoCancelledNoSubmissions"]);
     assert.match(h.notifications[0].body, /0\/2 học sinh làm bài/);
-    assert.equal(h.schedule().next.runKey, "2026-10-06");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
     assert.equal(h.schedule().nextStep, "remind");
     assert.deepEqual(h.reservations(), {});
   });
@@ -475,7 +601,7 @@ describe("reminder", () => {
     assert.equal(n.type, "grading.autoCancelledNoPoints");
     assert.equal(n.data.need, 2);
     assert.equal(n.data.available, 1);
-    assert.equal(h.schedule().next.runKey, "2026-10-06");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
   });
 
   it("two classes of one payer reminded at the same time: only one reservation fits", async () => {
@@ -531,7 +657,7 @@ describe("reminder", () => {
     await h.at(G0 - 80 * MIN);
     assert.equal(h.runDoc().state, "missed");
     assert.deepEqual(h.types(), ["grading.autoMissed"]);
-    assert.equal(h.schedule().next.runKey, "2026-10-06");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
   });
 
   it("a run step arriving before its time is sent back", async () => {
@@ -597,7 +723,7 @@ describe("a scheduled week, end to end", () => {
     );
     assert.match(h.notifications[1].body, /chuyển sang BUỔI 11/);
     assert.equal(h.pushes.length, 2);
-    assert.equal(h.schedule().next.runKey, "2026-10-06");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
     assert.equal(h.schedule().nextStep, "remind");
 
     // The regular job notification never fired for the scheduled job...
@@ -856,7 +982,7 @@ describe("run step", () => {
     await h.s.run("c1", KEY);
     assert.equal(h.runDoc().state, "missed");
     assert.equal(h.jobCount(), 0);
-    assert.equal(h.schedule().next.runKey, "2026-10-06");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
     assert.deepEqual(h.types(), ["grading.autoUpcoming", "grading.autoMissed"]);
     assert.deepEqual(h.reservations(), {});
   });
@@ -871,7 +997,7 @@ describe("run step", () => {
     assert.equal(h.runDoc().reason, "job_in_progress");
     assert.equal(h.types()[1], "grading.autoCancelledOther");
     assert.deepEqual(h.reservations(), {});
-    assert.equal(h.schedule().next.runKey, "2026-10-06");
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
   });
 
   it("editing the times after the reminder re-plans the same week and frees its points", async () => {
@@ -880,8 +1006,28 @@ describe("run step", () => {
     await h.save("c1", T0 + 30 * MIN, G0);
     assert.equal(h.runDoc(), undefined);
     assert.deepEqual(h.reservations(), {});
-    assert.equal(h.schedule().next.runKey, KEY);
+    // Same evening, 30 minutes later: the run key carries the time.
+    assert.equal(h.schedule().next.runKey, "2026-09-29-2030");
     assert.equal(h.schedule().nextStep, "remind");
+  });
+
+  it("moving tonight's deadline after tonight's grading waits for next week", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await reminded(h);
+    await h.at(h.schedule().nextDueAt);
+    assert.equal(h.runDoc().state, "done");
+    h.setClock(G0 - 2 * HOUR);
+    const before = h.db.clock;
+    const { next } = await h.s.preview({
+      viewer: TEACHER,
+      classId: "c1",
+      studentDeadlineAt: T0 + 2 * HOUR,
+      graderDeadlineAt: G0 + HOUR,
+    });
+    assert.equal(next.runKey, "2026-10-06-2200", "the preview agrees");
+    assert.equal(h.db.clock, before);
+    await h.save("c1", T0 + 2 * HOUR, G0 + HOUR);
+    assert.equal(h.schedule().next.runKey, "2026-10-06-2200");
   });
 });
 
