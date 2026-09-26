@@ -10,6 +10,8 @@
     "clean:grading-cache": "node scripts/cleanGradingCache.js",
     "seed:dev": "node scripts/sync-reference-data.js --from prod --to dev",
     "sync-structure": "npx @colbymchenry/codegraph & npx gitnexus analyze",
+    "sync:doc-lib": "node scripts/syncDocLib.js",
+    "check:doc-lib": "node scripts/syncDocLib.js --check",
     "sync:reference": "node scripts/sync-reference-data.js --from dev --to prod",
     "lint": "eslint .",
     "prettier": "prettier --check .",
@@ -27,6 +29,7 @@
     ]
   },
   "dependencies": {
+    "@google-cloud/tasks": "^7.2.0",
     "axios": "1.4.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",

@@ -181,6 +181,34 @@ Note for future routes: the middleware infers success from the HTTP status
 code. A route that answers 2xx while failing in business terms should set
 `res.locals.auditSuccess = false` before responding. No current route does this.
 
+Background grading jobs
+
+Grading a lesson is a backend job, so the teacher can close the tab as soon as
+it has started. The website calls `POST /grading-jobs` (202 + `jobId`), then
+polls `GET /grading-jobs/:id` while it is open; `GET /grading-jobs/latest`
+shows the last run of a class + lesson when the page is reopened. When the job
+ends, the teacher gets a bell entry and a push.
+
+- `lib/gradingJobs.js` — the job: create (one per class + lesson at a time),
+  prepare (read every doc, grade the class in one deduped batch), write (one
+  task per doc: write, then charge), finalize (summary, bell, push). Its header
+  explains why each step is safe to run twice or concurrently.
+- `lib/doc/` — the website's `docParser` / `docTableDetect` / `docTables` /
+  `docWriter`, copied VERBATIM so both sides read and write docs identically.
+  Edit them in the website repo, then `npm run sync:doc-lib`;
+  `npm run check:doc-lib` and `tests/docLib.test.js` catch drift.
+- `lib/googleUserToken.js` — the teacher's Google refresh token, stored
+  AES-256-GCM encrypted (`GOOGLE_TOKEN_ENC_KEYS`), so docs are written as the
+  teacher. Username/password accounts keep using the service account.
+- `lib/taskQueue.js` — Cloud Tasks (`TASKS_MODE=cloud`) or in-process
+  (`TASKS_MODE=inline`, local dev only: not durable).
+- `lib/teacherPoints.js` — the per-doc ledger charge shared with
+  `/teacher-points/consume`.
+
+Setup (queue, IAM, secret) is in `DEPLOYMENT_GUIDE.md`, Step 5. Tests:
+`tests/gradingJobs.test.js` runs every step against an in-memory Firestore with
+real transaction semantics, including the races and crash windows.
+
 Security note
 
 - Do not commit `.env` with your OpenAI API key.

@@ -77,6 +77,22 @@ const AUDIT_ACTIONS = [
     severity: "INFO",
   },
 
+  // --- courses ---
+  {
+    method: "POST",
+    pattern: /^\/courses$/,
+    action: "course.create",
+    resourceType: "course",
+    severity: "WARN",
+  },
+  {
+    method: "PATCH",
+    pattern: /^\/courses\/[^/]+$/,
+    action: "course.update",
+    resourceType: "course",
+    severity: "WARN",
+  },
+
   // --- students ---
   {
     method: "POST",
@@ -112,6 +128,31 @@ const AUDIT_ACTIONS = [
     method: "POST",
     pattern: /^\/grade$/,
     action: "grading.runExtension",
+    resourceType: "grading",
+    severity: "INFO",
+  },
+  // Starts a background grading job (lib/gradingJobs.js). The job closes itself
+  // out with a SYSTEM "grading.pointsSummary" row, like the website used to.
+  {
+    method: "POST",
+    pattern: /^\/grading-jobs$/,
+    action: "grading.jobStart",
+    resourceType: "grading",
+    severity: "INFO",
+  },
+  // Weekly auto-grading of a class (lib/gradingSchedules.js). Each week's
+  // outcome is a SYSTEM "grading.scheduleEvent" row.
+  {
+    method: "PUT",
+    pattern: /^\/grading-schedules\/[^/]+$/,
+    action: "grading.scheduleSave",
+    resourceType: "grading",
+    severity: "INFO",
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/grading-schedules\/[^/]+$/,
+    action: "grading.scheduleDisable",
     resourceType: "grading",
     severity: "INFO",
   },
@@ -292,6 +333,8 @@ const SYSTEM_ACTIONS = {
     resourceType: "notification",
     severity: "INFO",
   },
+  // One per week of a grading schedule: reminded, cancelled, missed, done.
+  "grading.scheduleEvent": { resourceType: "grading", severity: "INFO" },
 };
 
 /**
@@ -311,6 +354,12 @@ const AUDITED_GETS = [];
  * /teacher-points/consume fires once per pair of graded docs, so a single class
  * would add dozens of rows. The money trail is not lost: every charge writes a
  * TeacherPointLedger receipt, and /grading-summary logs one row per run.
+ *
+ * /internal/tasks/grading is Cloud Tasks calling back for every step of every
+ * grading job — several per student doc. The job records its own summary row.
+ *
+ * /internal/tasks/schedule-tick is Cloud Scheduler, every 5 minutes, all day.
+ * Each week of a schedule records its own "grading.scheduleEvent" row.
  */
 const SKIP_PATHS = [
   "/auth/refresh",
@@ -318,6 +367,8 @@ const SKIP_PATHS = [
   "/exchange-token",
   "/audit-logs/client-event",
   "/teacher-points/consume",
+  "/internal/tasks/grading",
+  "/internal/tasks/schedule-tick",
 ];
 
 /** Actions the middleware never produces, so filter-options must add them. */

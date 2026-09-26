@@ -17,8 +17,25 @@ const auditActions = require("./lib/auditActions.js");
 const auditLog = require("./lib/auditLog.js");
 const balanceMonitor = require("./lib/balanceMonitor.js");
 const billing = require("./lib/billing.js");
+const { CourseError, createCourses } = require("./lib/courses.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
+const googleDocsApi = require("./lib/googleDocsApi.js");
+const {
+  createGoogleUserTokens,
+  createTokenCipher,
+  describeError: describeGoogleError,
+  parseKeys,
+} = require("./lib/googleUserToken.js");
+const {
+  JobError,
+  RetryLater,
+  createGradingJobs,
+} = require("./lib/gradingJobs.js");
+const {
+  createGradingSchedules,
+  scheduleAwareOnFinished,
+} = require("./lib/gradingSchedules.js");
 const {
   TASK_ACTIVE_PASSIVE,
   TASK_TYPES,
@@ -29,9 +46,12 @@ const {
 } = require("./lib/gradingKey.js");
 const notifications = require("./lib/notifications.js");
 const pushDevices = require("./lib/pushDevices.js");
+const { createCloudQueue, createInlineQueue } = require("./lib/taskQueue.js");
 const teacherFilter = require("./lib/teacherFilter.js");
+const teacherPoints = require("./lib/teacherPoints.js");
 
 const app = express();
+const courses = createCourses({ db });
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
@@ -226,6 +246,9 @@ async function verifyToken(req, res, next) {
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
       req.userEmail = decoded.email;
+      // Username/password: no Google identity, so background jobs write docs
+      // with the service account (see lib/googleUserToken.js).
+      req.authKind = "jwt";
       return next();
     } catch {
       // If JWT fails, try Google token verification
@@ -255,6 +278,7 @@ async function verifyToken(req, res, next) {
       return res.status(403).json({ error: "account_closed" });
     }
     req.userEmail = userEmail;
+    req.authKind = "google";
     next();
   } catch (error) {
     console.error("Error verifying token:", error);
@@ -373,7 +397,8 @@ async function callGrader(instruction, inputText, model) {
     .replace(/【.*?】|<br>|/g, "")
     .trim();
 }
-//Use for extension
+// Used by the retired Chrome extension. Kept only while installed copies may
+// still call it; the website grades through /grading-jobs.
 app.post("/grade", verifyGoogleToken, async (req, res) => {
   const items = req.body.items;
   const model = AI_MODEL;
@@ -453,16 +478,6 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
 /** gradingCache id for the current PROMPT_VERSION (used by the grading flow). */
 function gradingCacheId(question, answer, model, taskType) {
   return gradingCacheKey(PROMPT_VERSION, model, question, answer, taskType);
-}
-
-/**
- * Deterministic TeacherPointLedger document id — the receipt for one student
- * doc. Keyed on payer + doc + lesson so charging the same doc twice (a retry,
- * a re-run) is a no-op instead of a double charge.
- */
-function pointLedgerId(payerTeacherId, docId, lessonId) {
-  const raw = `${payerTeacherId}|${normalizeForKey(docId)}|${normalizeForKey(lessonId)}`;
-  return crypto.createHash("sha1").update(raw).digest("hex");
 }
 
 // Admin allow-list for the gradingCache management endpoints (comma-separated).
@@ -558,16 +573,238 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
   });
 }
 
-app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
-  const items = req.body.items;
+/** Raised by gradeItemsCached when there is nothing gradable in `items`. */
+class NoItemsError extends Error {}
+
+/**
+ * Grades a deduped batch of {question, answer, taskType} with the gradingCache
+ * in front of the AI. Shared by /grade-cached (the website's old in-browser
+ * flow) and background grading jobs (lib/gradingJobs.js).
+ *
+ * @returns {Promise<Array<{question, answer, taskType, feedback}>>} one result
+ *   per ORIGINAL item, echoing the raw question/answer it was sent with.
+ * @throws {NoItemsError} when no item has both a question and an answer.
+ */
+async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
   const model = AI_MODEL;
+  if (!Array.isArray(items) || items.length === 0) throw new NoItemsError();
+
+  // 1. Dedupe by the CLEANED (question, answer, taskType): cleaning strips the
+  //    "1." / "→" / trailing "." noise, so the same answer typed slightly
+  //    differently shares one cache record and one AI grading. Each unique
+  //    item remembers the ORIGINAL items mapped onto it — the FE rebuilds its
+  //    lookup key from the raw text it sent, so the response echoes that.
+  //    taskType THUỘC VỀ KHOÁ: một câu tiếng Anh giống hệt nhau có thể vừa là
+  //    ĐÁP ÁN của bài dịch, vừa là ĐỀ BÀI của bài chuyển sang bị động. Thiếu
+  //    nó, hai thứ đó sập thành MỘT item, chấm một lần, rồi cùng nhận một
+  //    feedback sai loại.
+  const uniqueMap = new Map();
+  for (const item of items) {
+    if (
+      !item ||
+      item.question === null ||
+      item.question === undefined ||
+      item.answer === null ||
+      item.answer === undefined
+    )
+      continue;
+    const taskType = normalizeTaskType(item.taskType ?? item.type);
+    const question = cleanContent(item.question);
+    const answer = cleanContent(item.answer);
+    if (!answer) continue;
+    // Same normalization as the cache key, so two items never dedupe apart
+    // yet land on one cache id.
+    const key = JSON.stringify([
+      normalizeForKey(question),
+      normalizeForKey(answer),
+      taskType,
+    ]);
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, { question, answer, taskType, originals: [] });
+    }
+    uniqueMap.get(key).originals.push({
+      question: item.question,
+      answer: item.answer,
+      taskType,
+    });
+  }
+  const uniqueItems = [...uniqueMap.values()];
+  if (uniqueItems.length === 0) throw new NoItemsError();
+
+  const cacheRef = db.collection("gradingCache");
+  const ids = uniqueItems.map((it) =>
+    gradingCacheId(it.question, it.answer, model, it.taskType),
+  );
+
+  // 2. Read existing feedback from the cache (chunked getAll). Skipped when
+  //    caching is off, so every answer is treated as a miss and re-graded.
+  const feedbackById = new Map();
+  if (useCache) {
+    const READ_CHUNK = 200;
+    for (let i = 0; i < ids.length; i += READ_CHUNK) {
+      const refs = ids.slice(i, i + READ_CHUNK).map((id) => cacheRef.doc(id));
+      const snaps = await db.getAll(...refs);
+      snaps.forEach((snap) => {
+        if (snap.exists) {
+          const data = snap.data();
+          if (data && data.feedback !== null && data.feedback !== undefined) {
+            feedbackById.set(snap.id, data.feedback);
+          }
+        }
+      });
+    }
+  }
+
+  // 3. Anything not in the cache is a miss to be graded.
+  const uncached = [];
+  uniqueItems.forEach((it, idx) => {
+    if (!feedbackById.has(ids[idx])) uncached.push({ ...it, idx });
+  });
+
+  // 4. Grade misses with OpenAI, in modest groups, with bounded concurrency.
+  if (uncached.length > 0) {
+    const instructionFilePath = path.join(
+      __dirname,
+      "prompt_and_instruction_for_responses_api_2.txt",
+    );
+    if (!fs.existsSync(instructionFilePath)) {
+      throw new Error(`Instruction file not found: ${instructionFilePath}`);
+    }
+    const instruction = fs.readFileSync(instructionFilePath, "utf8").trim();
+
+    const GROUP_SIZE = 15;
+    const groups = [];
+    // Chia theo LOẠI BÀI trước khi chia theo kích thước: một lần gọi AI chỉ
+    // được chứa một chế độ, nếu không thì phần đánh số lại 1..k trộn lẫn hai
+    // kiểu đề và model phải đoán xem dòng nào là bài dịch, dòng nào là bài
+    // bị động.
+    for (const taskType of TASK_TYPES) {
+      const ofType = uncached.filter((it) => it.taskType === taskType);
+      for (let i = 0; i < ofType.length; i += GROUP_SIZE) {
+        groups.push(ofType.slice(i, i + GROUP_SIZE));
+      }
+    }
+
+    const CONCURRENCY = Number(process.env.GRADE_GROUP_CONCURRENCY || 4);
+    const groupErrors = [];
+    const tasks = groups.map((group) => async () => {
+      try {
+        const feedbacks = await gradeGroupWithOpenAI(group, instruction, model);
+        group.forEach((it, i) => {
+          const fb = feedbacks[i];
+          if (fb !== null && fb !== undefined) {
+            feedbackById.set(ids[it.idx], fb);
+            it._feedback = fb; // mark for cache write
+          }
+        });
+      } catch (err) {
+        // A failed group leaves its items uncached/unwritten; they retry on
+        // the next run. Never block the whole class on one group.
+        groupErrors.push(err);
+        console.error("[GRADE-CACHED] group grading failed:", err.message);
+      }
+    });
+    await runWithConcurrency(tasks, CONCURRENCY);
+
+    // Opportunistic DeepSeek balance check (throttled to ~1/hour inside).
+    // Deliberately NOT awaited and NOT in res.on("finish"): steps 5-7 below
+    // still run, so this finishes while Cloud Run still guarantees CPU.
+    // Placed BEFORE the "every group failed" throw on purpose — a drained
+    // account is exactly what makes every group fail, so this is the most
+    // valuable moment to look. .catch() is mandatory: an unhandled rejection
+    // would take the process down.
+    balanceMonitor
+      .maybeCheckAndAlert({
+        db,
+        admin,
+        adminEmails: ADMIN_EMAILS,
+        requestId,
+      })
+      .catch((err) => console.error("[BALANCE] check failed:", err.message));
+
+    // If EVERY group failed (e.g. a misconfigured AI key/model in this
+    // environment), the AI produced no feedback at all. Returning
+    // success:true with all-null feedback hides a total outage, so surface
+    // it as a real error instead. Partial failures still pass through and
+    // retry on the next run.
+    const graded = uncached.some(
+      (it) => it._feedback !== null && it._feedback !== undefined,
+    );
+    if (!graded && groupErrors.length > 0) {
+      const cause = groupErrors[0];
+      const err = new Error(
+        `AI grading failed for all ${uncached.length} item(s): ${cause.message || cause}`,
+      );
+      err.status = cause.status; // preserve upstream status (e.g. 401) for logs
+      throw err;
+    }
+
+    // 5. Persist newly graded feedback (chunked batch writes, <500/batch).
+    //    Skipped when caching is off — AI feedback is not stored.
+    if (useCache) {
+      const toWrite = uncached.filter(
+        (it) => it._feedback !== null && it._feedback !== undefined,
+      );
+      const WRITE_CHUNK = 400;
+      for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
+        const batch = db.batch();
+        toWrite.slice(i, i + WRITE_CHUNK).forEach((it) => {
+          batch.set(cacheRef.doc(ids[it.idx]), {
+            question: it.question,
+            answer: it.answer,
+            feedback: it._feedback,
+            model: model,
+            promptVersion: PROMPT_VERSION,
+            taskType: it.taskType,
+            hitCount: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+    }
+  }
+
+  // 6. Bump hitCount for items served from the cache (best effort).
+  const uncachedIds = new Set(uncached.map((it) => ids[it.idx]));
+  const hitIds = ids.filter(
+    (id) => !uncachedIds.has(id) && feedbackById.has(id),
+  );
+  const HIT_CHUNK = 400;
+  for (let i = 0; i < hitIds.length; i += HIT_CHUNK) {
+    const batch = db.batch();
+    hitIds.slice(i, i + HIT_CHUNK).forEach((id) => {
+      batch.update(cacheRef.doc(id), {
+        hitCount: admin.firestore.FieldValue.increment(1),
+      });
+    });
+    await batch.commit();
+  }
+
+  // 7. Return feedback per unique (question, answer, taskType). The FE maps
+  //    these back to each student by the same triple.
+  //
+  //    `taskType` BẮT BUỘC có mặt: FE dựng lại khoá tra cứu TỪ RESPONSE NÀY,
+  //    nên bỏ nó đi thì mọi lookup trượt và KHÔNG tài liệu nào được ghi —
+  //    lỗi im lặng, không có ngoại lệ nào được ném ra để lần theo.
+  //    One result per ORIGINAL item, echoing the raw question/answer the FE
+  //    sent (the cache and the AI only ever see the cleaned text).
+  return uniqueItems.flatMap((it, idx) =>
+    it.originals.map((orig) => ({
+      ...orig,
+      feedback: feedbackById.get(ids[idx]) ?? null,
+    })),
+  );
+}
+
+app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
   // Only admins may turn the cache OFF; everyone else always uses it. When off,
   // we skip the cache lookup (every answer goes to the AI) and skip persisting
   // the AI feedback to gradingCache.
   const isAdmin = ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase());
   const useCache = !(isAdmin && req.body.useCache === false);
 
-  if (!Array.isArray(items) || items.length === 0) {
+  if (!Array.isArray(req.body.items) || req.body.items.length === 0) {
     return res.status(400).json({ error: "no_items_provided" });
   }
 
@@ -592,221 +829,15 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
   }
 
   try {
-    // 1. Dedupe by the CLEANED (question, answer, taskType): cleaning strips the
-    //    "1." / "→" / trailing "." noise, so the same answer typed slightly
-    //    differently shares one cache record and one AI grading. Each unique
-    //    item remembers the ORIGINAL items mapped onto it — the FE rebuilds its
-    //    lookup key from the raw text it sent, so the response echoes that.
-    //    taskType THUỘC VỀ KHOÁ: một câu tiếng Anh giống hệt nhau có thể vừa là
-    //    ĐÁP ÁN của bài dịch, vừa là ĐỀ BÀI của bài chuyển sang bị động. Thiếu
-    //    nó, hai thứ đó sập thành MỘT item, chấm một lần, rồi cùng nhận một
-    //    feedback sai loại.
-    const uniqueMap = new Map();
-    for (const item of items) {
-      if (
-        !item ||
-        item.question === null ||
-        item.question === undefined ||
-        item.answer === null ||
-        item.answer === undefined
-      )
-        continue;
-      const taskType = normalizeTaskType(item.taskType ?? item.type);
-      const question = cleanContent(item.question);
-      const answer = cleanContent(item.answer);
-      if (!answer) continue;
-      // Same normalization as the cache key, so two items never dedupe apart
-      // yet land on one cache id.
-      const key = JSON.stringify([
-        normalizeForKey(question),
-        normalizeForKey(answer),
-        taskType,
-      ]);
-      if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, { question, answer, taskType, originals: [] });
-      }
-      uniqueMap.get(key).originals.push({
-        question: item.question,
-        answer: item.answer,
-        taskType,
-      });
-    }
-    const uniqueItems = [...uniqueMap.values()];
-    if (uniqueItems.length === 0) {
-      return res.status(400).json({ error: "no_items_provided" });
-    }
-
-    const cacheRef = db.collection("gradingCache");
-    const ids = uniqueItems.map((it) =>
-      gradingCacheId(it.question, it.answer, model, it.taskType),
-    );
-
-    // 2. Read existing feedback from the cache (chunked getAll). Skipped when
-    //    caching is off, so every answer is treated as a miss and re-graded.
-    const feedbackById = new Map();
-    if (useCache) {
-      const READ_CHUNK = 200;
-      for (let i = 0; i < ids.length; i += READ_CHUNK) {
-        const refs = ids.slice(i, i + READ_CHUNK).map((id) => cacheRef.doc(id));
-        const snaps = await db.getAll(...refs);
-        snaps.forEach((snap) => {
-          if (snap.exists) {
-            const data = snap.data();
-            if (data && data.feedback !== null && data.feedback !== undefined) {
-              feedbackById.set(snap.id, data.feedback);
-            }
-          }
-        });
-      }
-    }
-
-    // 3. Anything not in the cache is a miss to be graded.
-    const uncached = [];
-    uniqueItems.forEach((it, idx) => {
-      if (!feedbackById.has(ids[idx])) uncached.push({ ...it, idx });
+    const results = await gradeItemsCached(req.body.items, {
+      useCache,
+      requestId: req.requestId,
     });
-
-    // 4. Grade misses with OpenAI, in modest groups, with bounded concurrency.
-    if (uncached.length > 0) {
-      const instructionFilePath = path.join(
-        __dirname,
-        "prompt_and_instruction_for_responses_api_2.txt",
-      );
-      if (!fs.existsSync(instructionFilePath)) {
-        throw new Error(`Instruction file not found: ${instructionFilePath}`);
-      }
-      const instruction = fs.readFileSync(instructionFilePath, "utf8").trim();
-
-      const GROUP_SIZE = 15;
-      const groups = [];
-      // Chia theo LOẠI BÀI trước khi chia theo kích thước: một lần gọi AI chỉ
-      // được chứa một chế độ, nếu không thì phần đánh số lại 1..k trộn lẫn hai
-      // kiểu đề và model phải đoán xem dòng nào là bài dịch, dòng nào là bài
-      // bị động.
-      for (const taskType of TASK_TYPES) {
-        const ofType = uncached.filter((it) => it.taskType === taskType);
-        for (let i = 0; i < ofType.length; i += GROUP_SIZE) {
-          groups.push(ofType.slice(i, i + GROUP_SIZE));
-        }
-      }
-
-      const CONCURRENCY = Number(process.env.GRADE_GROUP_CONCURRENCY || 4);
-      const groupErrors = [];
-      const tasks = groups.map((group) => async () => {
-        try {
-          const feedbacks = await gradeGroupWithOpenAI(
-            group,
-            instruction,
-            model,
-          );
-          group.forEach((it, i) => {
-            const fb = feedbacks[i];
-            if (fb !== null && fb !== undefined) {
-              feedbackById.set(ids[it.idx], fb);
-              it._feedback = fb; // mark for cache write
-            }
-          });
-        } catch (err) {
-          // A failed group leaves its items uncached/unwritten; they retry on
-          // the next run. Never block the whole class on one group.
-          groupErrors.push(err);
-          console.error("[GRADE-CACHED] group grading failed:", err.message);
-        }
-      });
-      await runWithConcurrency(tasks, CONCURRENCY);
-
-      // Opportunistic DeepSeek balance check (throttled to ~1/hour inside).
-      // Deliberately NOT awaited and NOT in res.on("finish"): steps 5-7 below
-      // still run, so this finishes while Cloud Run still guarantees CPU.
-      // Placed BEFORE the "every group failed" throw on purpose — a drained
-      // account is exactly what makes every group fail, so this is the most
-      // valuable moment to look. .catch() is mandatory: an unhandled rejection
-      // would take the process down.
-      balanceMonitor
-        .maybeCheckAndAlert({
-          db,
-          admin,
-          adminEmails: ADMIN_EMAILS,
-          requestId: req.requestId,
-        })
-        .catch((err) => console.error("[BALANCE] check failed:", err.message));
-
-      // If EVERY group failed (e.g. a misconfigured AI key/model in this
-      // environment), the AI produced no feedback at all. Returning
-      // success:true with all-null feedback hides a total outage, so surface
-      // it as a real error instead. Partial failures still pass through and
-      // retry on the next run.
-      const graded = uncached.some(
-        (it) => it._feedback !== null && it._feedback !== undefined,
-      );
-      if (!graded && groupErrors.length > 0) {
-        const cause = groupErrors[0];
-        const err = new Error(
-          `AI grading failed for all ${uncached.length} item(s): ${cause.message || cause}`,
-        );
-        err.status = cause.status; // preserve upstream status (e.g. 401) for logs
-        throw err;
-      }
-
-      // 5. Persist newly graded feedback (chunked batch writes, <500/batch).
-      //    Skipped when caching is off — AI feedback is not stored.
-      if (useCache) {
-        const toWrite = uncached.filter(
-          (it) => it._feedback !== null && it._feedback !== undefined,
-        );
-        const WRITE_CHUNK = 400;
-        for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
-          const batch = db.batch();
-          toWrite.slice(i, i + WRITE_CHUNK).forEach((it) => {
-            batch.set(cacheRef.doc(ids[it.idx]), {
-              question: it.question,
-              answer: it.answer,
-              feedback: it._feedback,
-              model: model,
-              promptVersion: PROMPT_VERSION,
-              taskType: it.taskType,
-              hitCount: 0,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-          });
-          await batch.commit();
-        }
-      }
-    }
-
-    // 6. Bump hitCount for items served from the cache (best effort).
-    const uncachedIds = new Set(uncached.map((it) => ids[it.idx]));
-    const hitIds = ids.filter(
-      (id) => !uncachedIds.has(id) && feedbackById.has(id),
-    );
-    const HIT_CHUNK = 400;
-    for (let i = 0; i < hitIds.length; i += HIT_CHUNK) {
-      const batch = db.batch();
-      hitIds.slice(i, i + HIT_CHUNK).forEach((id) => {
-        batch.update(cacheRef.doc(id), {
-          hitCount: admin.firestore.FieldValue.increment(1),
-        });
-      });
-      await batch.commit();
-    }
-
-    // 7. Return feedback per unique (question, answer, taskType). The FE maps
-    //    these back to each student by the same triple.
-    //
-    //    `taskType` BẮT BUỘC có mặt: FE dựng lại khoá tra cứu TỪ RESPONSE NÀY,
-    //    nên bỏ nó đi thì mọi lookup trượt và KHÔNG tài liệu nào được ghi —
-    //    lỗi im lặng, không có ngoại lệ nào được ném ra để lần theo.
-    //    One result per ORIGINAL item, echoing the raw question/answer the FE
-    //    sent (the cache and the AI only ever see the cleaned text).
-    const results = uniqueItems.flatMap((it, idx) =>
-      it.originals.map((orig) => ({
-        ...orig,
-        feedback: feedbackById.get(ids[idx]) ?? null,
-      })),
-    );
-
     return res.json({ success: true, results });
   } catch (err) {
+    if (err instanceof NoItemsError) {
+      return res.status(400).json({ error: "no_items_provided" });
+    }
     console.error("[GRADE-CACHED] Error:", err);
     return res.status(500).json({
       error: "grading_failed",
@@ -1480,16 +1511,10 @@ app.get("/teacher-points/payer", verifyGoogleToken, async (req, res) => {
   }
 });
 
-/**
- * Spends 1 point per student doc whose feedback was just written.
- *
- * The client sends the docs it has finished, NOT an amount: what those docs
- * cost is the server's decision. Each doc gets a TeacherPointLedger receipt
- * keyed by pointLedgerId(), and only docs without one are billable — so a
- * retry (whole or partial) settles exactly what is still owed and never
- * double-charges. The balance check and the debit share one transaction, which
- * is what keeps the balance from going negative.
- */
+/** See lib/teacherPoints.js — bound to this server's Firestore. */
+const consumePointsForDocs = (charge) =>
+  teacherPoints.consumePointsForDocs(db, admin, charge);
+
 app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
   try {
     const docIds = [
@@ -1507,55 +1532,12 @@ app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
       return res.status(403).json({ error: "payer_not_found" });
     }
 
-    const lessonId = req.body.lessonId || null;
-    const pointRef = db.collection("TeacherPoint").doc(payer.id);
-    const ledgerRefs = docIds.map((docId) =>
-      db
-        .collection("TeacherPointLedger")
-        .doc(pointLedgerId(payer.id, docId, lessonId)),
-    );
-
-    const result = await db.runTransaction(async (tx) => {
-      // Every read must happen before the first write in a transaction.
-      const ledgerSnaps = await tx.getAll(...ledgerRefs);
-      const pointSnap = await tx.get(pointRef);
-      const current = pointSnap.exists ? (pointSnap.data().point ?? 0) : 0;
-
-      const billable = docIds.filter((_, i) => !ledgerSnaps[i].exists);
-      if (!billable.length) return { point: current, charged: 0 };
-      if (current < billable.length) {
-        return { point: current, charged: 0, need: billable.length };
-      }
-
-      // set+merge with increment also covers "no record yet", so there is no
-      // read-then-create race between two concurrent charges.
-      tx.set(
-        pointRef,
-        {
-          teacherId: payer.id,
-          gmail: payer.gmail || "",
-          name: payer.name || "",
-          point: admin.firestore.FieldValue.increment(-billable.length),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-      billable.forEach((docId) => {
-        tx.set(
-          db
-            .collection("TeacherPointLedger")
-            .doc(pointLedgerId(payer.id, docId, lessonId)),
-          {
-            payerTeacherId: payer.id,
-            classId: req.body.classId || null,
-            docId,
-            lessonId,
-            chargedByEmail: req.userEmail,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-        );
-      });
-      return { point: current - billable.length, charged: billable.length };
+    const result = await consumePointsForDocs({
+      payer,
+      docIds,
+      classId: req.body.classId,
+      lessonId: req.body.lessonId,
+      chargedByEmail: req.userEmail,
     });
 
     if (result.need) {
@@ -2477,9 +2459,19 @@ app.post("/auth/google", async (req, res) => {
       );
     }
 
+    // Keep the refresh token so grading jobs can write docs as this teacher
+    // after the tab is closed. Never throws; a non-teacher is simply skipped.
+    if (tokens.email && tokens.refresh_token) {
+      await googleUserTokens.saveRefreshToken(
+        tokens.email,
+        tokens.refresh_token,
+      );
+    }
+
     res.json(tokens);
   } catch (error) {
-    console.error("Error exchanging code:", error);
+    // Only the description: the error object carries the request body.
+    console.error("Error exchanging code:", describeGoogleError(error));
     res.status(500).json({ error: "Failed to exchange code" });
   }
 });
@@ -2660,6 +2652,28 @@ app.post("/auth/refresh", async (req, res) => {
     oAuth2Client.setCredentials({ refresh_token: refreshToken });
     const { credentials } = await oAuth2Client.refreshAccessToken();
 
+    // The website refreshes every open tab here, so this is also where a
+    // teacher who logged in BEFORE grading jobs existed gets their token
+    // stored — no fresh login needed. The id_token (openid scope) names them.
+    try {
+      const email = credentials.id_token
+        ? (
+            await oAuth2Client.verifyIdToken({
+              idToken: credentials.id_token,
+              audience: CLIENT_ID,
+            })
+          ).getPayload()?.email
+        : null;
+      if (email) {
+        await googleUserTokens.saveRefreshToken(
+          email,
+          credentials.refresh_token || refreshToken,
+        );
+      }
+    } catch (err) {
+      console.warn("Could not store Google refresh token:", err.message);
+    }
+
     res.json({
       access_token: credentials.access_token,
       expiry_date: credentials.expiry_date || 3600 * 1000 + Date.now(),
@@ -2668,7 +2682,8 @@ app.post("/auth/refresh", async (req, res) => {
         Date.now() + credentials.refresh_token_expires_in * 1000,
     });
   } catch (error) {
-    console.error("Error refreshing token:", error);
+    // Only the description: the error object carries the refresh token.
+    console.error("Error refreshing token:", describeGoogleError(error));
     res.status(401).json({ error: "Invalid or expired refresh token" });
   }
 });
@@ -2772,12 +2787,32 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
     const {
       name,
       classType = "basic",
+      courseId = null,
       currentLesson = null,
       teacherId,
     } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: "Missing required field: name" });
+    }
+
+    // A class follows a course (lib/courses.js). A request without courseId
+    // is the pre-course website — it still sends the old template code as
+    // classType, stored as before.
+    let placement = { classType };
+    if (courseId) {
+      try {
+        const course = await courses.resolveForClass({
+          courseId,
+          currentLesson,
+        });
+        placement = { courseId: course.id };
+      } catch (error) {
+        if (error instanceof CourseError) {
+          return res.status(error.status).json({ error: error.code });
+        }
+        throw error;
+      }
     }
 
     // const teacherSnapshot = await db.collection('teachers')
@@ -2805,7 +2840,7 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
 
     const classData = {
       name,
-      classType,
+      ...placement,
       currentLesson: currentLesson || null,
       teacherId: [teacherId],
       isActive: true,
@@ -2976,25 +3011,83 @@ app.get("/class-types", verifyGoogleToken, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Courses (lib/courses.js): a class is Basic or IELTS and follows one course.
+// Teachers read them; only admins create or edit them.
+// ---------------------------------------------------------------------------
+
+function sendCourseError(res, error, fallback) {
+  if (error instanceof CourseError) {
+    return res
+      .status(error.status)
+      .json({ error: error.code, ...(error.params || {}) });
+  }
+  console.error(fallback, error);
+  return res.status(500).json({ error: "course_failed" });
+}
+
+/** ?includeInactive=1 also lists the hidden courses. */
+app.get("/courses", verifyGoogleToken, async (req, res) => {
+  try {
+    const list = await courses.list({
+      includeInactive: req.query.includeInactive === "1",
+    });
+    res.json({ courses: list });
+  } catch (error) {
+    sendCourseError(res, error, "Error listing courses:");
+  }
+});
+
+app.post("/courses", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const course = await courses.create(req.body);
+    res.locals.auditDetail = `Tạo khóa ${course.name} (${course.lessonIds.length} buổi)`;
+    res.status(201).json({ course });
+  } catch (error) {
+    sendCourseError(res, error, "Error creating course:");
+  }
+});
+
+app.patch("/courses/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const course = await courses.update(req.params.id, req.body);
+    const changed = Object.keys(req.body || {}).join(", ");
+    res.locals.auditDetail = `Sửa khóa ${course.name}: ${changed}`;
+    res.json({ course });
+  } catch (error) {
+    sendCourseError(res, error, "Error updating course:");
+  }
+});
+
+/**
+ * Lessons, in course order:
+ *   ?classId=   the class's lessons (its course's; legacy classes: template)
+ *   ?courseId=  one course's lessons (the new-class form)
+ *   ?classType= legacy template lookup (the pre-course website)
+ *   (none)      every lesson — the admin's picker when editing a course
+ */
 app.get("/lessons", verifyGoogleToken, async (req, res) => {
   try {
-    const classType = req.query.classType;
+    const { classId, courseId, classType } = req.query;
 
-    if (!classType) {
-      return res.status(400).json({ error: "classType is required" });
+    if (classId) {
+      if (String(classId).includes("/")) {
+        return res.status(404).json({ error: "Class not found" });
+      }
+      const classSnap = await db
+        .collection("classes")
+        .doc(String(classId))
+        .get();
+      if (!classSnap.exists) {
+        return res.status(404).json({ error: "Class not found" });
+      }
+      return res.json(await courses.lessonsForClass(classSnap.data()));
     }
-
-    const lessonsRef = db.collection("lesson");
-    const snapshot = await lessonsRef
-      .where("classType", "array-contains", classType)
-      .get();
-
-    const lessons = [];
-    snapshot.forEach((doc) => {
-      lessons.push({ id: doc.id, ...doc.data() });
-    });
-
-    res.json(lessons);
+    if (courseId) return res.json(await courses.lessonsForCourse(courseId));
+    if (classType) {
+      return res.json(await courses.lessonsForClass({ classType }));
+    }
+    res.json(await courses.allLessons());
   } catch (error) {
     console.error("Error fetching lessons:", error);
     res.status(500).json({ error: "Failed to fetch lessons" });
@@ -3085,6 +3178,7 @@ app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
         id: doc.id,
         name: d.name ?? "",
         classType: d.classType ?? "",
+        courseId: d.courseId ?? null,
         currentLesson: d.currentLesson ?? null,
         isActive: d.isActive,
         teacherId: teacherIds,
@@ -3130,6 +3224,28 @@ app.patch("/classes/:id", verifyGoogleToken, async (req, res) => {
       updates.isActive = false;
     }
 
+    // Moving the class to another course. The current lesson must exist in
+    // the new course — the one sent along, or the class's own.
+    if (req.body.courseId !== undefined) {
+      const currentLesson =
+        req.body.currentLesson || classDoc.data().currentLesson || null;
+      try {
+        const course = await courses.resolveForClass({
+          courseId: req.body.courseId,
+          currentLesson,
+          keepCourseId: classDoc.data().courseId || null,
+        });
+        if (course.id !== classDoc.data().courseId)
+          updates.courseId = course.id;
+        if (req.body.currentLesson) updates.currentLesson = currentLesson;
+      } catch (error) {
+        if (error instanceof CourseError) {
+          return res.status(error.status).json({ error: error.code });
+        }
+        throw error;
+      }
+    }
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "Nothing to update" });
     }
@@ -3167,6 +3283,593 @@ app.get("/students", verifyGoogleToken, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch students" });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Background grading jobs (lib/gradingJobs.js)
+//
+// The website starts a job and may close the tab: reading the docs, grading,
+// writing feedback, charging and notifying all happen here, step by step,
+// through Cloud Tasks.
+// ---------------------------------------------------------------------------
+
+/**
+ * Encryption for stored Google refresh tokens. Without it nothing is stored,
+ * so Google-login teachers get `google_reauth_required` when starting a job;
+ * username/password teachers are unaffected (service account).
+ */
+const tokenCipher = (() => {
+  const spec = process.env.GOOGLE_TOKEN_ENC_KEYS;
+  if (!spec) {
+    console.warn(
+      "WARNING: GOOGLE_TOKEN_ENC_KEYS not set. Google-login teachers cannot " +
+        "start grading jobs until it is.",
+    );
+    return null;
+  }
+  const keys = parseKeys(spec);
+  return createTokenCipher({
+    keys,
+    current: process.env.GOOGLE_TOKEN_ENC_KEY_CURRENT || [...keys.keys()][0],
+  });
+})();
+
+const googleUserTokens = createGoogleUserTokens({
+  db,
+  admin,
+  cipher: tokenCipher,
+  createOAuthClient: () =>
+    new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI),
+  getServiceAccountToken: getServiceAccountGoogleToken,
+});
+
+/**
+ * lib/doc/ is the website's own ES modules, copied verbatim (see
+ * scripts/syncDocLib.js), so it is loaded with import() rather than require().
+ */
+let docLibPromise = null;
+function loadDocLib() {
+  docLibPromise ??= Promise.all([
+    import("./lib/doc/docParser.js"),
+    import("./lib/doc/docTableDetect.js"),
+    import("./lib/doc/docWriter.js"),
+  ]).then((modules) => Object.assign({}, ...modules));
+  return docLibPromise;
+}
+
+/** Title + body a finished job is announced with (bell and push alike). */
+function describeJobOutcome(job) {
+  const where = `Lớp ${job.className || "?"} · Buổi ${job.lessonName || "?"}`;
+  const progress = `đã ghi ${job.written}/${job.total} bài`;
+  if (job.reauthRequired || job.error === "google_reauth_required") {
+    return {
+      type: "grading.jobNeedsReauth",
+      title: "Cần đăng nhập lại Google để chấm tiếp",
+      body: `${where}: ${progress}. Đăng nhập lại bằng Google rồi bấm chấm lại.`,
+    };
+  }
+  if (job.error === "not_enough_points") {
+    return {
+      type: "grading.jobFailed",
+      title: "Chưa chấm được: không đủ point",
+      body:
+        `${where}: cần ${job.errorParams?.need} point, ` +
+        `còn ${job.errorParams?.have}.`,
+    };
+  }
+  if (job.error) {
+    return {
+      type: "grading.jobFailed",
+      title: "Chấm bài không thành công",
+      body: `${where}: ${job.error}.`,
+    };
+  }
+  return {
+    type: "grading.jobDone",
+    title: "Đã chấm xong",
+    body:
+      `${where}: ${progress}.` +
+      (job.stopped ? " Dừng giữa chừng vì hết point." : ""),
+  };
+}
+
+const jobNotificationId = (job) =>
+  notifications.notificationId("grading.job", job.id, "final");
+
+const gradingJobs = createGradingJobs({
+  db,
+  admin,
+  docsApi: googleDocsApi,
+  tokens: googleUserTokens,
+  loadDocLib,
+  gradeItems: gradeItemsCached,
+  consumePoints: consumePointsForDocs,
+  resolvePayer,
+  enqueue: (name, payload, options) =>
+    taskQueue.enqueue(name, payload, options),
+  // A scheduled job's end is owned by gradingSchedules.onJobFinished; the
+  // wrapper routes it there and skips the regular bell + push for it.
+  onFinished: scheduleAwareOnFinished(
+    {
+      /** The run's one audit line — the job-side twin of /grading-summary. */
+      async recordSummary(job) {
+        const actor = await auditLog.resolveActor(db, job.createdByEmail);
+        await auditLog.recordAudit(db, admin, {
+          id: `grading-summary-${job.id}`,
+          requestId: job.id,
+          actorEmail: job.createdByEmail,
+          actorName: actor.name,
+          actorId: actor.id,
+          actorResolvedFrom: "token",
+          action: "grading.pointsSummary",
+          resourceType: "points",
+          severity: "INFO",
+          method: "SYSTEM",
+          path: "/system/grading-job",
+          entityId: job.id,
+          success: true,
+          detail:
+            `Tổng point bị trừ: ${job.charged} · Lớp: ${job.className || "?"} · ` +
+            `Buổi: ${job.lessonName || "?"} · GV: ${job.payerName || "?"}`,
+        });
+        // A scheduled job tells the payer itself (gradingSchedules owns its end).
+        if (job.origin?.type === "schedule") return;
+        const [payerSnap, classSnap, lessonSnap] = await Promise.all([
+          db.collection("teachers").doc(job.payerTeacherId).get(),
+          db.collection("classes").doc(job.classId).get(),
+          db.collection("lesson").doc(job.lessonId).get(),
+        ]);
+        await notifyTeacherGradedByAdmin({
+          actorEmail: job.createdByEmail,
+          payer: payerSnap.exists
+            ? { id: payerSnap.id, ...payerSnap.data() }
+            : null,
+          classSnap,
+          lessonSnap,
+          classId: job.classId,
+          lessonId: job.lessonId,
+          totalPoints: job.charged,
+          requestId: job.id,
+        }).catch((err) =>
+          console.error("[NOTIFY] graded-by-admin failed:", err.message),
+        );
+      },
+
+      /** Bell entry for whoever started the job. Fixed id: a retry overwrites. */
+      async notify(job) {
+        const { type, title, body } = describeJobOutcome(job);
+        await notifications.createNotification(db, admin, {
+          id: jobNotificationId(job),
+          type,
+          severity: job.error ? "WARN" : "INFO",
+          title,
+          body,
+          data: {
+            jobId: job.id,
+            classId: job.classId,
+            lessonId: job.lessonId,
+            className: job.className,
+            lessonName: job.lessonName,
+            written: job.written,
+            total: job.total,
+            error: job.error || null,
+            ...(job.errorParams || {}),
+          },
+          recipients: [job.createdByEmail],
+          sourceRequestId: job.id,
+        });
+      },
+
+      async push(job) {
+        const { type, title, body } = describeJobOutcome(job);
+        const tokens = await pushDevices.listActiveTokens(db, [
+          job.createdByEmail,
+        ]);
+        const id = jobNotificationId(job);
+        const result = await pushDevices.sendPush(admin, db, {
+          tokens,
+          title,
+          body,
+          data: { type, notificationId: id },
+          link: process.env.PUBLIC_WEB_URL || undefined,
+        });
+        await notifications.recordPushResult(db, admin, id, result);
+      },
+    },
+    () => gradingSchedules,
+  ),
+});
+
+/**
+ * Cloud Tasks in production; in-process for local dev (TASKS_MODE=inline),
+ * where nothing survives a restart. See lib/taskQueue.js.
+ */
+const TASKS_MODE =
+  process.env.TASKS_MODE ||
+  (process.env.NODE_ENV === "production" ? "cloud" : "inline");
+const taskQueue =
+  TASKS_MODE === "cloud"
+    ? createCloudQueue({
+        project: process.env.TASKS_PROJECT,
+        location: process.env.TASKS_LOCATION,
+        queue: process.env.TASKS_QUEUE,
+        targetUrl: process.env.TASKS_TARGET_URL,
+        invokerServiceAccount: process.env.TASKS_INVOKER_SA,
+      })
+    : createInlineQueue({
+        handler: (payload) => handleQueuedTask(payload),
+      });
+
+/** One queue carries both grading-job steps and grading-schedule steps. */
+function handleQueuedTask(payload) {
+  return payload?.kind === "schedule"
+    ? gradingSchedules.handleTask(payload)
+    : gradingJobs.handleTask(payload);
+}
+
+function sendJobError(res, err, where) {
+  if (err instanceof JobError) {
+    return res.status(err.status).json({ error: err.code, ...err.params });
+  }
+  console.error(`[GRADING-JOB] ${where}:`, err.message);
+  return res.status(500).json({ error: "grading_job_failed" });
+}
+
+/** Starts grading a lesson for a class; answers as soon as the job is queued. */
+app.post("/grading-jobs", verifyGoogleToken, async (req, res) => {
+  try {
+    const { jobId } = await gradingJobs.createJob({
+      email: req.userEmail,
+      authKind: req.authKind,
+      isAdmin: ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase()),
+      classId: req.body.classId,
+      lessonId: req.body.lessonId,
+      docIds: req.body.docIds,
+      useCache: req.body.useCache,
+    });
+    res.locals.auditDetail = `Job ${jobId} · lớp ${req.body.classId} · buổi ${req.body.lessonId}`;
+    return res.status(202).json({ jobId });
+  } catch (err) {
+    return sendJobError(res, err, "create");
+  }
+});
+
+// Before /grading-jobs/:id, which would otherwise capture "latest".
+app.get("/grading-jobs/latest", verifyGoogleToken, async (req, res) => {
+  try {
+    const job = await gradingJobs.getLatestJob(
+      req.query.classId,
+      req.query.lessonId,
+      {
+        email: req.userEmail,
+        isAdmin: ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase()),
+      },
+    );
+    return res.json({ job });
+  } catch (err) {
+    return sendJobError(res, err, "latest");
+  }
+});
+
+app.get("/grading-jobs/:id", verifyGoogleToken, async (req, res) => {
+  try {
+    const job = await gradingJobs.getJob(req.params.id, {
+      email: req.userEmail,
+      isAdmin: ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase()),
+    });
+    return res.json({ job });
+  } catch (err) {
+    return sendJobError(res, err, "get");
+  }
+});
+
+/**
+ * Only Cloud Tasks may call the task route: it signs each request with an
+ * OIDC token for TASKS_INVOKER_SA. The service itself is public (the website
+ * calls it), so this check is the whole of the route's protection.
+ */
+const taskTokenVerifier = new OAuth2Client();
+/**
+ * Cloud Scheduler signs its tick calls the same way (same invoker account),
+ * with the tick route's own URL as audience.
+ */
+const SCHEDULE_TICK_URL =
+  process.env.SCHEDULE_TICK_URL ||
+  String(process.env.TASKS_TARGET_URL || "").replace(
+    /\/internal\/tasks\/grading$/,
+    "/internal/tasks/schedule-tick",
+  );
+const verifyTaskRequest = (req, res, next) =>
+  verifyInternalCall(req, res, next, process.env.TASKS_TARGET_URL);
+const verifyTickRequest = (req, res, next) =>
+  verifyInternalCall(req, res, next, SCHEDULE_TICK_URL);
+
+async function verifyInternalCall(req, res, next, audience) {
+  if (taskQueue.mode !== "cloud") return res.status(404).end();
+  const header = req.headers.authorization || "";
+  if (!header.startsWith("Bearer ")) return res.status(401).end();
+  try {
+    const ticket = await taskTokenVerifier.verifyIdToken({
+      idToken: header.slice(7),
+      audience,
+    });
+    const payload = ticket.getPayload();
+    if (
+      payload?.email !== process.env.TASKS_INVOKER_SA ||
+      payload?.email_verified !== true
+    ) {
+      return res.status(403).end();
+    }
+    return next();
+  } catch (err) {
+    console.error("[GRADING-JOB] task auth rejected:", err.message);
+    return res.status(401).end();
+  }
+}
+
+/**
+ * One step of a grading job. 2xx tells Cloud Tasks the step is done; anything
+ * else makes it retry with backoff — which is exactly what a transient failure
+ * (Google 5xx, a busy prepare lease) should get. Permanent failures are
+ * recorded on the job and answered 2xx, so they are not retried.
+ */
+app.post("/internal/tasks/grading", verifyTaskRequest, async (req, res) => {
+  try {
+    await handleQueuedTask(req.body);
+    return res.status(204).end();
+  } catch (err) {
+    if (err instanceof RetryLater) {
+      return res.status(503).json({ retry: err.message });
+    }
+    console.error(
+      `[GRADING-JOB] ${req.body?.step} ${req.body?.jobId} failed:`,
+      err.message,
+    );
+    return res.status(500).json({ error: "task_failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Scheduled grading (lib/gradingSchedules.js)
+//
+// A class's weekly schedule: remind the teacher ~30 minutes before, then grade
+// its current lesson through the same grading job as the button. Cloud
+// Scheduler drives it by calling /internal/tasks/schedule-tick every 5
+// minutes (see DEPLOYMENT_GUIDE.md); locally an interval does.
+// ---------------------------------------------------------------------------
+
+/** Env overrides of the schedule's time rules — mostly for manual testing. */
+function scheduleOptionsFromEnv() {
+  const minutes = (name) =>
+    process.env[name] !== undefined && process.env[name] !== ""
+      ? Number(process.env[name]) * 60 * 1000
+      : undefined;
+  const options = {
+    offPeakUtc: process.env.GRADING_OFFPEAK_UTC || undefined,
+    remindMs: minutes("GRADING_REMIND_MIN"),
+    graceMs: minutes("GRADING_GRACE_MIN"),
+    runMarginMs: minutes("GRADING_RUN_MARGIN_MIN"),
+    minGapMs: minutes("GRADING_MIN_GAP_MIN"),
+    jitterMs: minutes("GRADING_JITTER_MIN"),
+  };
+  return Object.fromEntries(
+    Object.entries(options).filter(
+      ([, v]) => v !== undefined && !Number.isNaN(v),
+    ),
+  );
+}
+
+const gradingSchedules = createGradingSchedules({
+  db,
+  gradingJobs,
+  enqueue: (name, payload) => taskQueue.enqueue(name, payload),
+  resolvePayer,
+  resolveTeacher: findTeacherByEmail,
+  hasRefreshToken: (email) => googleUserTokens.hasRefreshToken(email),
+  notify: ({ id, type, severity, title, body, data, recipients }) =>
+    notifications.createNotification(db, admin, {
+      id,
+      type,
+      severity,
+      title,
+      body,
+      data,
+      recipients,
+    }),
+  async push({ id, type, title, body, data, recipients }) {
+    const tokens = await pushDevices.listActiveTokens(db, recipients);
+    const base = process.env.PUBLIC_WEB_URL;
+    const result = await pushDevices.sendPush(admin, db, {
+      tokens,
+      title,
+      body,
+      data: { type, notificationId: id },
+      link: base ? `${base.replace(/\/$/, "")}${data?.path || ""}` : undefined,
+    });
+    await notifications.recordPushResult(db, admin, id, result);
+  },
+  /** One audit row per week and phase (fixed id: a retry overwrites it). */
+  async audit({ id, event, message, run }) {
+    const descriptor = auditActions.SYSTEM_ACTIONS["grading.scheduleEvent"];
+    await auditLog.recordAudit(db, admin, {
+      id,
+      requestId: run.jobId || null,
+      actorEmail: run.ownerEmail || null,
+      actorResolvedFrom: "token",
+      action: "grading.scheduleEvent",
+      resourceType: descriptor.resourceType,
+      severity: message.severity === "WARN" ? "WARN" : descriptor.severity,
+      method: "SYSTEM",
+      path: "/system/grading-schedule",
+      entityId: `${run.classId}/${run.runKey}`,
+      success: event !== "failed",
+      detail: `${message.title} · ${message.body}`,
+    });
+  },
+  options: scheduleOptionsFromEnv(),
+});
+
+const viewerOf = (req) => ({
+  email: req.userEmail,
+  authKind: req.authKind,
+  isAdmin: ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase()),
+});
+
+function sendScheduleError(res, err, where) {
+  if (err instanceof JobError) {
+    return res.status(err.status).json({ error: err.code, ...err.params });
+  }
+  console.error(`[GRADING-SCHEDULE] ${where}:`, err.message);
+  return res.status(500).json({ error: "grading_schedule_failed" });
+}
+
+/**
+ * Without classId: the schedules of every class the caller teaches (all of
+ * them for an admin). With classId: that one, plus how its last week went.
+ */
+app.get("/grading-schedules", verifyGoogleToken, async (req, res) => {
+  try {
+    const viewer = viewerOf(req);
+    if (req.query.classId) {
+      const schedule = await gradingSchedules.get({
+        viewer,
+        classId: req.query.classId,
+      });
+      return res.json({ schedule });
+    }
+    let classIds;
+    if (viewer.isAdmin) {
+      const snap = await db.collection("classes").get();
+      classIds = snap.docs.map((d) => d.id);
+    } else {
+      const teacher = await findTeacherByEmail(viewer.email);
+      if (!teacher) return res.json({ schedules: [] });
+      const snap = await db
+        .collection("classes")
+        .where("teacherId", "array-contains", teacher.id)
+        .get();
+      classIds = snap.docs.map((d) => d.id);
+    }
+    return res.json({ schedules: await gradingSchedules.listFor(classIds) });
+  } catch (err) {
+    return sendScheduleError(res, err, "list");
+  }
+});
+
+/**
+ * What saving these deadlines would schedule. A GET on purpose: it must be
+ * free of side effects — the website calls it on every edit of the fields —
+ * and GETs are not audited (AUDITED_GETS), unlike any PUT.
+ * Declared before /grading-schedules/:classId-style routes.
+ */
+app.get("/grading-schedules/preview", verifyGoogleToken, async (req, res) => {
+  try {
+    // ?slots=s1-g1,s2-g2 (epoch ms), or the one pair of an older website.
+    const slots =
+      typeof req.query.slots === "string"
+        ? req.query.slots.split(",").map((pair) => {
+            const [studentDeadlineAt, graderDeadlineAt] = pair.split("-");
+            return { studentDeadlineAt, graderDeadlineAt };
+          })
+        : undefined;
+    const preview = await gradingSchedules.preview({
+      viewer: viewerOf(req),
+      classId: req.query.classId,
+      slots,
+      studentDeadlineAt: req.query.studentDeadlineAt,
+      graderDeadlineAt: req.query.graderDeadlineAt,
+    });
+    return res.json({ preview });
+  } catch (err) {
+    return sendScheduleError(res, err, "preview");
+  }
+});
+
+/** The most the payer's scheduled classes can cost next time vs the balance. */
+app.get("/grading-schedules/estimate", verifyGoogleToken, async (req, res) => {
+  try {
+    const payer = req.query.classId
+      ? await resolvePayer(req.userEmail, req.query.classId)
+      : await findTeacherByEmail(req.userEmail);
+    if (!payer) return res.status(403).json({ error: "payer_not_found" });
+    const estimate = await gradingSchedules.estimate(payer.id, {
+      includeClassId: req.query.classId ? String(req.query.classId) : null,
+    });
+    return res.json({
+      ...estimate,
+      teacherName: payer.name || payer.gmail || "",
+    });
+  } catch (err) {
+    return sendScheduleError(res, err, "estimate");
+  }
+});
+
+app.put("/grading-schedules/:classId", verifyGoogleToken, async (req, res) => {
+  try {
+    const schedule = await gradingSchedules.upsert({
+      viewer: viewerOf(req),
+      classId: req.params.classId,
+      slots: req.body?.slots,
+      studentDeadlineAt: req.body?.studentDeadlineAt,
+      graderDeadlineAt: req.body?.graderDeadlineAt,
+    });
+    const day = ({ weekday, time }) =>
+      `${weekday === 0 ? "Chủ nhật" : `Thứ ${weekday + 1}`} ${time}`;
+    res.locals.auditDetail =
+      `Hẹn giờ chấm lớp ${schedule.className || req.params.classId}: ` +
+      schedule.slots
+        .map(
+          (slot) =>
+            `hạn nộp ${day(slot.studentDeadline)} → hạn chấm ${day(slot.graderDeadline)}`,
+        )
+        .join("; ");
+    return res.json({ schedule });
+  } catch (err) {
+    return sendScheduleError(res, err, "save");
+  }
+});
+
+app.delete(
+  "/grading-schedules/:classId",
+  verifyGoogleToken,
+  async (req, res) => {
+    try {
+      await gradingSchedules.disable({
+        viewer: viewerOf(req),
+        classId: req.params.classId,
+      });
+      res.locals.auditDetail = `Tắt chấm tự động lớp ${req.params.classId}`;
+      return res.json({ ok: true });
+    } catch (err) {
+      return sendScheduleError(res, err, "disable");
+    }
+  },
+);
+
+/** Cloud Scheduler, every 5 minutes: queue the steps that are due. */
+app.post(
+  "/internal/tasks/schedule-tick",
+  verifyTickRequest,
+  async (req, res) => {
+    try {
+      const result = await gradingSchedules.tick();
+      return res.json(result);
+    } catch (err) {
+      console.error("[GRADING-SCHEDULE] tick failed:", err.message);
+      return res.status(500).json({ error: "tick_failed" });
+    }
+  },
+);
+
+// Local dev has no Cloud Scheduler: tick in-process.
+if (taskQueue.mode === "inline") {
+  setInterval(() => {
+    gradingSchedules
+      .tick()
+      .catch((err) =>
+        console.error("[GRADING-SCHEDULE] inline tick failed:", err.message),
+      );
+  }, 60 * 1000).unref();
+}
 
 app.listen(PORT, "0.0.0.0", () => {
   // eslint-disable-next-line no-console

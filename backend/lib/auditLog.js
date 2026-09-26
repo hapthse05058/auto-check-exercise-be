@@ -205,6 +205,10 @@ function clearActorCache() {
  * Writes one audit entry. FIRE AND FORGET: never awaited by a request handler
  * and never allowed to throw, because a failure to log must not fail (or slow
  * down) the user's actual action.
+ *
+ * `entry.id` is optional. Give one when the same event may be recorded more
+ * than once — a retried background step — so the retry overwrites the row
+ * instead of adding a second one.
  */
 function recordAudit(db, admin, entry) {
   try {
@@ -233,9 +237,9 @@ function recordAudit(db, admin, entry) {
       ip: entry.ip ?? null,
       userAgent: truncate(entry.userAgent ?? "", 200),
     };
-    return db
-      .collection("auditLogs")
-      .add(doc)
+    const logs = db.collection("auditLogs");
+    return (entry.id ? logs.doc(String(entry.id)).set(doc) : logs.add(doc))
+      .then(() => undefined)
       .catch((err) => console.error("[AUDIT] write failed:", err.message));
   } catch (err) {
     console.error("[AUDIT] recordAudit failed:", err.message);

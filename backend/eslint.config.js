@@ -11,6 +11,9 @@ module.exports = [
       "build/**",
       ".gitnexus/**",
       ".codegraph/**",
+      // Verbatim copy of the website's ES modules (scripts/syncDocLib.js);
+      // linted where they are edited, in the website repo.
+      "lib/doc/**",
     ],
   },
 

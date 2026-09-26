@@ -9,12 +9,17 @@ const {
 } = require("../lib/auditActions.js");
 const {
   MAX_DETAIL_LENGTH,
+  recordAudit,
   redact,
   safeJson,
   snapshotBody,
   summarizeBody,
   truncate,
 } = require("../lib/auditLog.js");
+const {
+  FakeFirestore,
+  createFakeAdmin,
+} = require("./helpers/fakeFirestore.js");
 
 // --- redact ---------------------------------------------------------------
 
@@ -317,4 +322,31 @@ test("filterOptions: includes background SYSTEM actions the middleware never see
   assert.ok(options.resourceType.includes("ai"));
   assert.ok(options.resourceType.includes("notification"));
   assert.ok(options.method.includes("SYSTEM"));
+});
+
+// --- recordAudit ------------------------------------------------------------
+
+test("recordAudit with an id overwrites instead of adding a second row", async () => {
+  const db = new FakeFirestore();
+  const admin = createFakeAdmin();
+  const entry = { id: "grading-summary-job1", action: "grading.pointsSummary" };
+  await recordAudit(db, admin, { ...entry, detail: "first" });
+  await recordAudit(db, admin, { ...entry, detail: "retry" });
+  const rows = db.dump("auditLogs");
+  assert.deepEqual(Object.keys(rows), ["grading-summary-job1"]);
+  assert.equal(rows["grading-summary-job1"].detail, "retry");
+});
+
+test("recordAudit without an id still adds one row per call", async () => {
+  const db = new FakeFirestore();
+  const admin = createFakeAdmin();
+  await recordAudit(db, admin, { action: "a" });
+  await recordAudit(db, admin, { action: "a" });
+  assert.equal(Object.keys(db.dump("auditLogs")).length, 2);
+});
+
+test("grading job routes: the start is audited, the task callbacks are not", () => {
+  assert.equal(matchAction("POST", "/grading-jobs").action, "grading.jobStart");
+  assert.equal(shouldAudit("POST", "/internal/tasks/grading"), false);
+  assert.equal(shouldAudit("GET", "/grading-jobs/abc"), false);
 });
