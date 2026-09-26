@@ -1,14 +1,17 @@
 /**
  * Server-side Google Docs API calls for grading jobs. The backend twin of the
- * website's src/api/googleDocs.js — same endpoints, same header rule — plus
- * the one thing a background writer needs that the browser never did: telling
- * a failure worth retrying apart from one that will fail the same way forever.
+ * website's src/api/googleDocs.js — same endpoints — plus the one thing a
+ * background writer needs that the browser never did: telling a failure worth
+ * retrying apart from one that will fail the same way forever.
+ *
+ * No `x-goog-user-project` header on any call. Teachers' tokens come from the
+ * app's own OAuth client, so Google already bills them to that client's
+ * project; naming the project explicitly only adds a check that the caller
+ * holds roles/serviceusage.serviceUsageConsumer on it, which a teacher never
+ * does unless someone grants it by hand.
  */
 
 const DOCS_API = "https://docs.googleapis.com/v1/documents";
-// Quota project for end-user (Gmail) tokens. The service-account token 403s
-// with it, so it is only sent for user tokens (same rule as the website).
-const PROJECT_NUMBER = process.env.GOOGLE_PROJECT_NUMBER || "159733287448";
 
 /**
  * What the caller should do about a failed Docs API call:
@@ -82,13 +85,12 @@ async function batchUpdate(
   docId,
   requests,
   accessToken,
-  { requiredRevisionId, isServiceAccount = false } = {},
+  { requiredRevisionId } = {},
 ) {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
   };
-  if (!isServiceAccount) headers["x-goog-user-project"] = PROJECT_NUMBER;
   const body = { requests };
   if (requiredRevisionId) body.writeControl = { requiredRevisionId };
   const result = await call(

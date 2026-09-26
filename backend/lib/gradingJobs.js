@@ -861,7 +861,6 @@ function createGradingJobs(deps) {
       try {
         await docsApi.batchUpdate(docId, requests, access.token, {
           requiredRevisionId: data.revisionId,
-          isServiceAccount: access.isServiceAccount,
         });
       } catch (err) {
         if (err.kind === "bad_request") {
