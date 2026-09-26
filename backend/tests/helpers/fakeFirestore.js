@@ -251,6 +251,8 @@ class Query {
       const v = data[field];
       if (op === "==") return v === value;
       if (op === "in") return value.includes(v);
+      // Like Firestore, a range filter never matches a missing or null field.
+      if (op === "<=") return v !== null && v !== undefined && v <= value;
       if (op === "array-contains") return Array.isArray(v) && v.includes(value);
       throw new Error(`fake firestore: unsupported op ${op}`);
     });

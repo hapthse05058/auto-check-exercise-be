@@ -7,6 +7,7 @@
 const { FakeFirestore, createFakeAdmin } = require("./fakeFirestore.js");
 const { DocsApiError } = require("../../lib/googleDocsApi.js");
 const { createGradingJobs } = require("../../lib/gradingJobs.js");
+const { scheduleAwareOnFinished } = require("../../lib/gradingSchedules.js");
 const { consumePointsForDocs } = require("../../lib/teacherPoints.js");
 
 const LESSON = "BUỔI 10 - Lesson";
@@ -231,10 +232,15 @@ function createManualQueue() {
  * Builds a job service over fresh fakes. Seeds a class, a lesson, a teacher
  * with `points`, and one student per entry of `tabs`.
  */
-function createHarness({ tabs, points = 100, isAdminTeacher = false } = {}) {
+function createHarness({
+  tabs,
+  points = 100,
+  isAdminTeacher = false,
+  startAt = 1_000_000,
+} = {}) {
   const db = new FakeFirestore();
   const admin = createFakeAdmin();
-  let clock = 1_000_000;
+  let clock = startAt;
   const now = () => clock;
 
   const seed = (col, id, data) =>
@@ -271,6 +277,9 @@ function createHarness({ tabs, points = 100, isAdminTeacher = false } = {}) {
     afterConsume: null,
     tokenError: null, // () => Error | null, per getDocsAccessToken call
     noStoredToken: false, // the Google user never had a token stored
+    // () => the grading-schedule service, when a test wires one in (the same
+    // delegation server.js does through scheduleAwareOnFinished).
+    schedules: null,
   };
   const finished = [];
 
@@ -327,19 +336,22 @@ function createHarness({ tabs, points = 100, isAdminTeacher = false } = {}) {
         : null;
     },
     enqueue: (name, payload) => queue.enqueue(name, payload),
-    onFinished: {
-      async recordSummary(job) {
-        counters.summary += 1;
-        finished.push({ kind: "summary", job });
+    onFinished: scheduleAwareOnFinished(
+      {
+        async recordSummary(job) {
+          counters.summary += 1;
+          finished.push({ kind: "summary", job });
+        },
+        async notify(job) {
+          counters.notify += 1;
+          finished.push({ kind: "notify", job });
+        },
+        async push() {
+          counters.push += 1;
+        },
       },
-      async notify(job) {
-        counters.notify += 1;
-        finished.push({ kind: "notify", job });
-      },
-      async push() {
-        counters.push += 1;
-      },
-    },
+      () => hooks.schedules(),
+    ),
     now,
   });
 
@@ -366,6 +378,10 @@ function createHarness({ tabs, points = 100, isAdminTeacher = false } = {}) {
     drain: (opts) => queue.drain((p) => jobs.handleTask(p), opts),
     advance: (ms) => {
       clock += ms;
+    },
+    now,
+    setClock: (ms) => {
+      clock = ms;
     },
     job: (jobId) => db.dump("gradingJobs")[jobId],
     docRecords: (jobId) => db.dump(`gradingJobs/${jobId}/docs`),

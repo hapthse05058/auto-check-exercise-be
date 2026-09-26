@@ -32,6 +32,10 @@ const {
   createGradingJobs,
 } = require("./lib/gradingJobs.js");
 const {
+  createGradingSchedules,
+  scheduleAwareOnFinished,
+} = require("./lib/gradingSchedules.js");
+const {
   TASK_ACTIVE_PASSIVE,
   TASK_TYPES,
   cleanContent,
@@ -3279,90 +3283,97 @@ const gradingJobs = createGradingJobs({
   resolvePayer,
   enqueue: (name, payload, options) =>
     taskQueue.enqueue(name, payload, options),
-  onFinished: {
-    /** The run's one audit line — the job-side twin of /grading-summary. */
-    async recordSummary(job) {
-      const actor = await auditLog.resolveActor(db, job.createdByEmail);
-      await auditLog.recordAudit(db, admin, {
-        id: `grading-summary-${job.id}`,
-        requestId: job.id,
-        actorEmail: job.createdByEmail,
-        actorName: actor.name,
-        actorId: actor.id,
-        actorResolvedFrom: "token",
-        action: "grading.pointsSummary",
-        resourceType: "points",
-        severity: "INFO",
-        method: "SYSTEM",
-        path: "/system/grading-job",
-        entityId: job.id,
-        success: true,
-        detail:
-          `Tổng point bị trừ: ${job.charged} · Lớp: ${job.className || "?"} · ` +
-          `Buổi: ${job.lessonName || "?"} · GV: ${job.payerName || "?"}`,
-      });
-      const [payerSnap, classSnap, lessonSnap] = await Promise.all([
-        db.collection("teachers").doc(job.payerTeacherId).get(),
-        db.collection("classes").doc(job.classId).get(),
-        db.collection("lesson").doc(job.lessonId).get(),
-      ]);
-      await notifyTeacherGradedByAdmin({
-        actorEmail: job.createdByEmail,
-        payer: payerSnap.exists
-          ? { id: payerSnap.id, ...payerSnap.data() }
-          : null,
-        classSnap,
-        lessonSnap,
-        classId: job.classId,
-        lessonId: job.lessonId,
-        totalPoints: job.charged,
-        requestId: job.id,
-      }).catch((err) =>
-        console.error("[NOTIFY] graded-by-admin failed:", err.message),
-      );
-    },
-
-    /** Bell entry for whoever started the job. Fixed id: a retry overwrites. */
-    async notify(job) {
-      const { type, title, body } = describeJobOutcome(job);
-      await notifications.createNotification(db, admin, {
-        id: jobNotificationId(job),
-        type,
-        severity: job.error ? "WARN" : "INFO",
-        title,
-        body,
-        data: {
-          jobId: job.id,
+  // A scheduled job's end is owned by gradingSchedules.onJobFinished; the
+  // wrapper routes it there and skips the regular bell + push for it.
+  onFinished: scheduleAwareOnFinished(
+    {
+      /** The run's one audit line — the job-side twin of /grading-summary. */
+      async recordSummary(job) {
+        const actor = await auditLog.resolveActor(db, job.createdByEmail);
+        await auditLog.recordAudit(db, admin, {
+          id: `grading-summary-${job.id}`,
+          requestId: job.id,
+          actorEmail: job.createdByEmail,
+          actorName: actor.name,
+          actorId: actor.id,
+          actorResolvedFrom: "token",
+          action: "grading.pointsSummary",
+          resourceType: "points",
+          severity: "INFO",
+          method: "SYSTEM",
+          path: "/system/grading-job",
+          entityId: job.id,
+          success: true,
+          detail:
+            `Tổng point bị trừ: ${job.charged} · Lớp: ${job.className || "?"} · ` +
+            `Buổi: ${job.lessonName || "?"} · GV: ${job.payerName || "?"}`,
+        });
+        // A scheduled job tells the payer itself (gradingSchedules owns its end).
+        if (job.origin?.type === "schedule") return;
+        const [payerSnap, classSnap, lessonSnap] = await Promise.all([
+          db.collection("teachers").doc(job.payerTeacherId).get(),
+          db.collection("classes").doc(job.classId).get(),
+          db.collection("lesson").doc(job.lessonId).get(),
+        ]);
+        await notifyTeacherGradedByAdmin({
+          actorEmail: job.createdByEmail,
+          payer: payerSnap.exists
+            ? { id: payerSnap.id, ...payerSnap.data() }
+            : null,
+          classSnap,
+          lessonSnap,
           classId: job.classId,
           lessonId: job.lessonId,
-          className: job.className,
-          lessonName: job.lessonName,
-          written: job.written,
-          total: job.total,
-          error: job.error || null,
-          ...(job.errorParams || {}),
-        },
-        recipients: [job.createdByEmail],
-        sourceRequestId: job.id,
-      });
-    },
+          totalPoints: job.charged,
+          requestId: job.id,
+        }).catch((err) =>
+          console.error("[NOTIFY] graded-by-admin failed:", err.message),
+        );
+      },
 
-    async push(job) {
-      const { type, title, body } = describeJobOutcome(job);
-      const tokens = await pushDevices.listActiveTokens(db, [
-        job.createdByEmail,
-      ]);
-      const id = jobNotificationId(job);
-      const result = await pushDevices.sendPush(admin, db, {
-        tokens,
-        title,
-        body,
-        data: { type, notificationId: id },
-        link: process.env.PUBLIC_WEB_URL || undefined,
-      });
-      await notifications.recordPushResult(db, admin, id, result);
+      /** Bell entry for whoever started the job. Fixed id: a retry overwrites. */
+      async notify(job) {
+        const { type, title, body } = describeJobOutcome(job);
+        await notifications.createNotification(db, admin, {
+          id: jobNotificationId(job),
+          type,
+          severity: job.error ? "WARN" : "INFO",
+          title,
+          body,
+          data: {
+            jobId: job.id,
+            classId: job.classId,
+            lessonId: job.lessonId,
+            className: job.className,
+            lessonName: job.lessonName,
+            written: job.written,
+            total: job.total,
+            error: job.error || null,
+            ...(job.errorParams || {}),
+          },
+          recipients: [job.createdByEmail],
+          sourceRequestId: job.id,
+        });
+      },
+
+      async push(job) {
+        const { type, title, body } = describeJobOutcome(job);
+        const tokens = await pushDevices.listActiveTokens(db, [
+          job.createdByEmail,
+        ]);
+        const id = jobNotificationId(job);
+        const result = await pushDevices.sendPush(admin, db, {
+          tokens,
+          title,
+          body,
+          data: { type, notificationId: id },
+          link: process.env.PUBLIC_WEB_URL || undefined,
+        });
+        await notifications.recordPushResult(db, admin, id, result);
+      },
     },
-  },
+    () => gradingSchedules,
+  ),
 });
 
 /**
@@ -3382,8 +3393,15 @@ const taskQueue =
         invokerServiceAccount: process.env.TASKS_INVOKER_SA,
       })
     : createInlineQueue({
-        handler: (payload) => gradingJobs.handleTask(payload),
+        handler: (payload) => handleQueuedTask(payload),
       });
+
+/** One queue carries both grading-job steps and grading-schedule steps. */
+function handleQueuedTask(payload) {
+  return payload?.kind === "schedule"
+    ? gradingSchedules.handleTask(payload)
+    : gradingJobs.handleTask(payload);
+}
 
 function sendJobError(res, err, where) {
   if (err instanceof JobError) {
@@ -3447,14 +3465,29 @@ app.get("/grading-jobs/:id", verifyGoogleToken, async (req, res) => {
  * calls it), so this check is the whole of the route's protection.
  */
 const taskTokenVerifier = new OAuth2Client();
-async function verifyTaskRequest(req, res, next) {
+/**
+ * Cloud Scheduler signs its tick calls the same way (same invoker account),
+ * with the tick route's own URL as audience.
+ */
+const SCHEDULE_TICK_URL =
+  process.env.SCHEDULE_TICK_URL ||
+  String(process.env.TASKS_TARGET_URL || "").replace(
+    /\/internal\/tasks\/grading$/,
+    "/internal/tasks/schedule-tick",
+  );
+const verifyTaskRequest = (req, res, next) =>
+  verifyInternalCall(req, res, next, process.env.TASKS_TARGET_URL);
+const verifyTickRequest = (req, res, next) =>
+  verifyInternalCall(req, res, next, SCHEDULE_TICK_URL);
+
+async function verifyInternalCall(req, res, next, audience) {
   if (taskQueue.mode !== "cloud") return res.status(404).end();
   const header = req.headers.authorization || "";
   if (!header.startsWith("Bearer ")) return res.status(401).end();
   try {
     const ticket = await taskTokenVerifier.verifyIdToken({
       idToken: header.slice(7),
-      audience: process.env.TASKS_TARGET_URL,
+      audience,
     });
     const payload = ticket.getPayload();
     if (
@@ -3478,7 +3511,7 @@ async function verifyTaskRequest(req, res, next) {
  */
 app.post("/internal/tasks/grading", verifyTaskRequest, async (req, res) => {
   try {
-    await gradingJobs.handleTask(req.body);
+    await handleQueuedTask(req.body);
     return res.status(204).end();
   } catch (err) {
     if (err instanceof RetryLater) {
@@ -3491,6 +3524,235 @@ app.post("/internal/tasks/grading", verifyTaskRequest, async (req, res) => {
     return res.status(500).json({ error: "task_failed" });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Scheduled grading (lib/gradingSchedules.js)
+//
+// A class's weekly schedule: remind the teacher ~30 minutes before, then grade
+// its current lesson through the same grading job as the button. Cloud
+// Scheduler drives it by calling /internal/tasks/schedule-tick every 5
+// minutes (see DEPLOYMENT_GUIDE.md); locally an interval does.
+// ---------------------------------------------------------------------------
+
+/** Env overrides of the schedule's time rules — mostly for manual testing. */
+function scheduleOptionsFromEnv() {
+  const minutes = (name) =>
+    process.env[name] !== undefined && process.env[name] !== ""
+      ? Number(process.env[name]) * 60 * 1000
+      : undefined;
+  const options = {
+    offPeakUtc: process.env.GRADING_OFFPEAK_UTC || undefined,
+    remindMs: minutes("GRADING_REMIND_MIN"),
+    graceMs: minutes("GRADING_GRACE_MIN"),
+    runMarginMs: minutes("GRADING_RUN_MARGIN_MIN"),
+    minGapMs: minutes("GRADING_MIN_GAP_MIN"),
+    jitterMs: minutes("GRADING_JITTER_MIN"),
+  };
+  return Object.fromEntries(
+    Object.entries(options).filter(
+      ([, v]) => v !== undefined && !Number.isNaN(v),
+    ),
+  );
+}
+
+const gradingSchedules = createGradingSchedules({
+  db,
+  gradingJobs,
+  enqueue: (name, payload) => taskQueue.enqueue(name, payload),
+  resolvePayer,
+  resolveTeacher: findTeacherByEmail,
+  hasRefreshToken: (email) => googleUserTokens.hasRefreshToken(email),
+  notify: ({ id, type, severity, title, body, data, recipients }) =>
+    notifications.createNotification(db, admin, {
+      id,
+      type,
+      severity,
+      title,
+      body,
+      data,
+      recipients,
+    }),
+  async push({ id, type, title, body, data, recipients }) {
+    const tokens = await pushDevices.listActiveTokens(db, recipients);
+    const base = process.env.PUBLIC_WEB_URL;
+    const result = await pushDevices.sendPush(admin, db, {
+      tokens,
+      title,
+      body,
+      data: { type, notificationId: id },
+      link: base ? `${base.replace(/\/$/, "")}${data?.path || ""}` : undefined,
+    });
+    await notifications.recordPushResult(db, admin, id, result);
+  },
+  /** One audit row per week and phase (fixed id: a retry overwrites it). */
+  async audit({ id, event, message, run }) {
+    const descriptor = auditActions.SYSTEM_ACTIONS["grading.scheduleEvent"];
+    await auditLog.recordAudit(db, admin, {
+      id,
+      requestId: run.jobId || null,
+      actorEmail: run.ownerEmail || null,
+      actorResolvedFrom: "token",
+      action: "grading.scheduleEvent",
+      resourceType: descriptor.resourceType,
+      severity: message.severity === "WARN" ? "WARN" : descriptor.severity,
+      method: "SYSTEM",
+      path: "/system/grading-schedule",
+      entityId: `${run.classId}/${run.runKey}`,
+      success: event !== "failed",
+      detail: `${message.title} · ${message.body}`,
+    });
+  },
+  options: scheduleOptionsFromEnv(),
+});
+
+const viewerOf = (req) => ({
+  email: req.userEmail,
+  authKind: req.authKind,
+  isAdmin: ADMIN_EMAILS.includes((req.userEmail || "").toLowerCase()),
+});
+
+function sendScheduleError(res, err, where) {
+  if (err instanceof JobError) {
+    return res.status(err.status).json({ error: err.code, ...err.params });
+  }
+  console.error(`[GRADING-SCHEDULE] ${where}:`, err.message);
+  return res.status(500).json({ error: "grading_schedule_failed" });
+}
+
+/**
+ * Without classId: the schedules of every class the caller teaches (all of
+ * them for an admin). With classId: that one, plus how its last week went.
+ */
+app.get("/grading-schedules", verifyGoogleToken, async (req, res) => {
+  try {
+    const viewer = viewerOf(req);
+    if (req.query.classId) {
+      const schedule = await gradingSchedules.get({
+        viewer,
+        classId: req.query.classId,
+      });
+      return res.json({ schedule });
+    }
+    let classIds;
+    if (viewer.isAdmin) {
+      const snap = await db.collection("classes").get();
+      classIds = snap.docs.map((d) => d.id);
+    } else {
+      const teacher = await findTeacherByEmail(viewer.email);
+      if (!teacher) return res.json({ schedules: [] });
+      const snap = await db
+        .collection("classes")
+        .where("teacherId", "array-contains", teacher.id)
+        .get();
+      classIds = snap.docs.map((d) => d.id);
+    }
+    return res.json({ schedules: await gradingSchedules.listFor(classIds) });
+  } catch (err) {
+    return sendScheduleError(res, err, "list");
+  }
+});
+
+/**
+ * What saving these deadlines would schedule. A GET on purpose: it must be
+ * free of side effects — the website calls it on every edit of the fields —
+ * and GETs are not audited (AUDITED_GETS), unlike any PUT.
+ * Declared before /grading-schedules/:classId-style routes.
+ */
+app.get("/grading-schedules/preview", verifyGoogleToken, async (req, res) => {
+  try {
+    const preview = await gradingSchedules.preview({
+      viewer: viewerOf(req),
+      classId: req.query.classId,
+      studentDeadlineAt: req.query.studentDeadlineAt,
+      graderDeadlineAt: req.query.graderDeadlineAt,
+    });
+    return res.json({ preview });
+  } catch (err) {
+    return sendScheduleError(res, err, "preview");
+  }
+});
+
+/** The most the payer's scheduled classes can cost next time vs the balance. */
+app.get("/grading-schedules/estimate", verifyGoogleToken, async (req, res) => {
+  try {
+    const payer = req.query.classId
+      ? await resolvePayer(req.userEmail, req.query.classId)
+      : await findTeacherByEmail(req.userEmail);
+    if (!payer) return res.status(403).json({ error: "payer_not_found" });
+    const estimate = await gradingSchedules.estimate(payer.id, {
+      includeClassId: req.query.classId ? String(req.query.classId) : null,
+    });
+    return res.json({
+      ...estimate,
+      teacherName: payer.name || payer.gmail || "",
+    });
+  } catch (err) {
+    return sendScheduleError(res, err, "estimate");
+  }
+});
+
+app.put("/grading-schedules/:classId", verifyGoogleToken, async (req, res) => {
+  try {
+    const schedule = await gradingSchedules.upsert({
+      viewer: viewerOf(req),
+      classId: req.params.classId,
+      studentDeadlineAt: req.body?.studentDeadlineAt,
+      graderDeadlineAt: req.body?.graderDeadlineAt,
+    });
+    const day = ({ weekday, time }) =>
+      `${weekday === 0 ? "Chủ nhật" : `Thứ ${weekday + 1}`} ${time}`;
+    res.locals.auditDetail =
+      `Hẹn giờ chấm lớp ${schedule.className || req.params.classId}: ` +
+      `hạn nộp ${day(schedule.studentDeadline)}, ` +
+      `hạn chấm ${day(schedule.graderDeadline)}`;
+    return res.json({ schedule });
+  } catch (err) {
+    return sendScheduleError(res, err, "save");
+  }
+});
+
+app.delete(
+  "/grading-schedules/:classId",
+  verifyGoogleToken,
+  async (req, res) => {
+    try {
+      await gradingSchedules.disable({
+        viewer: viewerOf(req),
+        classId: req.params.classId,
+      });
+      res.locals.auditDetail = `Tắt chấm tự động lớp ${req.params.classId}`;
+      return res.json({ ok: true });
+    } catch (err) {
+      return sendScheduleError(res, err, "disable");
+    }
+  },
+);
+
+/** Cloud Scheduler, every 5 minutes: queue the steps that are due. */
+app.post(
+  "/internal/tasks/schedule-tick",
+  verifyTickRequest,
+  async (req, res) => {
+    try {
+      const result = await gradingSchedules.tick();
+      return res.json(result);
+    } catch (err) {
+      console.error("[GRADING-SCHEDULE] tick failed:", err.message);
+      return res.status(500).json({ error: "tick_failed" });
+    }
+  },
+);
+
+// Local dev has no Cloud Scheduler: tick in-process.
+if (taskQueue.mode === "inline") {
+  setInterval(() => {
+    gradingSchedules
+      .tick()
+      .catch((err) =>
+        console.error("[GRADING-SCHEDULE] inline tick failed:", err.message),
+      );
+  }, 60 * 1000).unref();
+}
 
 app.listen(PORT, "0.0.0.0", () => {
   // eslint-disable-next-line no-console

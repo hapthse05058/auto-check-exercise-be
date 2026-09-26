@@ -152,6 +152,47 @@ re-encrypted under v2 the next time they are used; remove v1 only after that.
 tasks show up in the Cloud Tasks console for the `grading-jobs` queue, and in
 the service logs under `[GRADING-JOB]`.
 
+### Step 6: Scheduled grading (Cloud Scheduler)
+
+Teachers can give a class a weekly schedule (students' deadline + grading
+deadline); the backend reminds them ~30 minutes before and grades the class's
+current lesson on its own (`backend/lib/gradingSchedules.js`). Nothing runs it
+but a tick every 5 minutes, which queues the due steps on the SAME
+`grading-jobs` queue as Step 5. Do this after Step 5, once per environment.
+
+```bash
+gcloud services enable cloudscheduler.googleapis.com
+
+# Signed by the same invoker account as the task route; the audience is the
+# tick route itself (override with SCHEDULE_TICK_URL if it differs).
+gcloud scheduler jobs create http grading-schedule-tick \
+  --location=$REGION \
+  --schedule="*/5 * * * *" \
+  --time-zone="Asia/Ho_Chi_Minh" \
+  --http-method=POST \
+  --uri=$SERVICE_URL/internal/tasks/schedule-tick \
+  --oidc-service-account-email=$INVOKER \
+  --oidc-token-audience=$SERVICE_URL/internal/tasks/schedule-tick \
+  --attempt-deadline=60s
+```
+
+The 5-minute cadence is load-bearing only loosely: a step that fails or dies
+is picked up again by the next tick (the schedule does not move on until the
+step has committed), and a reminder up to ~10 minutes late still keeps the
+planned grading time. Optional env: `GRADING_OFFPEAK_UTC` (default
+`16:30-00:30`, DeepSeek off-peak = 23:30–07:30 Vietnam time),
+`GRADING_REMIND_MIN` (default 30).
+
+**Firestore rules.** Also deny client access to `gradingSchedules` (and its
+`runs` subcollection) and `pointReservations`.
+
+**Checking a schedule.** `gradingSchedules/{classId}` holds the weekly
+definition and the next week (`next`, `nextStep`, `nextDueAt`);
+`gradingSchedules/{classId}/runs/{YYYY-MM-DD}` records each week — its state
+(`reminded`, `running`, `done`, `cancelled_*`, `missed`, …), the counts, the
+job id and the lesson move. Logs are under `[GRADING-SCHEDULE]`, and each
+week's outcome is a `grading.scheduleEvent` audit row.
+
 ### Pros
 - ✅ Generous free tier
 - ✅ Auto-scaling

@@ -124,6 +124,22 @@ const AUDIT_ACTIONS = [
     resourceType: "grading",
     severity: "INFO",
   },
+  // Weekly auto-grading of a class (lib/gradingSchedules.js). Each week's
+  // outcome is a SYSTEM "grading.scheduleEvent" row.
+  {
+    method: "PUT",
+    pattern: /^\/grading-schedules\/[^/]+$/,
+    action: "grading.scheduleSave",
+    resourceType: "grading",
+    severity: "INFO",
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/grading-schedules\/[^/]+$/,
+    action: "grading.scheduleDisable",
+    resourceType: "grading",
+    severity: "INFO",
+  },
   // Closes out a run: class, lesson, and the total points it cost. Stands in
   // for the per-charge entries that SKIP_PATHS drops.
   {
@@ -301,6 +317,8 @@ const SYSTEM_ACTIONS = {
     resourceType: "notification",
     severity: "INFO",
   },
+  // One per week of a grading schedule: reminded, cancelled, missed, done.
+  "grading.scheduleEvent": { resourceType: "grading", severity: "INFO" },
 };
 
 /**
@@ -323,6 +341,9 @@ const AUDITED_GETS = [];
  *
  * /internal/tasks/grading is Cloud Tasks calling back for every step of every
  * grading job — several per student doc. The job records its own summary row.
+ *
+ * /internal/tasks/schedule-tick is Cloud Scheduler, every 5 minutes, all day.
+ * Each week of a schedule records its own "grading.scheduleEvent" row.
  */
 const SKIP_PATHS = [
   "/auth/refresh",
@@ -331,6 +352,7 @@ const SKIP_PATHS = [
   "/audit-logs/client-event",
   "/teacher-points/consume",
   "/internal/tasks/grading",
+  "/internal/tasks/schedule-tick",
 ];
 
 /** Actions the middleware never produces, so filter-options must add them. */

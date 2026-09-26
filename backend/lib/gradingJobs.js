@@ -169,9 +169,32 @@ function createGradingJobs(deps) {
     return ids;
   }
 
+  /** A job that already exists under a caller-chosen id: make sure it runs. */
+  async function resumeExisting(jobId, job) {
+    if (job.status === "queued") {
+      await enqueue(
+        `prepare-${jobId}`,
+        { jobId, step: "prepare" },
+        { dispatchDeadlineSeconds: PREPARE_DEADLINE_SECONDS },
+      );
+    }
+    return { jobId, existing: true };
+  }
+
   /**
    * Starts a job, or refuses with a JobError (409 carries the running job id).
-   * @returns {Promise<{jobId: string}>}
+   *
+   * Scheduled grading (lib/gradingSchedules.js) passes three more options:
+   *  - `jobId`  a deterministic id. Calling again with the same id returns the
+   *             job already created (`existing: true`) instead of a second one,
+   *             so a retried step can never start the same run twice.
+   *  - `origin` stored on the job, so finalize knows who owns its ending.
+   *  - `guard`  async (tx) => boolean, run inside the creating transaction
+   *             (reads only). false refuses with 409 `guard_rejected` — this is
+   *             what makes creation atomic with the schedule being switched off.
+   * Without them the behaviour is exactly the button's.
+   *
+   * @returns {Promise<{jobId: string, existing?: boolean}>}
    */
   async function createJob({
     email,
@@ -181,11 +204,20 @@ function createGradingJobs(deps) {
     lessonId,
     docIds,
     useCache,
+    jobId: fixedJobId = null,
+    origin = null,
+    guard = null,
   }) {
     classId = String(classId || "");
     lessonId = String(lessonId || "");
     if (!classId || !lessonId) {
       throw new JobError(400, "classId_and_lessonId_required");
+    }
+    if (fixedJobId) {
+      // Checked before any validation: a retry must find its job even if the
+      // class changed since (a student removed, say).
+      const existing = await jobRef(fixedJobId).get();
+      if (existing.exists) return resumeExisting(fixedJobId, existing.data());
     }
     const [classSnap, lessonSnap] = await Promise.all([
       db.collection("classes").doc(classId).get(),
@@ -208,11 +240,12 @@ function createGradingJobs(deps) {
     const payer = await resolvePayer(email, classId);
     if (!payer) throw new JobError(403, "payer_not_found");
 
-    const jobId = crypto.randomUUID().replace(/-/g, "");
+    const jobId = fixedJobId || crypto.randomUUID().replace(/-/g, "");
     const at = now();
     const job = {
       classId,
       lessonId,
+      origin,
       className: classSnap.data().name || "",
       classType: classSnap.data().classType || "",
       lessonName: lessonSnap.data().name || "",
@@ -253,11 +286,16 @@ function createGradingJobs(deps) {
     const outcome = await db.runTransaction(async (tx) => {
       const lock = lockRef(classId, lessonId);
       const lockSnap = await tx.get(lock);
+      if (fixedJobId) {
+        const mine = await tx.get(jobRef(fixedJobId));
+        if (mine.exists) return { existing: mine.data() };
+      }
       let previous = null;
       if (lockSnap.exists && lockSnap.data().jobId) {
         const prevSnap = await tx.get(jobRef(lockSnap.data().jobId));
         if (prevSnap.exists) previous = prevSnap;
       }
+      if (guard && !(await guard(tx))) return { rejected: true };
       if (previous && !JOB_TERMINAL.has(previous.data().status)) {
         if (!isStale(previous.data())) {
           return { conflict: previous.id };
@@ -276,6 +314,8 @@ function createGradingJobs(deps) {
       tx.set(lock, { jobId, classId, lessonId, updatedAt: at });
       return { conflict: null };
     });
+    if (outcome.existing) return resumeExisting(jobId, outcome.existing);
+    if (outcome.rejected) throw new JobError(409, "guard_rejected");
     if (outcome.conflict) {
       throw new JobError(409, "job_in_progress", { jobId: outcome.conflict });
     }
@@ -287,6 +327,13 @@ function createGradingJobs(deps) {
         { dispatchDeadlineSeconds: PREPARE_DEADLINE_SECONDS },
       );
     } catch (err) {
+      if (fixedJobId) {
+        // The caller retries with the same id, and resumeExisting re-enqueues
+        // the still-queued job. Failing it here would leave a job that never
+        // reaches finalize, so its owner would never hear it ended.
+        console.error("[GRADING-JOB] enqueue prepare failed:", err.message);
+        throw new JobError(503, "enqueue_failed");
+      }
       // Nothing will ever pick this job up — fail it now rather than leave a
       // lock that blocks the class for JOB_STALE_MS.
       await jobRef(jobId).update({
@@ -578,6 +625,50 @@ function createGradingJobs(deps) {
         `${ready.length} to write, total ${now() - started}ms`,
     );
     await ensureTasks(jobId, { finalizeRequested: !ready.length });
+  }
+
+  /**
+   * How many students of a class did the lesson, without writing anything —
+   * the same reading prepare does (readForGrading), so "pending" here is
+   * exactly what a job started now would grade. Scheduled grading announces
+   * this count, and reserves points for it, before starting the job.
+   *
+   * Throws ReauthRequiredError when the teacher's Google grant is gone, and
+   * the Docs API's transient errors so the caller's step is retried.
+   *
+   * @returns {Promise<{total: number, pending: number, alreadyGraded: number}>}
+   */
+  async function countSubmissions({ classId, lessonId, email, authKind }) {
+    const [classSnap, lessonSnap] = await Promise.all([
+      db.collection("classes").doc(String(classId)).get(),
+      db.collection("lesson").doc(String(lessonId)).get(),
+    ]);
+    if (!classSnap.exists) throw new JobError(404, "class_not_found");
+    if (!lessonSnap.exists) throw new JobError(404, "lesson_not_found");
+
+    const ids = await resolveDocIds(String(classId));
+    if (!ids.length) return { total: 0, pending: 0, alreadyGraded: 0 };
+
+    const lib = await loadDocLib();
+    const access = await tokens.getDocsAccessToken(
+      String(email).toLowerCase(),
+      authKind === "google" ? "google" : "jwt",
+    );
+    const reading = {
+      lessonName: lessonSnap.data().name || "",
+      classType: classSnap.data().classType || "",
+      createdByEmail: String(email).toLowerCase(),
+    };
+    const docs = await mapLimit(ids, READ_CONCURRENCY, (docId) =>
+      readForGrading(lib, reading, docId, access),
+    );
+    return {
+      total: ids.length,
+      pending: docs.filter((d) => d.status === "pending").length,
+      alreadyGraded: docs.filter(
+        (d) => d.reason === "alreadyGraded" || d.reason === "oldFeedback",
+      ).length,
+    };
   }
 
   async function prepare(jobId) {
@@ -991,6 +1082,7 @@ function createGradingJobs(deps) {
       reauthRequired: job.reauthRequired,
       createdAt: job.createdAt,
       finishedAt: job.finishedAt,
+      origin: job.origin ? { type: job.origin.type } : null,
       warnings,
     };
   }
@@ -1013,6 +1105,7 @@ function createGradingJobs(deps) {
   }
 
   return {
+    countSubmissions,
     createJob,
     finalize,
     getJob,
@@ -1025,6 +1118,7 @@ function createGradingJobs(deps) {
 
 module.exports = {
   JOB_STALE_MS,
+  JOB_TERMINAL,
   JobError,
   MAX_PREPARE_ATTEMPTS,
   PREPARE_LEASE_MS,
