@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "nodemon --ext js,json,txt server.js",
     "test": "node --test",
     "clean:grading-cache": "node scripts/cleanGradingCache.js",
     "seed:dev": "node scripts/sync-reference-data.js --from prod --to dev",

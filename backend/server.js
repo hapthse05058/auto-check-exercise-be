@@ -17,6 +17,9 @@ const auditActions = require("./lib/auditActions.js");
 const auditLog = require("./lib/auditLog.js");
 const balanceMonitor = require("./lib/balanceMonitor.js");
 const billing = require("./lib/billing.js");
+const {
+  createInstructionBuilder,
+} = require("./lib/buildGradingInstruction.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const {
@@ -345,6 +348,14 @@ const openai = new OpenAI({
   baseURL: AI_BASE_URL,
 });
 
+// System prompt của /grade-cached: quy tắc chung + tài liệu của buổi đang
+// chấm. Đọc file một lần rồi giữ chuỗi ĐÃ GHÉP trong bộ nhớ — hai request
+// cùng buổi phải nhận đúng một chuỗi thì prefix cache của DeepSeek mới hit.
+const gradingInstructionFor = createInstructionBuilder({
+  coreFile: path.join(__dirname, "prompts", "system_instruction_core.txt"),
+  lessonsDir: path.join(__dirname, "prompts", "lessons"),
+});
+
 /**
  * Calls the AI grader via chat completions (DeepSeek / any OpenAI-compatible
  * provider) and returns the cleaned response text. The grading instruction is
@@ -369,9 +380,35 @@ async function callGrader(instruction, inputText, model) {
     params.top_p = 0.14;
   }
   const response = await openai.chat.completions.create(params);
+  logGraderUsage(response);
   return (response.choices?.[0]?.message?.content || "")
     .replace(/【.*?】|<br>|/g, "")
     .trim();
+}
+
+/**
+ * Một dòng log cho mỗi lần gọi AI: input tốn bao nhiêu token, trong đó bao
+ * nhiêu được trả bằng giá cache hit (~1/10 giá thường).
+ *
+ * Đây là thước đo duy nhất cho việc tối ưu prompt. Không có nó thì mọi phát
+ * biểu "prompt nhẹ hơn rồi" chỉ là phỏng đoán. Tên trường prompt_cache_* là
+ * của DeepSeek; provider khác không có thì chỉ in phần prompt/completion.
+ */
+function logGraderUsage(response) {
+  const usage = response?.usage;
+  if (!usage) return;
+  const hit = usage.prompt_cache_hit_tokens;
+  const miss = usage.prompt_cache_miss_tokens;
+  const cache =
+    hit === undefined && miss === undefined
+      ? ""
+      : ` cache_hit=${hit ?? 0} cache_miss=${miss ?? 0}`;
+  // Đây là số đo bình thường, không phải lỗi: ghi bằng console.warn sẽ nhuộm
+  // WARNING cho mọi lần chấm trong Cloud Run.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[AI-USAGE] prompt=${usage.prompt_tokens ?? "?"} completion=${usage.completion_tokens ?? "?"}${cache} finish=${response?.choices?.[0]?.finish_reason ?? "?"}`,
+  );
 }
 //Use for extension
 app.post("/grade", verifyGoogleToken, async (req, res) => {
@@ -653,14 +690,11 @@ app.post("/grade-cached", verifyGoogleToken, async (req, res) => {
 
     // 4. Grade misses with OpenAI, in modest groups, with bounded concurrency.
     if (uncached.length > 0) {
-      const instructionFilePath = path.join(
-        __dirname,
-        "prompt_and_instruction_for_responses_api_2.txt",
-      );
-      if (!fs.existsSync(instructionFilePath)) {
-        throw new Error(`Instruction file not found: ${instructionFilePath}`);
-      }
-      const instruction = fs.readFileSync(instructionFilePath, "utf8").trim();
+      // Chỉ gửi tài liệu của ĐÚNG buổi đang chấm. Gửi cả 20 buổi như trước là
+      // ~115KB input cho MỖI group 15 câu, trong khi một lần chấm luôn thuộc
+      // một buổi. lessonId không hợp lệ hoặc chưa có file thì hàm tự fallback
+      // về "gửi mọi buổi" (tốn token như cũ, không buổi nào bị thiếu tài liệu).
+      const instruction = gradingInstructionFor(req.body.lessonId);
 
       const GROUP_SIZE = 15;
       const groups = [];

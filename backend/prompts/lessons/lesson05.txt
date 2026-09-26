@@ -1,0 +1,130 @@
+BUỔI 05
+IV. BÀI TẬP VIẾT LẠI CÂU
+Cả lớp chuyển câu tiếng Việt sang câu tiếng Anh theo 3 NTST, viết câu tiếng Anh vào cột English. 
+Gợi ý: Từ nào không biết các bạn tạm thời tra từ điển Việt - Anh, gợi ý: từ điển https://tracau.vn ; http://tratu.soha.vn, còn muốn sử dụng từ điển Anh - Anh có thể tra trên trang này: https://www.oxfordlearnersdictionaries.com/   
+
+Chuyển câu Tiếng Việt → Tiếng Anh
+Gợi ý
+Chữa bài
+Đại từ nhân xưng - Tính từ sở hữu - Đại từ sở hữu 
+
+1. Cô ấy đã bị mất điện thoại, nên cô ấy đã mượn cái của tôi.
+→ She lost her phone, so she borrowed my. 
+Câu ghép: IC, so IC. (... nên/do đó...)
+lost (v) đã mất; borrow (v) mượn;
+"my" là tính từ sở hữu, không đứng 1 mình. Nên sửa thành "my phone" (điện thoại của tôi) hoặc sử dụng đại từ sở hữu "mine" (cái của tôi) để tránh lặp từ "phone"
+2. Chúng tôi không thể giao đơn hàng của bạn trước thứ 6 tuần này.
+→ We can not deliver order your before Friday this week. 
+deliver (v) giao hàng; order (n) đơn hàng
+Sai trật tự từ. N chính là "order" (đơn hàng) nên đứng sau, tính từ "your" (của bạn) đứng trước. Sửa thành: your order
+3. Tôi có thể chỉ cho bạn đường tới SEC.
+→ I can show you street to SEC. 
+
+Nên sử dụng danh từ "the way" (cách đi, đường đi) sẽ tự nhiên hơn. 
+"Street" là "con phố"
+4. Nhà hàng này nổi tiếng vì đầu bếp của nó.
+→ The restaurant is famous because its chef.
+famous (adj) nổi tiếng, chef (n) đầu bếp
+"because" là 1 sub, sau sub cần 1 cụm S-V
+ở đây chỉ cần dùng "for" theo mẫu câu "be famous for sth = nổi tiếng vì ..."
+5. Bộ phận marketing của chúng ta rất xuất sắc.
+→ Our department marketing is very excellent.
+ department (n) bộ phận, excellent(adj) xuất sắc
+Sai trật tự từ. 
+N chính là "department" (bộ phận) nên sẽ đứng cuối. N sinh N bổ nghĩa về chức năng, nên "marketing" sẽ đứng trước. Sửa thành: marketing department
+
+Chuyển câu Tiếng Việt → Tiếng Anh
+Gợi ý
+Chữa bài
+Dùng sở hữu cách khi chủ sở hữu là người
+
+6. Cái nhẫn của vợ tôi được mua từ năm ngoái.
+→ My wife's ring ... bought last year.
+ring (n) nhẫn , wife (n) vợ, be bought: được mua 
+Động từ "được mua" chia thì QKĐ bị động (was/ were P2), cần bổ sung "was" đứng trước "bought"
+7. Máy tính của giáo viên đã được sửa chữa thành công. 
+→ The teacher's computer is repair successfully.
+successfully (adv) thành công , repair (v) sửa chữa
+Động từ "đã được sửa" chia thì QKĐ bị động (was/were P2), sửa "is" thành "was", "repair" để dạng P2 là "repaired". Sửa thành: was repaired
+Dùng "OF" khi chủ sở hữu là bất động vật
+
+8. Mái của ngôi nhà đã bị hỏng tháng trước.
+→ The roof of the house ... damaged last month.
+roof (n): mái nhà, damage (v):làm hỏng
+Động từ "bị hỏng" chia thì QKĐ bị động (was/ were P2), cần bổ sung "was" đứng trước "damaged"
+9. Cái chân của cái bàn bị gãy.
+→ The leg of the table be broken. 
+table (n) cái bàn , be broken (v) bị gãy
+Động từ "bị gãy" chia thì HTĐ bị động (am/is/are P2), sửa "be" thành "is"
+
+Chuyển câu Tiếng Việt → Tiếng Anh
+Gợi ý
+Chữa bài
+Danh từ không xác định
+
+10. Nước rất quan trọng cho sức khỏe của chúng ta. (Nước nói chung)
+→ Water ... important for our health.
+important (adj) quan trọng, health (n) sức khỏe
+Câu thiếu động từ, không có V thường nên sẽ sử dụng động từ nối. Cần bổ sung động từ nối: is
+11. Tiền không là tất cả. (Tiền nói chung)
+→ Money are not all.
+money (n) tiền
+Chủ ngữ "money" không đếm được nên tobe là "is" 
+12. Tôi thích đọc sách và uống trà. (Sách/trà nói chung)
+→ I like reading book and drinking tea. 
+
+"Book" là N đếm được nên cần NTNS. Khi nói chung chung, không xác định cụ thể, "book" nên để ở dạng số nhiều. Sửa thành: books
+13. Rượu không tốt cho sức khỏe của bạn. (Rượu nói chung) 
+→ Alcohol ... not good for your health. 
+alcohol (n) rượu
+Câu thiếu động từ, không có V thường nên sẽ sử dụng động từ nối. Cần bổ sung động từ nối: is
+Danh từ xác định
+
+14. Hãy trả lại tôi quyển sách. (quyển sách mà người nói và người nghe cùng biết)
+→ Give I back the book. 
+Give sb back st: Trả lại cho ai cái gì 
+Đại từ "I" chỉ đóng chức năng làm S. Sau động từ cần sử dụng tân ngữ, sửa thành tân ngữ "me" (tôi)
+15. Bạn có thể ăn cái pizza ở trong tủ lạnh (Pizza xác định mà người nói và người nghe cùng hiểu) 
+→ You can eat ... pizza in the refrigerator. 
+refrigerator (n) tủ lạnh.
+Danh từ "cái pizza" xác định nên cần có mạo từ "the" đứng trước
+16. Chàng trai bên cạnh bạn là bạn trai của tôi. (Chàng trai xác định) 
+→ ... Boy next to you is my boyfriend.
+
+Danh từ "chàng trai" xác định nên cần có mạo từ "the" đứng trước
+17. Món salad ở trong bếp không ngon. (Salad đã được xác định)
+→ ... salad in the kitchen is not tasty. 
+kitchen (n): bếp , delicious / tasty (adj):ngon
+Danh từ "món salad" xác định nên cần có mạo từ "the" đứng trước
+18. Cô gái ở đằng kia rất xinh. (Cô gái xác định)
+→ ... girl over there is very beautiful. 
+
+Danh từ "cô gái" xác định nên cần có mạo từ "the" đứng trước
+
+
+III. BÀI TẬP VIẾT CÂU (BUỔI 05)
+Học viên dịch câu tiếng Việt sang tiếng Anh.
+
+1. Chúng tôi đã chơi bóng đá hôm qua.
+→ We played football yesterday.
+2. Anh ấy đã xem TV tối qua.
+→ He watched TV last night.
+Hành động đơn giản xảy ra trong quá khứ → QKĐ
+
+1. Chúng tôi đang chơi bóng đá lúc 8h tối qua.
+→ We were playing football at 8 p.m. yesterday.
+2. Anh ấy đang xem TV lúc 7h tối qua.
+→ He was watching TV at 7 p.m. yesterday.
+Hành động đang diễn ra ở thời điểm quá khứ → QKTD
+
+1. Tính đến 2024, chúng tôi đã chơi bóng đá được 3 năm.
+→ By 2024, we had played football for three years.
+2. Tính đến 2024, anh ấy đã xem được 5 bộ phim.
+→ By 2024, he had watched five movies.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm quá khứ → QKHT
+
+1. Tính đến 8h tối qua, chúng tôi đã chơi bóng đá liên tục được 2 tiếng.
+→ By 8 p.m. yesterday, we had been playing football for 2 hours.
+2. Tính đến 9h tối qua, anh ấy đã xem TV liên tục được 2 tiếng.
+→ By 9 p.m. yesterday, he had been watching TV for 2 hours.
+Hành động xảy ra, kéo dài, hoàn thành tới thời điểm quá khứ và nhấn mạnh tính liên tục → QKHTTD

@@ -1,0 +1,126 @@
+BUỔI 12
+IV. BÀI TẬP VIẾT LẠI CÂU
+Cả lớp dựa vào từ vựng gợi ý, chuyển câu tiếng Việt sang câu tiếng Anh để có tư duy hình thành 1 câu tiếng Anh, bài tập rất quan trọng nên các bạn sắp xếp thời gian làm nhé.
+Gợi ý: Từ nào không biết các bạn tạm thời tra từ điển Việt - Anh, gợi ý: từ điển https://tracau.vn ; http://tratu.soha.vn, còn muốn sử dụng từ điển Anh - Anh có thể tra trên trang này: https://www.oxfordlearnersdictionaries.com/
+
+Chuyển câu Tiếng Việt → Tiếng Anh
+Gợi ý
+Chữa bài
+Chuyển khẳng định → phủ định → nghi vấn (Y/N questions)
+Sự phủ định: thêm not sau Aux, tobe, ĐTKT
+Y/N questions: đảo Aux, tobe, ĐTKT lên trước chủ ngữ
+Trường hợp chưa có aux: mượn do/does/did
+
+1. Cô ấy thường thức dậy lúc 6 giờ sáng.
+→ She often wake up at 6 am 
+
+chủ ngữ "she" yêu cầu động từ chia số ít hiện tại đơn là wakes
+2. Cô ấy không thường thức dậy lúc 6 giờ sáng.
+→ She is not often wake up at 6 am 
+
+Cấu trúc hiện tại đơn chưa có Aux -> cần mượn "does" rồi thêm NOT  vì chủ ngữ số ít 
+câu đúng là She doesn't often wake up at 6 a.m
+3. Cô ấy có thường thức dậy lúc 6 giờ sáng không?
+→ Does she wakes up at 6 am? 
+
+wakes -> wake 
+bởi vì có does rồi thì phải dùng động từ nguyên mẫu (không chia s)
+4. Cô ấy đi ngủ vào 10 giờ đêm qua.
+→ She slept at 10 pm yesterday
+Dùng QKĐ
+sleep (v) ngủ, 22 giờ =  10 p.m 
+
+5. Cô ấy không đi ngủ vào 10 giờ đêm qua.
+→ She didn't slept at 10 pm yesterday 
+
+slept -> sleep 
+ sau didn't phải dùng động từ nguyên mẫu sleep, không chia quá khứ nữa
+6. Cô ấy đi ngủ vào lúc 10 giờ đêm qua phải không?
+→ Did she slept at 10 pm yesterday ?
+
+slept -> sleep 
+bởi vì có did rồi thì phải dùng động từ nguyên mẫu (không chia s)
+
+7. Cô ấy sống ở Hà Nội khoảng 2 năm rồi. 
+→ She lived in Ha Noi for 2 years[2]
+Dùng HTHT =  have P2
+khoảng 2 năm rồi = for about 2 years
+lived -> has lived 
+cần dùng thì hiện tại hoàn thành để diễn tả hành động bắt đầu trong quá khứ và kéo dài đến hiện tại
+8. Cô ấy không sống ở Hà Nội khoảng 2 năm rồi.
+→ She haven't lived in Hanoi for 2 years
+
+haven't -> hasn't 
+vì "She" là chủ ngữ số ít đi với hasn't
+9. Cô ấy đã sống ở Hà Nội khoảng 2 năm rồi phải không?
+→  Did she have lived in Hanoi for 2 years?
+
+cần sửa câu này thành "Has she lived in Hanoi for 2 years?" 
+
+Vì thì HTHT đã có trợ động từ "has" rồi -> đảo luôn "has" lên trước S, không cần mượn Did
+10. Hùng đang rửa bát lúc này.
+→ Hung is doing dishes now
+do dishes: rửa bát
+
+11. Hùng đang không rửa bát lúc này.
+→ Hung doesn't doing dishes now
+
+doesn't -> isn't 
+
+vì thì HTTD ( is doing) có to be rồi -> thêm NOT vào ngay sau to be, không cần mượn thêm "doesn't"
+12. Hùng đang rửa bát lúc này phải không?
+→ Do Hung doing dishes now?
+
+"Is Hung doing the dishes now?"
+
+
+vì thì HTTD ( is doing) có to be rồi -> đảo Is lên trước chủ ngữ, không cần mượn thêm Do
+
+13. Anh ấy sẽ tới thăm bạn vào tháng tới. 
+→ He will visit you on next month
+visit (v)  tới thăm
+cần bỏ giới từ on vì next month không cần giới từ đi kèm
+14. Anh ấy sẽ không tới thăm bạn vào tháng tới đâu.
+→ He will not visit you on next month 
+
+cần bỏ giới từ on vì next month không cần giới từ đi kèm
+15. Anh ấy sẽ tới thăm bạn vào tháng tới chứ?
+→ Will he  be visit you next month?
+
+cần bỏ "be" 
+vì cấu trúc TLD là will + V nguyên ( ở đây đã có V nguyên là từ "visit") 
+Đặt câu ghép dùng " nor"
+Chú ý: Khi dùng Nor sẽ xuất hiện hiện tượng đảo ngữ 
+- đảo Aux,tobe, ĐTKT lên trước chủ ngữ
+
+16. Cô ấy không thích đọc sách, và cô ấy cũng không thích xem phim.
+→ She likes reading books, nor she doesn't like watching movies
+like + Ving: thích làm gì
+read books = đọc sách 
+watch films/movies = xem phim 
+
+cần sửa mệnh đề sau thành "nor does she like watching movies"
+
+vì dùng "nor" cần đảo ngữ
+17. Họ không ăn thịt, và họ cũng không uống sữa.
+→ They don't eat meat, nor do they don't drink milk
+eat meat =  ăn thịt, drink milk =  uống sữa
+cần bỏ don't ở mệnh đề sau vì đã dùng nor + do + S + V mang nghĩa phủ định rồi
+18. Anh ấy đã không mua nhà, và anh ấy cũng không mua xe hôm qua.
+→ He didn't bought a house, nor did he buy a car yesterday
+buy (v) mua, house (n) nhà, car (n)  xe
+
+cần sửa bought thành buy vì sau didn't là động từ nguyên mẫu
+19. Thời tiết hôm nay không nóng, và nó cũng không lạnh.
+→ The weather today is not hot, nor does it is cold
+weather (n)  thời tiết, hot (adj) nóng,
+cold (adj) lạnh
+mệnh đề sau cần sửa thành "nor is it cold" 
+
+vì khi câu có "to be" rồi thì đảo "to be" không cần mượn "does" 
+20. Anh ấy đã không về nhà, và anh ấy cũng không đến công ty.
+→ He didn't go home, nor didn't he go to his company
+go home = về nhà, go to his company = đến công ty.
+mệnh đề sau sửa thành  "nor did he go to his company" 
+
+vì nor mang nghĩa "và không" rồi, không cần thêm NOT nữa

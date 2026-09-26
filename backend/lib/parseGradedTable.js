@@ -25,25 +25,58 @@
  */
 function parseGradedTable(aiText, expected) {
   const map = {};
-  for (const line of String(aiText ?? "").split("\n")) {
-    if (!line.includes("|") || line.includes("---")) continue;
+  const lines = String(aiText ?? "").split("\n");
+  // Số cột lấy từ dòng header, để parser không chết cứng vào bảng 4 cột: nếu
+  // sau này rút bớt cột để tiết kiệm output token, chỗ này không phải sửa.
+  const columnCount = headerColumnCount(lines);
+
+  for (const line of lines) {
+    if (!line.includes("|")) continue;
     const cleanLine = line.trim().replace(/^\||\|$/g, "");
-    const columns = cleanLine.split("|").map((col) => col.trim());
-    // Real rows have >=4 columns and a numeric STT in column 0. Dòng header
-    // ("STT") và dòng phân cách ("---") rụng ở đây, kể cả khi model lặp lại
-    // chúng ở giữa bảng.
-    if (columns.length >= 4 && /^\d+$/.test(columns[0])) {
-      const stt = columns[0];
-      if (Object.prototype.hasOwnProperty.call(map, stt)) {
-        throw new Error(`duplicate STT ${stt} in AI table`);
-      }
-      if (Number(stt) < 1 || Number(stt) > expected) {
-        throw new Error(`STT ${stt} out of range 1..${expected}`);
-      }
-      map[stt] = columns[3];
+    const parts = cleanLine.split("|");
+    const columns = parts.map((col) => col.trim());
+    // Dòng dữ liệu thật có đủ cột và cột đầu là SỐ. Chỉ riêng điều kiện "cột
+    // đầu là số" đã loại cả dòng header lẫn dòng phân cách ("---", ":---:",
+    // "---:"), kể cả khi model lặp lại chúng ở giữa bảng — nên không cần lọc
+    // theo "---" nữa. Lọc như thế còn nuốt nhầm dòng dữ liệu có chứa "---".
+    if (columns.length < columnCount || !/^\d+$/.test(columns[0])) continue;
+
+    const stt = columns[0];
+    if (Object.prototype.hasOwnProperty.call(map, stt)) {
+      throw new Error(`duplicate STT ${stt} in AI table`);
     }
+    if (Number(stt) < 1 || Number(stt) > expected) {
+      throw new Error(`STT ${stt} out of range 1..${expected}`);
+    }
+    // "Chữa bài" là cột CUỐI, nên mọi thứ từ cột đó trở đi đều là feedback.
+    // Nối lại từ `parts` (chưa trim từng mảnh) để một dấu "|" model lỡ viết
+    // trong lời giải thích chỉ làm xấu chữ, thay vì cắt cụt feedback — và để
+    // khoảng trắng hai bên dấu "|" đó không bị nuốt mất.
+    map[stt] = parts
+      .slice(columnCount - 1)
+      .join("|")
+      .trim();
   }
   return map;
+}
+
+/**
+ * Số cột của bảng, đọc từ dòng header đầu tiên (dòng có "STT" ở cột đầu).
+ * Không thấy header thì giữ mặc định 4 cột như định dạng hiện hành.
+ */
+function headerColumnCount(lines) {
+  for (const line of lines) {
+    if (!line.includes("|")) continue;
+    const columns = line
+      .trim()
+      .replace(/^\||\|$/g, "")
+      .split("|")
+      .map((col) => col.trim());
+    if (columns.length >= 2 && columns[0].toUpperCase() === "STT") {
+      return columns.length;
+    }
+  }
+  return 4;
 }
 
 module.exports = { parseGradedTable };
