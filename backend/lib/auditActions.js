@@ -77,6 +77,22 @@ const AUDIT_ACTIONS = [
     severity: "INFO",
   },
 
+  // --- courses ---
+  {
+    method: "POST",
+    pattern: /^\/courses$/,
+    action: "course.create",
+    resourceType: "course",
+    severity: "WARN",
+  },
+  {
+    method: "PATCH",
+    pattern: /^\/courses\/[^/]+$/,
+    action: "course.update",
+    resourceType: "course",
+    severity: "WARN",
+  },
+
   // --- students ---
   {
     method: "POST",

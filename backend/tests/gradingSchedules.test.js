@@ -610,6 +610,29 @@ describe("a scheduled week, end to end", () => {
     assert.equal(h.counters.notify, 1);
   });
 
+  it("a class on a course moves to the course's next lesson", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    const seed = (path, data) =>
+      h.db._apply({ type: "set", path, data, options: { merge: true } });
+    // lesson11 exists but is not in the course: the course skips it.
+    seed("lesson/lesson12", { name: "BUỔI 12", classType: [] });
+    seed("courses/k1", {
+      name: "Basic",
+      lessonIds: ["lesson10", "lesson12"],
+      isActive: true,
+    });
+    seed("classes/c1", { courseId: "k1" });
+    await reminded(h);
+    await h.at(h.schedule().nextDueAt);
+    assert.equal(h.runDoc().state, "done");
+    assert.equal(h.lessonOf(), "lesson12");
+    assert.deepEqual(h.runDoc().lessonAdvance, {
+      advanced: true,
+      lessonId: "lesson12",
+      lessonName: "BUỔI 12",
+    });
+  });
+
   it("the teacher moved the lesson while the job ran: left alone", async () => {
     const h = scheduleHarness({ tabs: { docA: pending() } });
     await reminded(h);

@@ -52,6 +52,7 @@
  */
 const crypto = require("crypto");
 
+const { createCourses } = require("./courses.js");
 const { ReauthRequiredError } = require("./googleUserToken.js");
 const {
   JOB_STALE_MS,
@@ -468,6 +469,8 @@ function createGradingSchedules(deps) {
     audit = null,
     now = () => Date.now(),
   } = deps;
+  const lessonsForClass =
+    deps.lessonsForClass || createCourses({ db, now }).lessonsForClass;
   const opts = { ...DEFAULTS, ...(deps.options || {}) };
   opts.windows = parseOffPeak(opts.offPeakUtc);
 
@@ -1001,13 +1004,11 @@ function createGradingSchedules(deps) {
     const classSnap = await db.collection("classes").doc(classId).get();
     let next = { reason: "unknown_order" };
     if (classSnap.exists) {
-      const lessons = await db
-        .collection("lesson")
-        .where("classType", "array-contains", classSnap.data().classType || "")
-        .get();
+      // The class's course decides which lessons exist (legacy classes: the
+      // old template lookup) — see lib/courses.js.
       next = nextLessonId(
         job.lessonId,
-        lessons.docs.map((d) => ({ id: d.id, ...d.data() })),
+        await lessonsForClass(classSnap.data()),
       );
     }
 

@@ -17,6 +17,7 @@ const auditActions = require("./lib/auditActions.js");
 const auditLog = require("./lib/auditLog.js");
 const balanceMonitor = require("./lib/balanceMonitor.js");
 const billing = require("./lib/billing.js");
+const { CourseError, createCourses } = require("./lib/courses.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const googleDocsApi = require("./lib/googleDocsApi.js");
@@ -50,6 +51,7 @@ const teacherFilter = require("./lib/teacherFilter.js");
 const teacherPoints = require("./lib/teacherPoints.js");
 
 const app = express();
+const courses = createCourses({ db });
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
@@ -2785,12 +2787,32 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
     const {
       name,
       classType = "basic",
+      courseId = null,
       currentLesson = null,
       teacherId,
     } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: "Missing required field: name" });
+    }
+
+    // A class follows a course (lib/courses.js). A request without courseId
+    // is the pre-course website — it still sends the old template code as
+    // classType, stored as before.
+    let placement = { classType };
+    if (courseId) {
+      try {
+        const course = await courses.resolveForClass({
+          courseId,
+          currentLesson,
+        });
+        placement = { courseId: course.id };
+      } catch (error) {
+        if (error instanceof CourseError) {
+          return res.status(error.status).json({ error: error.code });
+        }
+        throw error;
+      }
     }
 
     // const teacherSnapshot = await db.collection('teachers')
@@ -2818,7 +2840,7 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
 
     const classData = {
       name,
-      classType,
+      ...placement,
       currentLesson: currentLesson || null,
       teacherId: [teacherId],
       isActive: true,
@@ -2989,25 +3011,83 @@ app.get("/class-types", verifyGoogleToken, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Courses (lib/courses.js): a class is Basic or IELTS and follows one course.
+// Teachers read them; only admins create or edit them.
+// ---------------------------------------------------------------------------
+
+function sendCourseError(res, error, fallback) {
+  if (error instanceof CourseError) {
+    return res
+      .status(error.status)
+      .json({ error: error.code, ...(error.params || {}) });
+  }
+  console.error(fallback, error);
+  return res.status(500).json({ error: "course_failed" });
+}
+
+/** ?includeInactive=1 also lists the hidden courses. */
+app.get("/courses", verifyGoogleToken, async (req, res) => {
+  try {
+    const list = await courses.list({
+      includeInactive: req.query.includeInactive === "1",
+    });
+    res.json({ courses: list });
+  } catch (error) {
+    sendCourseError(res, error, "Error listing courses:");
+  }
+});
+
+app.post("/courses", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const course = await courses.create(req.body);
+    res.locals.auditDetail = `Tạo khóa ${course.name} (${course.lessonIds.length} buổi)`;
+    res.status(201).json({ course });
+  } catch (error) {
+    sendCourseError(res, error, "Error creating course:");
+  }
+});
+
+app.patch("/courses/:id", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const course = await courses.update(req.params.id, req.body);
+    const changed = Object.keys(req.body || {}).join(", ");
+    res.locals.auditDetail = `Sửa khóa ${course.name}: ${changed}`;
+    res.json({ course });
+  } catch (error) {
+    sendCourseError(res, error, "Error updating course:");
+  }
+});
+
+/**
+ * Lessons, in course order:
+ *   ?classId=   the class's lessons (its course's; legacy classes: template)
+ *   ?courseId=  one course's lessons (the new-class form)
+ *   ?classType= legacy template lookup (the pre-course website)
+ *   (none)      every lesson — the admin's picker when editing a course
+ */
 app.get("/lessons", verifyGoogleToken, async (req, res) => {
   try {
-    const classType = req.query.classType;
+    const { classId, courseId, classType } = req.query;
 
-    if (!classType) {
-      return res.status(400).json({ error: "classType is required" });
+    if (classId) {
+      if (String(classId).includes("/")) {
+        return res.status(404).json({ error: "Class not found" });
+      }
+      const classSnap = await db
+        .collection("classes")
+        .doc(String(classId))
+        .get();
+      if (!classSnap.exists) {
+        return res.status(404).json({ error: "Class not found" });
+      }
+      return res.json(await courses.lessonsForClass(classSnap.data()));
     }
-
-    const lessonsRef = db.collection("lesson");
-    const snapshot = await lessonsRef
-      .where("classType", "array-contains", classType)
-      .get();
-
-    const lessons = [];
-    snapshot.forEach((doc) => {
-      lessons.push({ id: doc.id, ...doc.data() });
-    });
-
-    res.json(lessons);
+    if (courseId) return res.json(await courses.lessonsForCourse(courseId));
+    if (classType) {
+      return res.json(await courses.lessonsForClass({ classType }));
+    }
+    res.json(await courses.allLessons());
   } catch (error) {
     console.error("Error fetching lessons:", error);
     res.status(500).json({ error: "Failed to fetch lessons" });
@@ -3098,6 +3178,7 @@ app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
         id: doc.id,
         name: d.name ?? "",
         classType: d.classType ?? "",
+        courseId: d.courseId ?? null,
         currentLesson: d.currentLesson ?? null,
         isActive: d.isActive,
         teacherId: teacherIds,
@@ -3141,6 +3222,28 @@ app.patch("/classes/:id", verifyGoogleToken, async (req, res) => {
 
     if (isActive === false) {
       updates.isActive = false;
+    }
+
+    // Moving the class to another course. The current lesson must exist in
+    // the new course — the one sent along, or the class's own.
+    if (req.body.courseId !== undefined) {
+      const currentLesson =
+        req.body.currentLesson || classDoc.data().currentLesson || null;
+      try {
+        const course = await courses.resolveForClass({
+          courseId: req.body.courseId,
+          currentLesson,
+          keepCourseId: classDoc.data().courseId || null,
+        });
+        if (course.id !== classDoc.data().courseId)
+          updates.courseId = course.id;
+        if (req.body.currentLesson) updates.currentLesson = currentLesson;
+      } catch (error) {
+        if (error instanceof CourseError) {
+          return res.status(error.status).json({ error: error.code });
+        }
+        throw error;
+      }
     }
 
     if (Object.keys(updates).length === 0) {

@@ -193,6 +193,27 @@ definition and the next week (`next`, `nextStep`, `nextDueAt`);
 job id and the lesson move. Logs are under `[GRADING-SCHEDULE]`, and each
 week's outcome is a `grading.scheduleEvent` audit row.
 
+### Step 7: Courses
+
+A class follows one **course** — Basic, IELTS, … (`courses/{id}`, managed by
+admins under "Quản lý khóa"); the course decides the class's lessons. Before
+this, the class's lessons came from its student-doc template code in
+`classes.classType`. To move existing data over:
+
+1. Deploy the backend and the website (the backend still serves classes that
+   have no course yet).
+2. Dry-run, then apply, the migration — it creates the `basic` course (all
+   lessons of the old templates) and sets `courseId: "basic"` on every class;
+   `classes.classType` is left as it was. Re-running it changes nothing.
+
+   ```bash
+   cd backend
+   node scripts/migrate-courses.js --db prod           # dry-run
+   node scripts/migrate-courses.js --db prod --apply   # asks CONFIRM-PROD
+   ```
+
+**Firestore rules.** Deny client access to `courses` as well.
+
 ### Pros
 - ✅ Generous free tier
 - ✅ Auto-scaling
