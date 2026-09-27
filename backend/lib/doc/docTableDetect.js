@@ -55,6 +55,13 @@ const PASSIVE_HEADER = /b[iị]\s*đ[oộ]ng/i;
  * không chấm các ô đó là do quy tắc cấp dòng lo, không phải do regex này.
  */
 const FORMULA_HEADER = /th[aà]nh\s*l[aậ]p\s*c[oô]ng\s*th[uứ]c/i;
+/**
+ * Header cột cuối của bảng BÀI TẬP TỰ CHỌN. Bảng này cố ý KHÔNG chấm, nhưng
+ * học viên vẫn làm, nên nó trông y hệt một bảng bài tập "không nhận ra được" —
+ * chỉ dùng để khỏi cảnh báo nhầm về nó (buổi 02 lớp KTN707: bảng 10 bị báo
+ * cho cả 24 học viên).
+ */
+const OPTIONAL_HEADER = /b[aà]i\s*l[aà]m\s*c[uủ]a\s*h[oọ]c\s*vi[eê]n/i;
 
 /** Mọi bảng trong tab, kèm chỉ số theo đúng thứ tự tài liệu. */
 function listTables(tab) {
@@ -221,8 +228,18 @@ export function detectTables(tab, classType) {
     // không phân loại được, nhưng vẫn đầy câu hỏi của học viên. Cho nó kế thừa
     // loại của bảng ngay trước, với điều kiện cùng số cột — nếu không, nửa bài
     // tập sẽ rơi mất mà không ai biết.
+    // Bảng TỰ CHỌN có header riêng nên không thể là mảnh bị ngắt trang, và
+    // tuyệt đối không được chấm — kể cả khi nó cùng số cột với bảng trước.
+    const optional = headerCellTexts(table).some((text) =>
+      OPTIONAL_HEADER.test(text),
+    );
     const questions = countQuestionRows(table);
-    if (questions && previousKind && columnCount(table) === previousColumns) {
+    if (
+      questions &&
+      !optional &&
+      previousKind &&
+      columnCount(table) === previousColumns
+    ) {
       tables.push({ tableIdx, table, kind: previousKind, continuation: true });
       continue;
     }
@@ -234,6 +251,7 @@ export function detectTables(tab, classType) {
     if (
       questions &&
       columnCount(table) >= 2 &&
+      !optional &&
       countAnsweredRows(table, tableIdx)
     ) {
       unclassifiedWithQuestions.push(tableIdx);
