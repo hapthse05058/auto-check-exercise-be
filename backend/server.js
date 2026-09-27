@@ -59,6 +59,7 @@ const { createCloudQueue, createInlineQueue } = require("./lib/taskQueue.js");
 const teacherFilter = require("./lib/teacherFilter.js");
 const teacherPoints = require("./lib/teacherPoints.js");
 const ieltsWriting = require("./lib/ieltsWriting.js");
+const hsGrading = require("./lib/hsGrading.js");
 const ieltsChartData = require("./lib/ieltsChartData.js");
 const ieltsPaste = require("./lib/ieltsPaste.js");
 
@@ -532,6 +533,80 @@ const ieltsGrader = ieltsWriting.createIeltsGrader({
   promptVersion: IELTS_PROMPT_VERSION,
   readChart: ieltsChartReader ? ieltsChartReader.read : null,
 });
+// ---------------------------------------------------------------------------
+// HS course (lib/hsGrading.js) — its own prompt (prompt_hs.txt), version,
+// cache (hsGradingCache) and answer key (lib/hs/hsAnswerKey.json). Nothing
+// here touches the Basic or IELTS graders above.
+//   HS_AI_BASE_URL, HS_AI_API_KEY, HS_AI_MODEL   default: the Basic AI_* ones
+//   HS_AI_JSON_MODE=true      send response_format json_object (if supported)
+//   HS_AI_THINKING=enabled|disabled   DeepSeek only; unset = model default
+//   HS_PROMPT_VERSION         bump to invalidate hsGradingCache
+// ---------------------------------------------------------------------------
+const HS_AI_BASE_URL = process.env.HS_AI_BASE_URL || AI_BASE_URL;
+const HS_AI_API_KEY = process.env.HS_AI_API_KEY || AI_API_KEY || "";
+const HS_AI_MODEL = process.env.HS_AI_MODEL || AI_MODEL;
+const HS_AI_JSON_MODE = ["true", "1", "on"].includes(
+  String(process.env.HS_AI_JSON_MODE || "").toLowerCase(),
+);
+const HS_AI_THINKING = String(process.env.HS_AI_THINKING || "")
+  .trim()
+  .toLowerCase();
+const HS_PROMPT_VERSION = process.env.HS_PROMPT_VERSION || "v1";
+const hsConfigured = Boolean(HS_AI_API_KEY && HS_AI_MODEL);
+if (!hsConfigured) {
+  console.warn("WARNING: HS_AI_* / AI_* not set. HS grading is off.");
+}
+const hsClient = hsConfigured
+  ? new OpenAI({
+      apiKey: HS_AI_API_KEY,
+      ...(HS_AI_BASE_URL ? { baseURL: HS_AI_BASE_URL } : {}),
+    })
+  : null;
+
+async function callHsModel(instruction, content, model) {
+  const params = {
+    model,
+    messages: [
+      { role: "system", content: instruction },
+      { role: "user", content },
+    ],
+    temperature: 0.2,
+    max_tokens: 16000,
+  };
+  if (HS_AI_JSON_MODE) params.response_format = { type: "json_object" };
+  if (HS_AI_THINKING) params.thinking = { type: HS_AI_THINKING };
+  let response = await hsClient.chat.completions.create(params);
+  // Same rescue as IELTS: a thinking model that reasoned past the limit is
+  // asked once more with low effort.
+  if (
+    response.choices?.[0]?.finish_reason === "length" &&
+    HS_AI_THINKING !== "disabled"
+  ) {
+    response = await hsClient.chat.completions.create({
+      ...params,
+      reasoning_effort: "low",
+    });
+  }
+  return (response.choices?.[0]?.message?.content || "").trim();
+}
+
+/** The reviewed answer key (scripts/buildHsAnswerKey.js); empty until built. */
+function loadHsAnswerKey() {
+  const file = path.join(__dirname, "lib", "hs", "hsAnswerKey.json");
+  if (!fs.existsSync(file)) return { entries: {} };
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+const hsGrader = hsGrading.createHsGrader({
+  db,
+  callModel: callHsModel,
+  readPrompt: () =>
+    fs.readFileSync(path.join(__dirname, "prompt_hs.txt"), "utf8"),
+  model: HS_AI_MODEL,
+  promptVersion: HS_PROMPT_VERSION,
+  answerKey: loadHsAnswerKey(),
+});
+
 // Used by the retired Chrome extension. Kept only while installed copies may
 // still call it; the website grades through /grading-jobs.
 app.post("/grade", verifyGoogleToken, async (req, res) => {
@@ -3655,7 +3730,13 @@ function loadDocLib() {
     import("./lib/doc/docTableDetect.js"),
     import("./lib/doc/docWriter.js"),
     import("./lib/doc/ieltsDoc.js"),
-  ]).then((modules) => Object.assign({}, ...modules));
+    import("./lib/doc/hsDoc.js"),
+  ]).then(([...modules]) => {
+    // HS under its own key: merged, its exports would shadow the Basic
+    // modules' (both export normalizeText).
+    const hs = modules.pop();
+    return Object.assign({}, ...modules, { hs });
+  });
   return docLibPromise;
 }
 
@@ -3714,6 +3795,9 @@ const gradingJobs = createGradingJobs({
   gradeIelts: (input, options) => ieltsGrader.grade(input, options),
   fetchImage: fetchDocImage,
   ieltsEnabled: ieltsConfigured,
+  // HS classes (course gradingProfile "hs") — see lib/hsGrading.js.
+  gradeHs: (items, options) => hsGrader.grade(items, options),
+  hsEnabled: hsConfigured,
   resolvePayer,
   enqueue: (name, payload, options) =>
     taskQueue.enqueue(name, payload, options),

@@ -4,6 +4,7 @@ const { describe, it } = require("node:test");
 const {
   CourseError,
   createCourses,
+  gradingProfileOf,
   sortLessons,
   validateCourseInput,
 } = require("../lib/courses.js");
@@ -120,6 +121,28 @@ describe("courses", () => {
       400,
       "invalid_grading_profile",
     );
+  });
+
+  it("knows the HS profile, and reads an unknown stored one as null (fail closed)", async () => {
+    const { courses, seed } = setup();
+    const hs = await courses.create({
+      name: "HS",
+      lessonIds: ["lesson01"],
+      gradingProfile: "hs",
+    });
+    assert.equal(hs.gradingProfile, "hs");
+
+    // Stored by some other build, or by hand: never quietly Basic.
+    seed("courses/odd", {
+      name: "Odd",
+      lessonIds: ["lesson01"],
+      gradingProfile: "toeic",
+    });
+    const odd = await courses.get("odd");
+    assert.equal(odd.gradingProfile, null);
+    assert.equal(gradingProfileOf(odd), null);
+    assert.equal(gradingProfileOf(null), "basic"); // a class without a course
+    assert.equal(gradingProfileOf({ gradingProfile: "" }), "basic");
   });
 
   it("refuses unknown lessons and a duplicate name", async () => {
