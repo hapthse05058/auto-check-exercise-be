@@ -872,6 +872,39 @@ function readUnderline(ex, item, paras, own) {
   };
 }
 
+export const ASKS_UNDERLINED = /underlined|gạch chân/iu;
+
+/**
+ * "Make Wh-questions for the underlined parts": the underlined text of a
+ * question line (before its arrow), which the question must ask about. Null
+ * when nothing is underlined.
+ */
+export function underlinedText({ text, flags }) {
+  const arrow = text.search(/→|->|⇒|=>/u);
+  const end = arrow >= 0 ? arrow : text.length;
+  const parts = [];
+  let run = "";
+  for (let k = 0; k <= end; k++) {
+    if (k < end && (flags[k] || "").includes("u") && text[k] !== "_") {
+      run += text[k];
+    } else {
+      if (run.trim()) parts.push(run);
+      run = "";
+    }
+  }
+  const out = cleanFill(parts.join(" ")).replace(/[\s.?!,]+$/u, "");
+  return out || null;
+}
+
+/**
+ * underlinedText of an item, read on the student's doc: copies of the form
+ * may underline what the blank form does not. Falls back to the form's.
+ */
+function underlinedPart(ex, item, paras) {
+  if (!ASKS_UNDERLINED.test(ex.instruction || "")) return null;
+  return (paras[0] && underlinedText(paras[0])) || item.underlined || null;
+}
+
 function readParagraphItem(ex, item, paraRegion, own) {
   const { paras, match, extras } = paraRegion;
   const indexes = [];
@@ -929,7 +962,9 @@ function readParagraphItem(ex, item, paraRegion, own) {
           sentence: filledText(formText, fills),
           ...(trailing.text ? { extra: trailing.text } : {}),
         };
+  const underlined = underlinedPart(ex, item, studentParas);
   return {
+    ...(underlined ? { underlined } : {}),
     answer,
     answered: fills.some((f) => f.text) || Boolean(trailing.text),
     graded,
@@ -942,8 +977,8 @@ function readParagraphItem(ex, item, paraRegion, own) {
  *
  * @returns {{lesson: ?object, items: object[], warnings: object[]}} each item:
  *   {key, n, exerciseId, kind, layout, optional, instruction, prompt, hint?,
- *    labels?, options?, slot?, answer, answered, graded, target} — or the same
- *   head with `unreadable: true`. Warnings ({code, …}): exercises not found,
+ *    labels?, options?, slot?, underlined?, answer, answered, graded, target}
+ *   — or the same head with `unreadable: true`. Warnings ({code, …}): exercises not found,
  *   headers the form does not have, items that could not be read.
  */
 export function collectHsItems(

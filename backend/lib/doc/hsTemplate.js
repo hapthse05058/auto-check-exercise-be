@@ -7216,6 +7216,7 @@ export const HS_LESSONS = [
             parts: [{ p: 0 }, { p: 1 }],
             formText:
               "1. She goes to school at 7 o’clock.\n → ______________________________________",
+            underlined: "at 7 o’clock",
             kind: "line",
           },
           {
@@ -7225,6 +7226,7 @@ export const HS_LESSONS = [
             parts: [{ p: 2 }, { p: 3 }],
             formText:
               "2. My father works in a hospital.\n → ______________________________________",
+            underlined: "in a hospital",
             kind: "line",
           },
           {
@@ -7234,6 +7236,7 @@ export const HS_LESSONS = [
             parts: [{ p: 4 }, { p: 5 }],
             formText:
               "3. They are waiting for their teacher.\n → ______________________________________",
+            underlined: "their teacher",
             kind: "line",
           },
           {
@@ -7243,6 +7246,7 @@ export const HS_LESSONS = [
             parts: [{ p: 6 }, { p: 7 }],
             formText:
               "4. We have English class three times a week.\n→ ______________________________________",
+            underlined: "three times a week",
             kind: "line",
           },
           {
@@ -7252,6 +7256,7 @@ export const HS_LESSONS = [
             parts: [{ p: 8 }, { p: 9 }],
             formText:
               "5. Tom likes Math because it is interesting.\n → ______________________________________",
+            underlined: "because it is interesting",
             kind: "line",
           },
         ],
@@ -7687,6 +7692,7 @@ export const HS_LESSONS = [
             parts: [{ p: 0 }, { p: 1 }],
             formText:
               "1. She goes to school by bus.\n → ______________________________________",
+            underlined: "by bus",
             kind: "line",
           },
           {
@@ -7696,6 +7702,7 @@ export const HS_LESSONS = [
             parts: [{ p: 2 }, { p: 3 }],
             formText:
               "2. They are playing football in the park.\n → ______________________________________",
+            underlined: "in the park",
             kind: "line",
           },
           {
@@ -7705,6 +7712,7 @@ export const HS_LESSONS = [
             parts: [{ p: 4 }, { p: 5 }],
             formText:
               "3. My brother bought a new laptop yesterday.\n → ______________________________________",
+            underlined: "a new laptop",
             kind: "line",
           },
           {
@@ -7714,6 +7722,7 @@ export const HS_LESSONS = [
             parts: [{ p: 6 }, { p: 7 }],
             formText:
               "4. She is reading a book because she likes stories.\n→ ______________________________________",
+            underlined: "because she likes stories",
             kind: "line",
           },
           {
@@ -7723,6 +7732,7 @@ export const HS_LESSONS = [
             parts: [{ p: 8 }, { p: 9 }],
             formText:
               "5.We will visit our grandparents next Sunday.\n → ______________________________________",
+            underlined: "our grandparents",
             kind: "line",
           },
         ],

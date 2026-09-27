@@ -630,6 +630,7 @@ function createGradingJobs(deps) {
         ...(i.labels ? { labels: i.labels } : {}),
         ...(i.options ? { options: i.options } : {}),
         ...(i.slot !== undefined ? { slot: i.slot } : {}),
+        ...(i.underlined ? { underlined: i.underlined } : {}),
         answer: i.answer,
       })),
       warnings,

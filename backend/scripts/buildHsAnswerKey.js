@@ -52,6 +52,7 @@ async function formItems() {
           instruction: ex.instruction,
           prompt: item.prompt,
           ...(item.hint ? { hint: item.hint } : {}),
+          ...(item.underlined ? { underlined: item.underlined } : {}),
           ...(item.labels ? { labels: item.labels } : {}),
           ...(item.options ? { options: item.options } : {}),
           ...(item.slot !== undefined ? { slot: item.slot } : {}),
@@ -120,7 +121,7 @@ Return ONLY JSON: {"items":[{"id":"1","answers":["..."],"note":"..."}]} — ever
 - "answers": the expected answer first, then other fully correct alternatives (contractions: "doesn't have" AND "does not have"; other correct word orders). Short answers only:
   - kind "blank": the words for the blanks only, several blanks joined with " | " (e.g. "doesn't talk | is cleaning"); no brackets, no full sentence.
   - kind "passage": the word(s) for blank number "blank" of the line (use the word bank of the instruction if there is one).
-  - kind "line": the complete answer sentence / answer.
+  - kind "line": the complete answer sentence / answer. With "underlined": the Wh-question asking about exactly that part (without it).
   - kind "vi_en": the English translation (use the hint's words and tense).
   - kind "svo": "S: … – V: … – O: …".
   - kind "grid", "sort": the content of that cell / column.
@@ -166,6 +167,7 @@ async function draft() {
             kind: it.kind,
             prompt: it.prompt,
             ...(it.hint ? { hint: it.hint } : {}),
+            ...(it.underlined ? { underlined: it.underlined } : {}),
             ...(it.labels ? { labels: it.labels } : {}),
             ...(it.options ? { options: it.options } : {}),
             ...(it.slot !== undefined ? { blank: it.slot + 1 } : {}),
@@ -375,7 +377,7 @@ async function exportCsv() {
         item.n,
         item.kind,
         item.prompt,
-        item.hint || "",
+        item.hint || (item.underlined ? `gạch chân: ${item.underlined}` : ""),
         entry ? entry.answers.join(" || ") : "",
         entry ? entry.source : "",
         entry?.note || "",

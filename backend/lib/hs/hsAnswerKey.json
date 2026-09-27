@@ -2376,28 +2376,26 @@
     },
     "hsLesson23|ex4|1. she goes to school by bus. →": {
       "answers": ["How does she go to school?"],
-      "source": "ai_draft",
-      "note": "Nếu phần gạch chân là “to school” thì hỏi: Where does she go by bus?"
+      "source": "ai_draft"
     },
     "hsLesson23|ex4|2. they are playing football in the park. →": {
       "answers": ["Where are they playing football?"],
-      "source": "ai_draft",
-      "note": "Nếu phần gạch chân là “football” thì hỏi: What are they playing in the park?"
+      "source": "ai_draft"
     },
     "hsLesson23|ex4|3. my brother bought a new laptop yesterday. →": {
       "answers": ["What did your brother buy yesterday?"],
-      "source": "ai_draft",
-      "note": "Nếu phần gạch chân là “yesterday” thì hỏi: When did your brother buy a new laptop?"
+      "source": "ai_draft"
     },
     "hsLesson23|ex4|4. she is reading a book because she likes stories. →": {
       "answers": ["Why is she reading a book?"],
-      "source": "ai_draft",
-      "note": "Nếu phần gạch chân là “a book” thì hỏi: What is she reading?"
+      "source": "ai_draft"
     },
     "hsLesson23|ex4|5.we will visit our grandparents next sunday. →": {
-      "answers": ["When will you visit your grandparents?"],
-      "source": "ai_draft",
-      "note": "Nếu phần gạch chân là “our grandparents” thì hỏi: Who will you visit next Sunday?"
+      "answers": [
+        "Who will you visit next Sunday?",
+        "Who are you going to visit next Sunday?"
+      ],
+      "source": "ai_draft"
     },
     "hsLesson23|ex5|my house don't have a kitchen. →": {
       "answers": [

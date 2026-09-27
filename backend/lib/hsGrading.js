@@ -59,7 +59,9 @@ function keyedAnswer(item) {
 
 /** Two items are the same question with the same answer: graded once. */
 function hsItemIdentity(item) {
-  return `${item.key}\u0000${JSON.stringify(item.answer)}`;
+  const base = `${item.key}\u0000${JSON.stringify(item.answer)}`;
+  // The part a Wh-question must ask about can differ between copies.
+  return item.underlined ? `${base}\u0000u:${item.underlined}` : base;
 }
 
 const approved = (entry) =>
@@ -95,6 +97,8 @@ function cacheKey({ promptVersion, model, item, entry }) {
       item.key,
       normalizeAnswer(JSON.stringify(item.answer)),
       sha1(JSON.stringify(entry?.answers || null)),
+      // Only when present, so every other item keeps its cache key.
+      ...(item.underlined ? [`u:${item.underlined}`] : []),
     ].join("|"),
   );
 }
@@ -109,6 +113,7 @@ function itemPayload(id, item, entry) {
     ...(item.labels ? { labels: item.labels } : {}),
     ...(item.options ? { options: item.options } : {}),
     ...(item.slot !== undefined ? { blank: item.slot + 1 } : {}),
+    ...(item.underlined ? { underlined: item.underlined } : {}),
     answer: item.answer,
     ...(entry?.answers?.length ? { key: entry.answers } : {}),
     ...(entry?.note ? { keyNote: entry.note } : {}),

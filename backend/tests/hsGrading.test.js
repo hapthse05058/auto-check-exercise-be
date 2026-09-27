@@ -316,6 +316,29 @@ describe("batches, dedupe and the cache", () => {
     await g.grade([line("q", "x")], { useCache: false });
     assert.equal(model.calls.length, 2);
   });
+
+  it("sends a Wh-question's underlined part and grades each part on its own", async () => {
+    const model = fakeModel(allCorrect);
+    const { grader: g, db } = grader(model);
+    const ask = (underlined) => ({ ...line("q", "Who?"), underlined });
+    const out = await g.grade([
+      ask("our grandparents"),
+      ask("next Sunday"),
+      line("q", "Who?"),
+    ]);
+    const sent = model.calls[0].content.exercises[0].items;
+    assert.deepEqual(
+      sent.map((i) => i.underlined),
+      ["our grandparents", "next Sunday", undefined],
+    );
+    assert.equal(out.size, 3);
+    assert.equal(Object.keys(db.dump(CACHE_COLLECTION)).length, 3);
+    // Without "underlined" an item keeps the identity it always had.
+    assert.equal(
+      hsItemIdentity(line("q", "Who?")),
+      `q\u0000${JSON.stringify("Who?")}`,
+    );
+  });
 });
 
 describe("lib/hs/hsAnswerKey.json", () => {
