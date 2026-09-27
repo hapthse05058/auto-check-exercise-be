@@ -690,13 +690,20 @@ function gradingCacheId(question, answer, model, taskType) {
   return gradingCacheKey(PROMPT_VERSION, model, question, answer, taskType);
 }
 
+// Always admins, whatever ADMIN_EMAILS says (the website's config.js lists
+// them too, to show the admin screens).
+const BUILT_IN_ADMINS = ["phamvanvy0306@gmail.com"];
+
 // Admin allow-list for the gradingCache management endpoints (comma-separated).
-const ADMIN_EMAILS = (
-  process.env.ADMIN_EMAILS || "phamhongha.innerpiece@gmail.com"
-)
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
+const ADMIN_EMAILS = [
+  ...new Set([
+    ...BUILT_IN_ADMINS,
+    ...(process.env.ADMIN_EMAILS || "phamhongha.innerpiece@gmail.com")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  ]),
+];
 
 /** Gate: must run AFTER verifyToken (which sets req.userEmail). */
 function requireAdmin(req, res, next) {
