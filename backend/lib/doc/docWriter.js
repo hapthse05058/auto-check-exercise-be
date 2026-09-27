@@ -14,7 +14,6 @@ import {
   containsCorrectMark,
   extractQuestionIndex,
   getCellText,
-  normalizeText,
 } from "./docParser.js";
 
 /** Parses the AI's markdown table response into {questionIndex, aiFeedback}. */
@@ -272,7 +271,9 @@ export function buildFeedbackRequests(gradingResults, rows, tabId) {
     // own line, and the Docs API counts "\n" as a single index unit.
     subRequests: createStyledTextRequests(text, startIndex, tabId),
   }));
-  if (overall) {
+  // Nhận xét chung đã có chữ (doc đã chấm câu từ trước, giờ chỉ chấm thêm đoạn
+  // văn — hoặc giáo viên đã tự gõ) thì không nối thêm lời thứ hai vào.
+  if (overall && !overall.filled) {
     groupedRequests.push({
       startIndex: overall.startIndex,
       subRequests: setStyleForTeacherFeedBack(
@@ -297,7 +298,10 @@ export function buildFeedbackRequests(gradingResults, rows, tabId) {
  *
  * @returns {{
  *   cells: Array<{entry: object, startIndex: number, text: string}>,
- *   overall: {entry: object, startIndex: number, text: string}|null,
+ *   overall: {
+ *     entry: object, startIndex: number, text: string,
+ *     filled: boolean, // sau nhãn đã có chữ ⇒ không ghi
+ *   }|null,
  * }}
  */
 function planFeedbackWrites(gradingResults, rows) {
@@ -354,11 +358,18 @@ function planFeedbackWrites(gradingResults, rows) {
   const overallStart = overall?.overallCell?.content?.[0]?.startIndex;
   if (overall && overallStart !== undefined && gradingResults.length) {
     const labelText = getCellText(overall.overallCell).trim();
-    if (labelText.includes(OVERALL_FEEDBACK_LABEL)) {
+    const at = labelText.indexOf(OVERALL_FEEDBACK_LABEL);
+    if (at !== -1) {
+      // Dấu ":" sau nhãn là của template, không phải nhận xét.
+      const after = labelText
+        .slice(at + OVERALL_FEEDBACK_LABEL.length)
+        .replace(/^\s*:/, "")
+        .trim();
       overallWrite = {
         entry: overall,
         startIndex: overallStart + labelText.length,
         text: generateOverallFeedback(gradingResults),
+        filled: after !== "",
       };
     }
   }
@@ -411,9 +422,25 @@ export function matchesOwnFeedback(gradingResults, rows) {
   if (!cellsMatch) return false;
 
   if (!overall || !overall.text.trim()) return true;
-  return normalizeText(getCellText(overall.entry.overallCell)).includes(
-    normalizeText(overall.text),
-  );
+  // Sau một lần ghi thành công, sau nhãn LUÔN có chữ: hoặc do chính lần ghi
+  // này, hoặc vì đã có sẵn nên lần ghi bỏ qua nó (không nối lời thứ hai). Đọc
+  // lại sau khi ghi thì không phân biệt được hai trường hợp đó, nên chỉ đòi ô
+  // không còn trống — batchUpdate là nguyên tử, các ô feedback khớp từng chữ ở
+  // trên đã là bằng chứng chính.
+  return overall.filled;
+}
+
+/**
+ * True khi một ô ĐÍCH của `gradingResults` đã có chữ — tức có ai (giáo viên,
+ * hoặc một lần chạy khác) đã ghi vào đó kể từ lúc đọc để chấm.
+ *
+ * Thay cho `describeGradedState(rows).reviewed` ở bước ghi: kiểm tra cấp doc
+ * sẽ chặn luôn việc ghi đoạn văn vào một doc đã chấm câu từ trước, dù ô của
+ * đoạn văn vẫn trống.
+ */
+export function targetsAlreadyFilled(gradingResults, rows) {
+  const { cells } = planFeedbackWrites(gradingResults || [], rows);
+  return cells.some(({ entry }) => getCellText(entry.fbCell).trim() !== "");
 }
 
 // ---------------------------------------------------------------------------

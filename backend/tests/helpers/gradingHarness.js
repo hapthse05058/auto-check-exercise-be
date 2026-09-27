@@ -21,12 +21,60 @@ const row = (...cells) => ({
   tableCells: cells.map((content) => ({ content })),
 });
 
+/** Where the paragraph table's "GV sửa" cell starts. */
+const PARAGRAPH_FB_AT = 700;
+
+/** A formatted paragraph correction: two sentences, blank line between. */
+const PARAGRAPH_FEEDBACK =
+  "My name **is** Tom.\n(S “My name” số ít → dùng “is” nhé.)\n\nI **usually play** it every weekend.\n(“Usually” đứng trước V thường nhé.)";
+
+/**
+ * "Bài tập viết đoạn văn", laid out like the real Docs API JSON: the title
+ * spans two columns and leaves a placeholder cell holding "\n".
+ */
+function makeParagraphTable({ student = "", feedback = "" } = {}) {
+  const lines = (text, start) =>
+    text
+      ? text.split("\n").map((line) => P(`${line}\n`, start))
+      : [P("\n", start)];
+  return [
+    {
+      tableCells: [
+        {
+          content: [P("Bài tập viết đoạn văn: Hobbies \n")],
+          tableCellStyle: { columnSpan: 2 },
+        },
+        { content: [P("\n")] },
+        { content: [P("GV sửa\n")] },
+      ],
+    },
+    row(
+      [P("Đoạn văn mẫu\n")],
+      [P("My favourite hobby is playing the guitar.\n")],
+      [P("\n", 650)],
+    ),
+    row(
+      [P("Học viên viết\n")],
+      lines(student, 660),
+      lines(feedback, PARAGRAPH_FB_AT),
+    ),
+  ];
+}
+
 /**
  * One student's lesson tab: the legacy 3-column table with `answers.length`
  * questions (feedback cell i at 50 + 40*i) and the overall-comment row at 900.
  * `feedback[i]` pre-fills a feedback cell (an already graded doc).
+ * `paragraph` ({student, feedback}) adds a paragraph table between the two.
+ * `overall` pre-fills text after the overall label.
  */
-function makeTab({ answers, feedback = [], title = LESSON }) {
+function makeTab({
+  answers,
+  feedback = [],
+  title = LESSON,
+  paragraph = null,
+  overall = "",
+}) {
   const rows = [
     row([P("STT")], [P("Đề bài")], [P("Chữa bài")]),
     row([P("")], [P("")], [P("")]),
@@ -44,9 +92,14 @@ function makeTab({ answers, feedback = [], title = LESSON }) {
       body: {
         content: [
           { table: { tableRows: rows } },
+          ...(paragraph
+            ? [{ table: { tableRows: makeParagraphTable(paragraph) } }]
+            : []),
           {
             table: {
-              tableRows: [row([P("Nhận xét chung của Giáo viên:\n", 900)])],
+              tableRows: [
+                row([P(`Nhận xét chung của Giáo viên:${overall}\n`, 900)]),
+              ],
             },
           },
         ],
@@ -186,9 +239,16 @@ function createFakeDocs(tabsByDocId) {
     },
     overallOf(docId) {
       return cellText(
-        entry(docId).tab.documentTab.body.content[1].table.tableRows[0]
+        entry(docId).tab.documentTab.body.content.at(-1).table.tableRows[0]
           .tableCells[0],
       ).trim();
+    },
+    /** The paragraph table's "GV sửa" cell, blank lines kept. */
+    paragraphFeedbackOf(docId) {
+      return cellText(
+        entry(docId).tab.documentTab.body.content[1].table.tableRows[2]
+          .tableCells[2],
+      ).replace(/\n$/, "");
     },
   };
 }
@@ -270,6 +330,7 @@ function createHarness({
     push: 0,
     consume: 0,
     tokenCalls: 0,
+    gradedItems: [], // every item handed to gradeItems
   };
   const hooks = {
     gradeGate: null, // Promise the next grade call waits on
@@ -280,6 +341,7 @@ function createHarness({
     // () => the grading-schedule service, when a test wires one in (the same
     // delegation server.js does through scheduleAwareOnFinished).
     schedules: null,
+    paragraphFeedback: PARAGRAPH_FEEDBACK, // what the AI says about a paragraph
   };
   const finished = [];
 
@@ -312,12 +374,18 @@ function createHarness({
         hooks.gradeGate = null;
         await gate;
       }
+      counters.gradedItems.push(...items);
       // "ok" answers are right; anything else gets a bold correction + reason.
+      // A paragraph gets what lib/paragraphFeedback.js produces: already laid
+      // out on several lines (null = the AI left it out).
       return items.map((item) => ({
         ...item,
-        feedback: /ok/i.test(item.answer)
-          ? "✅ Đúng"
-          : `She **has done** it. (Sai thì.)`,
+        feedback:
+          item.taskType === "paragraph"
+            ? hooks.paragraphFeedback
+            : /ok/i.test(item.answer)
+              ? "✅ Đúng"
+              : `She **has done** it. (Sai thì.)`,
       }));
     },
     async consumePoints(charge) {
@@ -390,4 +458,12 @@ function createHarness({
   };
 }
 
-module.exports = { LESSON, P, createFakeDocs, createHarness, makeTab, row };
+module.exports = {
+  LESSON,
+  P,
+  PARAGRAPH_FEEDBACK,
+  createFakeDocs,
+  createHarness,
+  makeTab,
+  row,
+};

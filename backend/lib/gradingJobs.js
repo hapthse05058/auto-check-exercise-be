@@ -473,27 +473,32 @@ function createGradingJobs(deps) {
       return { docId, status: "skipped", reason: "noAnswers", warnings };
     }
 
-    // One row with feedback skips the WHOLE doc — the website's rule, since AI
-    // feedback cannot be told apart from what the teacher typed.
+    // One sentence row with feedback skips EVERY sentence item of the doc — the
+    // website's rule, since AI feedback cannot be told apart from what the
+    // teacher typed. A paragraph is judged by its own cell instead
+    // (selectItemsToGrade), so a doc graded before paragraphs existed still
+    // gets its paragraph graded, and a hand-corrected one is never overwritten.
     const { reviewed, ungradedTables } = lib.describeGradedState(rows);
-    if (reviewed) {
-      if (ungradedTables.size) {
-        warnings.push(
-          warning("skippedHasOldFeedback", {
-            docId,
-            count: ungradedTables.size,
-          }),
-        );
-      }
+    if (reviewed && ungradedTables.size) {
+      warnings.push(
+        warning("skippedHasOldFeedback", {
+          docId,
+          count: ungradedTables.size,
+        }),
+      );
+    }
+    const toGrade = lib.selectItemsToGrade(rows);
+    if (!toGrade.length) {
       return {
         docId,
         status: "skipped",
-        reason: ungradedTables.size ? "oldFeedback" : "alreadyGraded",
+        reason:
+          reviewed && ungradedTables.size ? "oldFeedback" : "alreadyGraded",
         warnings,
       };
     }
 
-    return { docId, status: "pending", qa, warnings };
+    return { docId, status: "pending", qa: toGrade, warnings };
   }
 
   /** The body of prepare, run by the worker holding `epoch`. */
@@ -546,7 +551,13 @@ function createGradingJobs(deps) {
         if (g && g.feedback !== null && g.feedback !== undefined) {
           feedbackByKey.set(
             lib.makeAnswerKey(g.question, g.answer, g.taskType),
-            lib.formatFeedbackForDoc(g.feedback),
+            // formatFeedbackForDoc gộp mọi xuống dòng thành một dòng — đúng
+            // cho feedback một câu (một ô bảng Markdown), nhưng sẽ phá cấu
+            // trúc "câu sửa / (lý do) / dòng trống" của đoạn văn, vốn đã được
+            // định dạng xong ở lib/paragraphFeedback.js.
+            g.taskType === lib.KIND_PARAGRAPH
+              ? g.feedback
+              : lib.formatFeedbackForDoc(g.feedback),
           );
         }
       }
@@ -906,7 +917,10 @@ function createGradingJobs(deps) {
       }
       const { rows } = lib.collectExerciseRows(tab, job.classType);
 
-      if (lib.describeGradedState(rows).reviewed) {
+      // Only the cells this job is about to write matter. A doc-level check
+      // would refuse to write a paragraph into a doc whose sentences were
+      // graded long ago — exactly the doc prepare picked it for.
+      if (lib.targetsAlreadyFilled(record.gradingResults, rows)) {
         // "writing" means an earlier attempt may have written and died before
         // recording it. Bill it only if the text is provably ours.
         if (

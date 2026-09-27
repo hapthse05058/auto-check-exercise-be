@@ -4,6 +4,7 @@ const { test } = require("node:test");
 
 const {
   TASK_ACTIVE_PASSIVE,
+  TASK_PARAGRAPH,
   TASK_VI_EN,
   cleanContent,
   gradingCacheKey,
@@ -40,6 +41,14 @@ test("active_passive gets its own key for the same question and answer", () => {
     gradingCacheKey(...args, TASK_ACTIVE_PASSIVE),
     gradingCacheKey(...args, TASK_VI_EN),
   );
+});
+
+test("paragraph gets its own key, apart from vi_en and active_passive", () => {
+  const args = ["v1", "deepseek-chat", "Chủ đề: Hobbies", "My name are Tom."];
+  const paragraph = gradingCacheKey(...args, TASK_PARAGRAPH);
+  assert.notEqual(paragraph, gradingCacheKey(...args, TASK_VI_EN));
+  assert.notEqual(paragraph, gradingCacheKey(...args, TASK_ACTIVE_PASSIVE));
+  assert.equal(normalizeTaskType(TASK_PARAGRAPH), TASK_PARAGRAPH);
 });
 
 test("normalizeTaskType defaults anything unknown to vi_en", () => {

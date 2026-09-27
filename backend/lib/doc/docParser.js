@@ -25,6 +25,14 @@ export const IS_CORRECT_ANSWER = "✅ Đúng";
 export const OVERALL_FEEDBACK_LABEL = "Nhận xét chung của Giáo viên";
 
 /**
+ * Loại bài "Bài tập viết đoạn văn": cả bảng là MỘT item — đề là chủ đề + đoạn
+ * văn mẫu, câu trả lời là cả đoạn học viên viết. Khai báo ở đây chứ không ở
+ * `docTableDetect` vì parser cần nó, và `docTableDetect` import từ module này —
+ * đặt ngược lại sẽ khép vòng import (cùng lý do với OVERALL_FEEDBACK_LABEL).
+ */
+export const KIND_PARAGRAPH = "paragraph";
+
+/**
  * Số thứ tự mở đầu một câu hỏi. Cho phép khoảng trắng đứng trước và chấp nhận
  * cả "1)" / "1 ." vì học sinh hay gõ lệch. Nhóm capture chỉ chứa CHỮ SỐ, để
  * `extractQuestionIndex` và `docWriter` luôn so khớp trên cùng một giá trị.
@@ -386,6 +394,19 @@ function extractPairsFromRows(rows) {
   const pairs = [];
   for (const entry of rows || []) {
     if (entry.isOverall) continue;
+    // Đoạn văn không có số thứ tự hay "→": cả ô học viên viết là câu trả lời,
+    // nên không được đưa qua buildQnaPairs (nó sẽ bỏ hết vì thiếu "N.").
+    if (entry.kind === KIND_PARAGRAPH) {
+      pairs.push({
+        question: entry.promptText || "",
+        answer: getCellText(entry.qCell),
+        guessed: false,
+        type: entry.kind,
+        tableIdx: entry.tableIdx,
+        rowIdx: entry.rowIdx,
+      });
+      continue;
+    }
     for (const pair of buildQnaPairs(getCellLines(entry.qCell))) {
       pairs.push({
         ...pair,
@@ -442,13 +463,28 @@ export function getUnreadableQuestions(rows) {
  * coi như đã chấm và bị bỏ qua). Hai tập còn lại chỉ để BÁO CHO ĐÚNG: khi tài
  * liệu đã chấm bài cũ nhưng vẫn còn bảng bài mới trống, giáo viên cần nghe
  * "doc bị bỏ qua vì có feedback cũ", chứ không phải "tất cả đã được chấm".
+ *
+ * Đoạn văn KHÔNG tham gia vào `reviewed` mà được xét THEO TỪNG Ô, trong
+ * `paragraphRowKeys`: nếu không, mọi doc đã auto-chấm câu từ trước khi có loại
+ * bài này sẽ không bao giờ được chấm đoạn văn, và một đoạn văn giáo viên tự
+ * sửa tay sẽ làm cả doc bị bỏ qua.
  */
 export function describeGradedState(rows) {
   const gradedTables = new Set();
   const ungradedTables = new Set();
+  const paragraphRowKeys = { graded: new Set(), pending: new Set() };
 
   for (const entry of rows || []) {
     if (entry.isOverall) continue;
+    if (entry.kind === KIND_PARAGRAPH) {
+      const rowKey = `${entry.tableIdx}:${entry.rowIdx}`;
+      if (getCellText(entry.fbCell).trim()) {
+        paragraphRowKeys.graded.add(rowKey);
+      } else if (hasAnswer(getCellText(entry.qCell).trim())) {
+        paragraphRowKeys.pending.add(rowKey);
+      }
+      continue;
+    }
     if (getCellText(entry.fbCell).trim()) {
       gradedTables.add(entry.tableIdx);
       continue;
@@ -459,7 +495,30 @@ export function describeGradedState(rows) {
     if (answered) ungradedTables.add(entry.tableIdx);
   }
 
-  return { reviewed: gradedTables.size > 0, gradedTables, ungradedTables };
+  return {
+    reviewed: gradedTables.size > 0,
+    gradedTables,
+    ungradedTables,
+    paragraphRowKeys,
+  };
+}
+
+/**
+ * Những item THỰC SỰ cần chấm trong một tab — `getQuesAndAnsFromRows` đã lọc
+ * theo trạng thái đã chấm.
+ *
+ *   - Bài câu (dịch, bị động…) giữ nguyên quy tắc cấp doc: chỉ cần một ô
+ *     feedback của chúng có chữ là bỏ hết (`reviewed`).
+ *   - Đoạn văn xét theo ô của chính nó: ô GV sửa còn trống thì chấm, kể cả khi
+ *     các bài câu đã được chấm từ trước; đã có chữ thì không bao giờ ghi đè.
+ */
+export function selectItemsToGrade(rows) {
+  const { reviewed, paragraphRowKeys } = describeGradedState(rows);
+  return getQuesAndAnsFromRows(rows).filter((item) =>
+    item.type === KIND_PARAGRAPH
+      ? paragraphRowKeys.pending.has(`${item.tableIdx}:${item.rowIdx}`)
+      : !reviewed,
+  );
 }
 
 /**

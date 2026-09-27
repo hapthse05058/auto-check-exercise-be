@@ -18,6 +18,7 @@
  * of docWriter.js.
  */
 import {
+  KIND_PARAGRAPH,
   OVERALL_FEEDBACK_LABEL,
   getCellText,
   getQuesAndAnsFromRows,
@@ -30,6 +31,8 @@ import { TABLE_OVERRIDES } from "./docTables.js";
 export const KIND_VI_EN = "vi_en";
 /** Chuyển câu tiếng Anh chủ động sang bị động — bài mới buổi 07/08/09/10. */
 export const KIND_ACTIVE_PASSIVE = "active_passive";
+/** "Bài tập viết đoạn văn: <chủ đề>" — buổi 02 → 23. */
+export { KIND_PARAGRAPH };
 
 /**
  * Cột feedback. Đây là tín hiệu CHÍNH để nhận ra một bảng có chấm được hay
@@ -62,6 +65,22 @@ const FORMULA_HEADER = /th[aà]nh\s*l[aậ]p\s*c[oô]ng\s*th[uứ]c/i;
  * cho cả 24 học viên).
  */
 const OPTIONAL_HEADER = /b[aà]i\s*l[aà]m\s*c[uủ]a\s*h[oọ]c\s*vi[eê]n/i;
+
+/**
+ * Bảng "Bài tập viết đoạn văn" (mọi buổi 02 → 23 cùng một bố cục 3×3):
+ *
+ *   | Bài tập viết đoạn văn: <chủ đề> (gộp 2 ô) |          | GV sửa |
+ *   | Đoạn văn mẫu                              | <mẫu>    |        |
+ *   | Học viên viết                             | <bài HV> | <ô ghi feedback> |
+ *
+ * Hai nhãn dòng được neo CẢ Ô (^…$): một header bài câu kiểu "Học viên viết lại
+ * câu sau" không được phép biến bảng đó thành bảng đoạn văn.
+ */
+const PARAGRAPH_TITLE = /vi[eế]t\s*đo[aạ]n\s*v[aă]n/i;
+const PARAGRAPH_SAMPLE_LABEL = /^\s*đo[aạ]n\s*v[aă]n\s*m[aẫ]u\s*:?\s*$/i;
+const PARAGRAPH_STUDENT_LABEL = /^\s*h[oọ]c\s*vi[eê]n\s*vi[eế]t\s*:?\s*$/i;
+/** Gạch chân dạng ký tự tổ hợp ("H̲e̲y̲") có trong đoạn mẫu buổi 03. */
+const COMBINING_LOW_LINE = /̲/g;
 
 /** Mọi bảng trong tab, kèm chỉ số theo đúng thứ tự tài liệu. */
 function listTables(tab) {
@@ -163,6 +182,85 @@ function classifyTable(table) {
   return KIND_VI_EN;
 }
 
+/**
+ * Ô NHÃN của một dòng (ô đầu tiên có chữ) và vị trí của nó, hay null. Ô giữ chỗ
+ * của một ô gộp có thể đứng trước — Docs API trả nó về rỗng hoặc lược hẳn —
+ * nên không được giả định nhãn luôn ở ô 0.
+ */
+function rowLabel(row) {
+  const cells = row?.tableCells || [];
+  for (let i = 0; i < cells.length; i++) {
+    const text = getCellText(cells[i]).trim();
+    if (text) return { index: i, text };
+  }
+  return null;
+}
+
+/** Ô nội dung của một dòng nhãn: ô có `content` đầu tiên sau nhãn, trừ ô cuối. */
+function cellAfterLabel(row, labelIndex) {
+  const cells = row?.tableCells || [];
+  for (let i = labelIndex + 1; i < cells.length - 1; i++) {
+    if (cells[i]?.content) return cells[i];
+  }
+  return null;
+}
+
+/**
+ * Nhận diện bảng "Bài tập viết đoạn văn" theo NỘI DUNG.
+ *
+ * Bảng này không có dòng đánh số nên `classifyTable` không bao giờ nhận ra nó —
+ * trước khi có hàm này, cả bảng bị bỏ qua mà không có cảnh báo nào.
+ *
+ * @returns {{
+ *   studentRowIdx: number, qCell: object, fbCell: object, promptText: string,
+ * }|null} null khi đây không phải bảng đoạn văn, hoặc khi ô ghi feedback không
+ *   có vị trí để ghi (không đoán).
+ */
+function resolveParagraphTable(table) {
+  const rows = table.tableRows || [];
+  const studentRowIdx = rows.findIndex((row) =>
+    PARAGRAPH_STUDENT_LABEL.test(rowLabel(row)?.text || ""),
+  );
+  if (studentRowIdx === -1) return null;
+
+  const headerTexts = rows
+    .slice(0, studentRowIdx)
+    .flatMap((row) => row.tableCells || [])
+    .map((cell) => normalizeText(getCellText(cell)));
+  if (!headerTexts.some((text) => FEEDBACK_HEADER.test(text))) return null;
+
+  const studentRow = rows[studentRowIdx];
+  const cells = studentRow.tableCells || [];
+  const qCell = cellAfterLabel(studentRow, rowLabel(studentRow).index);
+  const fbCell = cells[cells.length - 1];
+  if (!qCell || !fbCell || fbCell === qCell) return null;
+  if (fbCell.content?.[0]?.startIndex === undefined) return null;
+
+  const title = headerTexts.find((text) => PARAGRAPH_TITLE.test(text)) || "";
+  const topic = title.includes(":")
+    ? title.slice(title.indexOf(":") + 1).trim()
+    : "";
+
+  let sample = "";
+  for (const row of rows) {
+    const label = rowLabel(row);
+    if (label && PARAGRAPH_SAMPLE_LABEL.test(label.text)) {
+      sample = getCellText(cellAfterLabel(row, label.index)).trim();
+      break;
+    }
+  }
+
+  const promptText = [
+    topic && `Chủ đề: ${topic}`,
+    sample && `Đoạn văn mẫu:\n${sample}`,
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .replace(COMBINING_LOW_LINE, "");
+
+  return { studentRowIdx, qCell, fbCell, promptText };
+}
+
 /** Chỉ số bảng do TABLE_OVERRIDES ép cho tab này, hoặc null. */
 function overrideFor(tabName, classType) {
   const found = (TABLE_OVERRIDES || []).find(
@@ -194,17 +292,38 @@ export function detectTables(tab, classType) {
     }
   }
 
+  // Bảng đoạn văn được nhận diện TRƯỚC và ĐỘC LẬP với mọi thứ bên dưới — kể
+  // cả TABLE_OVERRIDES, vốn chỉ dùng để ép chỉ số cho bảng CÂU. Một đường nhận
+  // diện duy nhất, để override không bao giờ làm mất hay ép sai loại đoạn văn.
+  const paragraphs = new Map();
+  for (const { tableIdx, table } of all) {
+    const paragraph = resolveParagraphTable(table);
+    if (paragraph) paragraphs.set(tableIdx, paragraph);
+  }
+  const asParagraph = ({ tableIdx, table }) => ({
+    tableIdx,
+    table,
+    kind: KIND_PARAGRAPH,
+    paragraph: paragraphs.get(tableIdx),
+  });
+
   const forced = overrideFor(tab?.tabProperties?.title, classType);
   if (forced) {
     const wanted = new Set(forced);
     return {
       tables: all
-        .filter(({ tableIdx }) => wanted.has(tableIdx))
-        .map(({ tableIdx, table }) => ({
-          tableIdx,
-          table,
-          kind: classifyTable(table) || KIND_VI_EN,
-        })),
+        .filter(
+          ({ tableIdx }) => wanted.has(tableIdx) || paragraphs.has(tableIdx),
+        )
+        .map((item) =>
+          paragraphs.has(item.tableIdx)
+            ? asParagraph(item)
+            : {
+                tableIdx: item.tableIdx,
+                table: item.table,
+                kind: classifyTable(item.table) || KIND_VI_EN,
+              },
+        ),
       overall,
       unclassifiedWithQuestions: [],
     };
@@ -216,6 +335,14 @@ export function detectTables(tab, classType) {
   let previousColumns = 0;
 
   for (const { tableIdx, table } of all) {
+    if (paragraphs.has(tableIdx)) {
+      tables.push(asParagraph({ tableIdx, table }));
+      // Bảng ngay sau không được "kế thừa loại" từ bảng đoạn văn: nó không
+      // phải mảnh ngắt trang của một bảng câu.
+      previousKind = null;
+      previousColumns = 0;
+      continue;
+    }
     const kind = classifyTable(table);
     if (kind) {
       tables.push({ tableIdx, table, kind });
@@ -288,7 +415,23 @@ export function collectExerciseRows(tab, classType) {
   );
   const rows = [];
 
-  for (const { tableIdx, table, kind } of tables) {
+  for (const { tableIdx, table, kind, paragraph } of tables) {
+    // Cả bảng đoạn văn là MỘT dòng bài tập: dòng "Học viên viết".
+    if (kind === KIND_PARAGRAPH) {
+      rows.push({
+        tableIdx,
+        rowIdx: paragraph.studentRowIdx,
+        kind,
+        row: table.tableRows[paragraph.studentRowIdx],
+        qCell: paragraph.qCell,
+        fbCell: paragraph.fbCell,
+        numberCell: null,
+        promptText: paragraph.promptText,
+        isOverall: false,
+        overallCell: null,
+      });
+      continue;
+    }
     (table.tableRows || []).forEach((row, rowIdx) => {
       const cells = resolveRowCells(row);
       if (!cells) return;

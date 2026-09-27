@@ -38,12 +38,17 @@ const {
 } = require("./lib/gradingSchedules.js");
 const {
   TASK_ACTIVE_PASSIVE,
+  TASK_PARAGRAPH,
   TASK_TYPES,
   cleanContent,
   gradingCacheKey,
   normalizeForKey,
   normalizeTaskType,
 } = require("./lib/gradingKey.js");
+const {
+  gradeParagraphGroup,
+  paragraphText,
+} = require("./lib/paragraphFeedback.js");
 const notifications = require("./lib/notifications.js");
 const pushDevices = require("./lib/pushDevices.js");
 const { createCloudQueue, createInlineQueue } = require("./lib/taskQueue.js");
@@ -609,8 +614,12 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     )
       continue;
     const taskType = normalizeTaskType(item.taskType ?? item.type);
-    const question = cleanContent(item.question);
-    const answer = cleanContent(item.answer);
+    // Đoạn văn: cleanContent cắt dấu "." cuối MỖI dòng và mũi tên đầu dòng —
+    // đúng cho một câu trả lời, sai cho một đoạn văn mà AI phải đọc nguyên
+    // văn. Khoá cache vẫn qua gradingCacheKey (tự làm sạch) nên không lệch.
+    const clean = taskType === TASK_PARAGRAPH ? paragraphText : cleanContent;
+    const question = clean(item.question);
+    const answer = clean(item.answer);
     if (!answer) continue;
     // Same normalization as the cache key, so two items never dedupe apart
     // yet land on one cache id.
@@ -663,16 +672,26 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
 
   // 4. Grade misses with OpenAI, in modest groups, with bounded concurrency.
   if (uncached.length > 0) {
-    const instructionFilePath = path.join(
-      __dirname,
+    const readInstruction = (fileName) => {
+      const instructionFilePath = path.join(__dirname, fileName);
+      if (!fs.existsSync(instructionFilePath)) {
+        throw new Error(`Instruction file not found: ${instructionFilePath}`);
+      }
+      return fs.readFileSync(instructionFilePath, "utf8").trim();
+    };
+    const instruction = readInstruction(
       "prompt_and_instruction_for_responses_api_2.txt",
     );
-    if (!fs.existsSync(instructionFilePath)) {
-      throw new Error(`Instruction file not found: ${instructionFilePath}`);
-    }
-    const instruction = fs.readFileSync(instructionFilePath, "utf8").trim();
+    // Đoạn văn có prompt và định dạng output (JSON) riêng; chỉ đọc khi cần.
+    const paragraphInstruction = uncached.some(
+      (it) => it.taskType === TASK_PARAGRAPH,
+    )
+      ? readInstruction("prompt_paragraph.txt")
+      : null;
 
-    const GROUP_SIZE = 15;
+    // Một đoạn văn dài hơn một câu cả chục lần, và output của nó cũng vậy —
+    // nhóm nhỏ để một lần gọi không chạm trần token.
+    const groupSizeOf = (taskType) => (taskType === TASK_PARAGRAPH ? 5 : 15);
     const groups = [];
     // Chia theo LOẠI BÀI trước khi chia theo kích thước: một lần gọi AI chỉ
     // được chứa một chế độ, nếu không thì phần đánh số lại 1..k trộn lẫn hai
@@ -680,8 +699,9 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     // bị động.
     for (const taskType of TASK_TYPES) {
       const ofType = uncached.filter((it) => it.taskType === taskType);
-      for (let i = 0; i < ofType.length; i += GROUP_SIZE) {
-        groups.push(ofType.slice(i, i + GROUP_SIZE));
+      const size = groupSizeOf(taskType);
+      for (let i = 0; i < ofType.length; i += size) {
+        groups.push(ofType.slice(i, i + size));
       }
     }
 
@@ -689,7 +709,14 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     const groupErrors = [];
     const tasks = groups.map((group) => async () => {
       try {
-        const feedbacks = await gradeGroupWithOpenAI(group, instruction, model);
+        const feedbacks =
+          group[0].taskType === TASK_PARAGRAPH
+            ? await gradeParagraphGroup(group, {
+                instruction: paragraphInstruction,
+                model,
+                callGrader,
+              })
+            : await gradeGroupWithOpenAI(group, instruction, model);
         group.forEach((it, i) => {
           const fb = feedbacks[i];
           if (fb !== null && fb !== undefined) {

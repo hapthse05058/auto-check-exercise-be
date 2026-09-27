@@ -13,7 +13,9 @@ const crypto = require("crypto");
  */
 const TASK_VI_EN = "vi_en";
 const TASK_ACTIVE_PASSIVE = "active_passive";
-const TASK_TYPES = [TASK_VI_EN, TASK_ACTIVE_PASSIVE];
+/** "Bài tập viết đoạn văn": đề = chủ đề + đoạn mẫu, trả lời = cả đoạn học viên viết. */
+const TASK_PARAGRAPH = "paragraph";
+const TASK_TYPES = [TASK_VI_EN, TASK_ACTIVE_PASSIVE, TASK_PARAGRAPH];
 
 /** Loại bài hợp lệ, hoặc "vi_en" cho mọi thứ khác (kể cả bản ghi cũ không có). */
 function normalizeTaskType(value) {
@@ -205,6 +207,7 @@ function planCacheCleanup(docs) {
 
 module.exports = {
   TASK_ACTIVE_PASSIVE,
+  TASK_PARAGRAPH,
   TASK_TYPES,
   TASK_VI_EN,
   cleanContent,
