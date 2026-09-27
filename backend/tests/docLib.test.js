@@ -18,6 +18,8 @@ const FILES = [
   "docTables.js",
   "docWriter.js",
   "ieltsDoc.js",
+  "hsDoc.js",
+  "hsTemplate.js",
 ];
 const normalize = (text) => text.replace(/\r\n/g, "\n");
 

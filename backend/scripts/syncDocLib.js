@@ -19,6 +19,8 @@ const FILES = [
   "docTables.js",
   "docWriter.js",
   "ieltsDoc.js",
+  "hsDoc.js",
+  "hsTemplate.js",
 ];
 const TARGET = path.join(__dirname, "..", "lib", "doc");
 const DEFAULT_SOURCE = path.join(

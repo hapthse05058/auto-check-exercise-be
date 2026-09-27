@@ -30,7 +30,9 @@ const crypto = require("crypto");
 
 const {
   GRADING_PROFILE_BASIC,
+  GRADING_PROFILE_HS,
   GRADING_PROFILE_IELTS,
+  GRADING_PROFILES,
 } = require("./courses.js");
 const { extractDocId } = require("./googleDoc.js");
 const { ReauthRequiredError } = require("./googleUserToken.js");
@@ -41,6 +43,7 @@ const {
   TASK_1: IELTS_TASK_1,
   validateRequest: validateIeltsRequest,
 } = require("./ieltsWriting.js");
+const { hsItemIdentity } = require("./hsGrading.js");
 const { pointLedgerId } = require("./teacherPoints.js");
 
 const JOBS = "gradingJobs";
@@ -136,10 +139,17 @@ const info = (...args) => console.log("[GRADING-JOB]", ...args);
  * points — reading (lib/doc/ieltsDoc.js), grading (lib/ieltsWriting.js) and
  * the rows the write targets — and share everything else (locks, leases,
  * write-once, per-doc receipts). A job without the field is Basic.
- * @param deps.gradingProfileOfClass (classData) => Promise<"basic"|"ielts">
+ * HS classes (course gradingProfile "hs") likewise: lib/doc/hsDoc.js reads
+ * the items and plans the writes, lib/hsGrading.js grades them. A profile
+ * this build does not know is refused — never graded as Basic.
+ * @param deps.gradingProfileOfClass (classData) =>
+ *                             Promise<"basic"|"ielts"|"hs"|null> (null: unknown)
  * @param deps.gradeIelts      (input, {useCache, requestId}) => {feedback}
  * @param deps.fetchImage      (contentUri, accessToken) => Promise<{mime, buffer}>
  * @param deps.ieltsEnabled    false refuses IELTS jobs up front (no model set)
+ * @param deps.gradeHs         (items, {useCache, requestId}) =>
+ *                             Map<hsItemIdentity, {verdict, warning?}>
+ * @param deps.hsEnabled       false refuses HS jobs up front (no model set)
  */
 function createGradingJobs(deps) {
   const {
@@ -157,16 +167,30 @@ function createGradingJobs(deps) {
     gradeIelts,
     fetchImage,
     ieltsEnabled = true,
+    gradeHs,
+    hsEnabled = true,
   } = deps;
 
   const isIelts = (job) => job.gradingProfile === GRADING_PROFILE_IELTS;
+  const isHs = (job) => job.gradingProfile === GRADING_PROFILE_HS;
+  /** A job from before profiles existed has none: Basic. Anything else must
+   * be a profile this build knows — an unknown one is refused, fail closed. */
+  const knownProfile = (job) =>
+    job.gradingProfile === undefined ||
+    job.gradingProfile === null ||
+    GRADING_PROFILES.includes(job.gradingProfile);
   /** The lesson tab of a doc: an IELTS lesson "BUỔI 12" lives in the tab
-   * "Writing buổi 12" (lib/doc/ieltsDoc.js findIeltsTab); Basic matches the
-   * tab title exactly, as it always has. */
-  const findLessonTab = (lib, job, data) =>
-    isIelts(job)
+   * "Writing buổi 12" (lib/doc/ieltsDoc.js findIeltsTab); an HS lesson is
+   * matched by its number (the form has "Buổi  09"); Basic matches the tab
+   * title exactly, as it always has. */
+  const findLessonTab = (lib, job, data) => {
+    if (isHs(job)) {
+      return lib.hs.findHsTab(data.tabs || [], job.lessonName, job.lessonId);
+    }
+    return isIelts(job)
       ? lib.findIeltsTab(data.tabs || [], job.lessonName)
       : lib.findTabByTitle(data.tabs || [], job.lessonName);
+  };
 
   const jobRef = (jobId) => db.collection(JOBS).doc(jobId);
   const docRef = (jobId, docId) => jobRef(jobId).collection("docs").doc(docId);
@@ -278,8 +302,14 @@ function createGradingJobs(deps) {
     // Fixed at creation: a class moved to another course mid-run must not
     // switch the running job to another reader, prompt or cell layout.
     const gradingProfile = await gradingProfileOfClass(classSnap.data());
+    if (!GRADING_PROFILES.includes(gradingProfile)) {
+      throw new JobError(400, "unknown_grading_profile");
+    }
     if (gradingProfile === GRADING_PROFILE_IELTS && !ieltsEnabled) {
       throw new JobError(503, "ielts_not_configured");
+    }
+    if (gradingProfile === GRADING_PROFILE_HS && !hsEnabled) {
+      throw new JobError(503, "hs_not_configured");
     }
 
     const jobId = fixedJobId || crypto.randomUUID().replace(/-/g, "");
@@ -450,6 +480,7 @@ function createGradingJobs(deps) {
 
   /** Reads one doc and decides whether it needs grading. */
   async function readForGrading(lib, job, docId, access) {
+    if (!knownProfile(job)) throw new JobError(400, "unknown_grading_profile");
     let data;
     try {
       data = await docsApi.getDocument(docId, access.token);
@@ -478,6 +509,7 @@ function createGradingJobs(deps) {
       };
     }
     if (isIelts(job)) return readIeltsForGrading(lib, tab, docId);
+    if (isHs(job)) return readHsForGrading(lib, job, tab, docId);
 
     const warnings = [];
     const { rows, unclassifiedWithQuestions } = lib.collectExerciseRows(
@@ -544,6 +576,153 @@ function createGradingJobs(deps) {
     }
 
     return { docId, status: "pending", qa: toGrade, warnings };
+  }
+
+  /**
+   * readForGrading for an HS class: every item of the lesson's TỰ LUẬN
+   * section, read against the blank form (lib/doc/hsDoc.js). Pending when at
+   * least one item is written and not corrected yet — by a teacher or by an
+   * earlier run — so the same contract as Basic holds for countSubmissions:
+   * one doc = one student, "alreadyGraded" when everything written is
+   * corrected, "noAnswers" when nothing is written.
+   */
+  function readHsForGrading(lib, job, tab, docId) {
+    const {
+      lesson,
+      items,
+      warnings: found,
+    } = lib.hs.collectHsItems(tab, {
+      lessonId: job.lessonId,
+      lessonName: job.lessonName,
+    });
+    const warnings = found.map(({ code, ...params }) =>
+      warning(code, { docId, ...params }),
+    );
+    if (!lesson) {
+      return {
+        docId,
+        status: "skipped",
+        reason: "noTable",
+        warnings: [...warnings, warning("noTable", { docId })],
+      };
+    }
+    const todo = lib.hs.selectHsItemsToGrade(items);
+    if (!todo.length) {
+      const graded = items.some((i) => i.answered && i.graded);
+      return {
+        docId,
+        status: "skipped",
+        reason: graded ? "alreadyGraded" : "noAnswers",
+        warnings,
+      };
+    }
+    return {
+      docId,
+      status: "pending",
+      hs: todo.map((i) => ({
+        key: i.key,
+        lessonId: lesson.id,
+        exerciseId: i.exerciseId,
+        kind: i.kind,
+        instruction: i.instruction,
+        prompt: i.prompt,
+        ...(i.hint ? { hint: i.hint } : {}),
+        ...(i.labels ? { labels: i.labels } : {}),
+        ...(i.options ? { options: i.options } : {}),
+        ...(i.slot !== undefined ? { slot: i.slot } : {}),
+        ...(i.underlined ? { underlined: i.underlined } : {}),
+        answer: i.answer,
+      })),
+      warnings,
+    };
+  }
+
+  /**
+   * Grades every pending HS item of the class at once (identical answers to
+   * the same question are graded once, lib/hsGrading.js) and keeps, per doc,
+   * the verdict of each item. An item without a verdict (the model failed
+   * twice, a listening blank without a key) is left out with a warning and
+   * never written. Network / Firestore errors are thrown: prepare is retried.
+   */
+  async function gradeHsDocs(jobId, job, pending) {
+    const results = await gradeHs(
+      pending.flatMap((d) => d.hs),
+      { useCache: job.useCache, requestId: jobId },
+    );
+    for (const doc of pending) {
+      doc.gradingResults = [];
+      const missing = {};
+      for (const item of doc.hs) {
+        const result = results.get(hsItemIdentity(item));
+        if (result?.verdict) {
+          doc.gradingResults.push({ key: item.key, verdict: result.verdict });
+        } else {
+          const code = result?.warning || "hsAiInvalid";
+          missing[code] = (missing[code] || 0) + 1;
+        }
+      }
+      for (const [code, count] of Object.entries(missing)) {
+        doc.warnings.push(warning(code, { docId: doc.docId, count }));
+      }
+      delete doc.hs;
+      if (doc.gradingResults.length) {
+        doc.status = "ready";
+      } else {
+        doc.status = "skipped";
+        doc.reason = "noMatch";
+      }
+    }
+  }
+
+  /**
+   * The write of an HS doc, planned on the doc as read right now: positions
+   * come from this read, and an item corrected since it was graded is
+   * dropped (lib/doc/hsDoc.js planHsWrites). Returns {requests} — or {charge}
+   * when an earlier attempt of this job provably wrote already (its named
+   * ranges are there, intact), or {finish} when there is nothing to write.
+   */
+  function planHsDocWrite(lib, job, tab, record, status, docId) {
+    const { items } = lib.hs.collectHsItems(tab, {
+      lessonId: job.lessonId,
+      lessonName: job.lessonName,
+    });
+    const verdicts = new Map(
+      (record.gradingResults || []).map((g) => [g.key, g.verdict]),
+    );
+    const { writes } = lib.hs.planHsWrites(items, verdicts);
+    if (writes.length) {
+      return {
+        requests: lib.hs.buildHsFeedbackRequests(
+          writes,
+          tab.tabProperties.tabId,
+        ),
+      };
+    }
+    // batchUpdate is all-or-nothing: one intact range of ours means the
+    // crashed attempt's whole write went through.
+    const ours = items
+      .filter((i) => verdicts.has(i.key) && i.target)
+      .some((i) =>
+        lib.hs.matchesOwnHsFeedback(
+          [
+            {
+              key: i.key,
+              text: lib.hs.formatHsFeedback(i, verdicts.get(i.key)),
+            },
+          ],
+          tab,
+        ),
+      );
+    if (status === "writing" && ours) return { charge: true };
+    const reason =
+      status === "writing" ? "ownershipUnclear" : "gradedMeanwhile";
+    return {
+      finish: {
+        status: "skipped",
+        reason,
+        warnings: [warning(reason, { docId })],
+      },
+    };
   }
 
   /**
@@ -679,6 +858,10 @@ function createGradingJobs(deps) {
 
   /** The body of prepare, run by the worker holding `epoch`. */
   async function runPrepare(jobId, job, epoch) {
+    if (!knownProfile(job)) {
+      await failPrepare(jobId, epoch, "unknown_grading_profile");
+      return;
+    }
     const started = now();
     const lib = await loadDocLib();
     const access = await tokens.getDocsAccessToken(
@@ -692,7 +875,19 @@ function createGradingJobs(deps) {
     const readMs = now() - started;
     const pending = docs.filter((d) => d.status === "pending");
 
-    if (pending.length && isIelts(job)) {
+    if (pending.length && isHs(job)) {
+      // Same gate as Basic below: 1 point per doc to write.
+      const have = await readPoint(job.payerTeacherId);
+      if (pending.length > have) {
+        await failPrepare(jobId, epoch, "not_enough_points", {
+          need: pending.length,
+          have,
+          teacher: job.payerName,
+        });
+        return;
+      }
+      await gradeHsDocs(jobId, job, pending);
+    } else if (pending.length && isIelts(job)) {
       // Same gate as Basic below: 1 point per doc to write.
       const have = await readPoint(job.payerTeacherId);
       if (pending.length > have) {
@@ -1104,39 +1299,48 @@ function createGradingJobs(deps) {
           warnings: [warning("tabMissing", { docId })],
         });
       }
-      const { rows } = isIelts(job)
-        ? lib.collectIeltsRows(tab)
-        : lib.collectExerciseRows(tab, job.classType);
+      let requests;
+      if (isHs(job)) {
+        const planned = planHsDocWrite(lib, job, tab, record, status, docId);
+        if (planned.charge) return chargeAndFinish(jobId, job, docId);
+        if (planned.finish) return finishDoc(jobId, docId, planned.finish);
+        requests = planned.requests;
+      } else {
+        const { rows } = isIelts(job)
+          ? lib.collectIeltsRows(tab)
+          : lib.collectExerciseRows(tab, job.classType);
 
-      // Only the cells this job is about to write matter. A doc-level check
-      // would refuse to write a paragraph into a doc whose sentences were
-      // graded long ago — exactly the doc prepare picked it for.
-      if (lib.targetsAlreadyFilled(record.gradingResults, rows)) {
-        // "writing" means an earlier attempt may have written and died before
-        // recording it. Bill it only if the text is provably ours.
-        if (
-          status === "writing" &&
-          lib.matchesOwnFeedback(record.gradingResults, rows)
-        ) {
-          return chargeAndFinish(jobId, job, docId);
-        }
-        return finishDoc(jobId, docId, {
-          status: "skipped",
-          reason: status === "writing" ? "ownershipUnclear" : "gradedMeanwhile",
-          warnings: [
-            warning(
+        // Only the cells this job is about to write matter. A doc-level check
+        // would refuse to write a paragraph into a doc whose sentences were
+        // graded long ago — exactly the doc prepare picked it for.
+        if (lib.targetsAlreadyFilled(record.gradingResults, rows)) {
+          // "writing" means an earlier attempt may have written and died
+          // before recording it. Bill it only if the text is provably ours.
+          if (
+            status === "writing" &&
+            lib.matchesOwnFeedback(record.gradingResults, rows)
+          ) {
+            return chargeAndFinish(jobId, job, docId);
+          }
+          return finishDoc(jobId, docId, {
+            status: "skipped",
+            reason:
               status === "writing" ? "ownershipUnclear" : "gradedMeanwhile",
-              { docId },
-            ),
-          ],
-        });
-      }
+            warnings: [
+              warning(
+                status === "writing" ? "ownershipUnclear" : "gradedMeanwhile",
+                { docId },
+              ),
+            ],
+          });
+        }
 
-      const requests = lib.buildFeedbackRequests(
-        record.gradingResults,
-        rows,
-        tab.tabProperties.tabId,
-      );
+        requests = lib.buildFeedbackRequests(
+          record.gradingResults,
+          rows,
+          tab.tabProperties.tabId,
+        );
+      }
       if (!requests.length) {
         return finishDoc(jobId, docId, {
           status: "skipped",

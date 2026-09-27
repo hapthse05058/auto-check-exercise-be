@@ -1,0 +1,2726 @@
+{
+  "entries": {
+    "hsLesson03|ex2|emma: what is your like, ben?|0": {
+      "answers": ["room"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 14 docs"
+    },
+    "hsLesson03|ex2|ben: it's , but it's nice. there is a bed in the corner, and next to it, there is a small with a light .|0": {
+      "answers": ["small"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 15 docs"
+    },
+    "hsLesson03|ex2|ben: it's , but it's nice. there is a bed in the corner, and next to it, there is a small with a light .|1": {
+      "answers": ["table"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 16 docs"
+    },
+    "hsLesson03|ex2|ben: yes, there is. it's by the . i like to study there because the is good.|0": {
+      "answers": ["window"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 16 docs"
+    },
+    "hsLesson03|ex2|ben: yes, there is. it's by the . i like to study there because the is good.|1": {
+      "answers": ["light"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 12 docs"
+    },
+    "hsLesson03|ex2|ben: yes, i do. there are about 20 on the shelf.|0": {
+      "answers": ["books"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 14 docs"
+    },
+    "hsLesson03|ex2|emma: i see. is there a in your room?|0": {
+      "answers": ["bathroom"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 13 docs"
+    },
+    "hsLesson03|ex2|ben: yes! there are some trees outside, and i can see the .|0": {
+      "answers": ["park"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 14 docs"
+    },
+    "hsLesson03|ex2|ben: no, there isn't. the bathroom is down the . there is only one bathroom for the whole floor.|0": {
+      "answers": ["hall"],
+      "source": "teacher_verified",
+      "note": "ticked ✅ by teachers in 7 docs"
+    },
+    "hsLesson01|ex1|tôi là học sinh.": {
+      "answers": ["I am a student.", "I'm a student."],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex1|chúng tôi học tiếng anh.": {
+      "answers": ["We learn English.", "We study English."],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex1|cô ấy thích môn lịch sử.": {
+      "answers": ["She likes history.", "She likes History."],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex1|họ đến trường mỗi ngày.": {
+      "answers": [
+        "They go to school every day.",
+        "They go to school each day."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex1|tôi cần 1 chiếc máy tính cầm tay": {
+      "answers": ["I need a calculator.", "I need one calculator."],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|tom plays football.": {
+      "answers": ["S: Tom – V: plays – O: football"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|she reads books.": {
+      "answers": ["S: She – V: reads – O: books"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|we eat rice.": {
+      "answers": ["S: We – V: eat – O: rice"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|he kicks a ball.": {
+      "answers": ["S: He – V: kicks – O: a ball"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|they watch tv.": {
+      "answers": ["S: They – V: watch – O: TV"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|i drink milk.": {
+      "answers": ["S: I – V: drink – O: milk"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|mary likes cats.": {
+      "answers": ["S: Mary – V: likes – O: cats"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|birds sing songs.": {
+      "answers": ["S: Birds – V: sing – O: songs"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|we clean rooms.": {
+      "answers": ["S: We – V: clean – O: rooms"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|dogs chase cats.": {
+      "answers": ["S: Dogs – V: chase – O: cats"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|my friends visit the museum.": {
+      "answers": ["S: My friends – V: visit – O: the museum"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|the baby is eating a banana.": {
+      "answers": ["S: The baby – V: is eating – O: a banana"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|we will watch a new movie.": {
+      "answers": ["S: We – V: will watch – O: a new movie"],
+      "source": "ai_draft"
+    },
+    "hsLesson01|ex2|she writes letters every sunday.": {
+      "answers": ["S: She – V: writes – O: letters"],
+      "source": "ai_draft",
+      "note": "\"every Sunday\" là trạng ngữ, không thuộc O."
+    },
+    "hsLesson01|ex2|our dog is chasing a ball.": {
+      "answers": ["S: Our dog – V: is chasing – O: a ball"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex1|cô ấy đang nghe nhạc.": {
+      "answers": ["She is listening to music.", "She's listening to music."],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex1|họ sẽ đi du lịch vào tuần sau.": {
+      "answers": ["They will travel next week.", "They'll travel next week."],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex1|tôi đã làm bài tập tối qua.": {
+      "answers": [
+        "I did my homework last night.",
+        "I did homework last night."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex1|chúng tôi đang nấu bữa trưa.": {
+      "answers": ["We are cooking lunch.", "We're cooking lunch."],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex1|anh ấy thường dậy sớm.": {
+      "answers": ["He usually gets up early.", "He usually wakes up early."],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|hiện tại – ht đơn": {
+      "answers": ["S + V(s/es) + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|quá khứ – qk đơn": {
+      "answers": ["S + V-ed/V2 + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|tương lai – tl đơn": {
+      "answers": ["S + will + V-inf + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|hiện tại – ht tiếp diễn": {
+      "answers": ["S + am/is/are + V-ing + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|quá khứ – qk tiếp diễn": {
+      "answers": ["S + was/were + V-ing + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|tương lai – tl tiếp diễn": {
+      "answers": ["S + will be + V-ing + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|hiện tại – ht hoàn thành": {
+      "answers": ["S + have/has + V3/ed + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|quá khứ – qk hoàn thành": {
+      "answers": ["S + had + V3/ed + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|tương lai – tl hoàn thành": {
+      "answers": ["S + will have + V3/ed + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|hiện tại – ht hoàn thành tiếp diễn": {
+      "answers": ["S + have/has been + V-ing + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|quá khứ – qk hoàn thành tiếp diễn": {
+      "answers": ["S + had been + V-ing + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson02|ex2|tương lai – tl hoàn thành tiếp diễn": {
+      "answers": ["S + will have been + V-ing + O"],
+      "source": "ai_draft"
+    },
+    "hsLesson03|ex1|tôi học ở trường nội trú": {
+      "answers": [
+        "I study at a boarding school.",
+        "I study at boarding school."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson03|ex1|giờ giải lao là lúc 10 giờ": {
+      "answers": [
+        "Break time is at 10 o'clock.",
+        "Break time is at 10.",
+        "The break time is at 10 o'clock."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson03|ex1|tôi viết trên bảng đen": {
+      "answers": ["I write on the chalkboard.", "I write on a chalkboard."],
+      "source": "ai_draft"
+    },
+    "hsLesson03|ex1|môn học yêu thích của tôi là lịch sử": {
+      "answers": [
+        "My favourite subject is history.",
+        "My favorite subject is history.",
+        "History is my favourite subject."
+      ],
+      "source": "ai_draft",
+      "note": "favourite: Anh-Anh; favorite: Anh-Mỹ."
+    },
+    "hsLesson03|ex1|trường của tôi là trường quốc tế": {
+      "answers": ["My school is an international school."],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex1|anh ấy là bạn cùng lớp của tôi": {
+      "answers": ["He is my classmate.", "He's my classmate."],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex1|tôi có một cái gọt bút chì mới": {
+      "answers": [
+        "I have a new pencil sharpener.",
+        "I've got a new pencil sharpener.",
+        "I have got a new pencil sharpener."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex1|tôi mang tẩy và vở của mình": {
+      "answers": [
+        "I bring my rubber and notebook.",
+        "I bring my eraser and notebook.",
+        "I bring my rubber and my notebook.",
+        "I bring my eraser and my notebook."
+      ],
+      "source": "ai_draft",
+      "note": "rubber và eraser đều có nghĩa là cục tẩy."
+    },
+    "hsLesson04|ex1|gia sư riêng của tôi giúp tôi": {
+      "answers": ["My private tutor helps me."],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex1|chúng tôi bơi ở bể bơi": {
+      "answers": [
+        "We swim in the swimming pool.",
+        "We swim at the swimming pool."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi học tiếng anh mỗi ngày": {
+      "answers": ["I study English every day – HT đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi đã học tiếng anh hôm qua": {
+      "answers": ["I studied English yesterday – QK đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|hôm qua, tôi đã đi học.": {
+      "answers": ["Yesterday, I went to school – QK đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi đi học mỗi ngày": {
+      "answers": ["I go to school every day – HT đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi thường xem phim hoạt hình": {
+      "answers": ["I usually watch cartoons – HT đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tối qua, tôi đã xem phim hoạt hình": {
+      "answers": ["Last night, I watched cartoons – QK đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|hôm qua, tôi đã chơi điện tử": {
+      "answers": ["Yesterday, I played video games – QK đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi thỉnh thoảng chơi điện tử": {
+      "answers": ["I sometimes play video games – HT đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi đánh răng mỗi ngày": {
+      "answers": ["I brush my teeth every day – HT đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi đã đánh răng hôm qua": {
+      "answers": ["I brushed my teeth yesterday – QK đơn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|bây giờ, tôi đang học tiếng anh.": {
+      "answers": ["Now, I am studying English – HT tiếp diễn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|vào lúc 8 giờ tối qua, tôi đã đang học tiếng anh.": {
+      "answers": [
+        "At 8 o'clock last night, I was studying English – QK tiếp diễn"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|lúc 7 giờ sáng hôm qua, tôi đã đang đi học.": {
+      "answers": [
+        "At 7 o'clock yesterday morning, I was going to school – QK tiếp diễn"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|bây giờ, tôi đang đi học.": {
+      "answers": ["Now, I am going to school – HT tiếp diễn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|hiện tại, tôi đang xem phim hoạt hình.": {
+      "answers": ["Currently, I am watching cartoons – HT tiếp diễn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|vào lúc 9 giờ tối qua, tôi đã đang xem phim hoạt hình.": {
+      "answers": [
+        "At 9 o'clock last night, I was watching cartoons – QK tiếp diễn"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|lúc này, tôi đang chơi điện tử.": {
+      "answers": ["At the moment, I am playing video games – HT tiếp diễn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|vào lúc 5 giờ chiều hôm qua, tôi đã đang chơi điện tử.": {
+      "answers": [
+        "At 5 o'clock yesterday afternoon, I was playing video games – QK tiếp diễn"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|hiện tại, tôi đang đánh răng.": {
+      "answers": ["Currently, I am brushing my teeth – HT tiếp diễn"],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|vào lúc 9 giờ tối qua, tôi đã đang đánh răng.": {
+      "answers": [
+        "At 9 o'clock last night, I was brushing my teeth – QK tiếp diễn"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|is / a car. / my bicycle / than / faster.": {
+      "answers": ["My bicycle is faster than a car."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|than / my schoolbag / heavier / is / yours.": {
+      "answers": ["My schoolbag is heavier than yours."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|is / than / a dog. / a cat / smaller.": {
+      "answers": ["A cat is smaller than a dog."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|than / my friend / speaks english / better / i.": {
+      "answers": ["My friend speaks English better than I."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|more carefully / than / my dad / drives / my mom.": {
+      "answers": ["My dad drives more carefully than my mom."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|than / a car. / this bicycle / is / more expensive.": {
+      "answers": ["This bicycle is more expensive than a car."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|is / than / this book / more interesting / that one.": {
+      "answers": ["This book is more interesting than that one."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|is / my brother's room / my room. / cleaner / than.": {
+      "answers": ["My brother's room is cleaner than my room."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|today / is / than / hotter / yesterday. / the weather.": {
+      "answers": [
+        "The weather today is hotter than yesterday.",
+        "The weather is hotter today than yesterday."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex2|more beautifully / my sister / than / sings / my brother.": {
+      "answers": ["My sister sings more beautifully than my brother."],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex1|tôi có một quyển vở mới.": {
+      "answers": ["I have a new notebook."],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex1|những cây bút trên bàn rất sắc.": {
+      "answers": [
+        "The pens on the table are very sharp.",
+        "The pens on the desk are very sharp."
+      ],
+      "source": "ai_draft",
+      "note": "bàn có thể dịch là table hoặc desk"
+    },
+    "hsLesson06|ex1|bạn tôi có cái kéo.": {
+      "answers": [
+        "My friend has scissors.",
+        "My friend has a pair of scissors."
+      ],
+      "source": "ai_draft",
+      "note": "scissors là danh từ số nhiều; có thể dùng a pair of scissors"
+    },
+    "hsLesson06|ex1|những quyển sách giáo khoa nhẹ. (những quyển sách đã xác định vì cả người nói và người nghe đều biết)": {
+      "answers": ["The textbooks are light."],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex1|bạn cùng lớp mang một cái thước kẻ dài": {
+      "answers": [
+        "The classmate brings a long ruler.",
+        "A classmate brings a long ruler."
+      ],
+      "source": "ai_draft",
+      "note": "bạn cùng lớp có thể hiểu là xác định hoặc chưa xác định"
+    },
+    "hsLesson05|ex1|ngày mai tôi sẽ gọi cho bạn.": {
+      "answers": [
+        "Tomorrow I will call you.",
+        "I will call you tomorrow.",
+        "Tomorrow I'll call you.",
+        "I'll call you tomorrow."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex1|tôi chuẩn bị đi ngủ đây.": {
+      "answers": [
+        "I am about to go to bed.",
+        "I'm about to go to bed.",
+        "I am going to go to bed.",
+        "I'm going to go to bed."
+      ],
+      "source": "ai_draft",
+      "note": "Chương trình phân biệt 'tương lai rất gần' thường dùng 'be about to'; 'be going to' có thể được chấp nhận ở một số lớp."
+    },
+    "hsLesson05|ex1|tôi sẽ đi xem phim vào cuối tuần này. (đã có kế hoạch)": {
+      "answers": [
+        "I am going to see a movie this weekend.",
+        "I'm going to see a movie this weekend.",
+        "I am seeing a movie this weekend."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex1|rạp chiếu phim gần nhà tôi là hiện đại nhất ở hà nội": {
+      "answers": [
+        "The cinema near my house is the most modern in Hanoi.",
+        "The cinema near my house is the most modern in Ha Noi."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex1|phương bận rộn hơn mai": {
+      "answers": ["Phuong is busier than Mai.", "Phương is busier than Mai."],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|photo →": {
+      "answers": ["photos"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|chair →": {
+      "answers": ["chairs"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|pen →": {
+      "answers": ["pens"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|laptop →": {
+      "answers": ["laptops"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|car →": {
+      "answers": ["cars"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|bus →": {
+      "answers": ["buses"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|box →": {
+      "answers": ["boxes"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|tomato →": {
+      "answers": ["tomatoes"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|child →": {
+      "answers": ["children"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex4|tooth →": {
+      "answers": ["teeth"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex3|1. this exercise is easier than that one. -> that": {
+      "answers": [
+        "That one is not as easy as this exercise.",
+        "That exercise is not as easy as this one."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex3|2. this book is more interesting than that one. -> that": {
+      "answers": [
+        "That one is not as interesting as this book.",
+        "That book is not as interesting as this one."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex3|3. today is colder than yesterday. -> yesterday": {
+      "answers": [
+        "Yesterday is not as cold as today.",
+        "Yesterday was not as cold as today."
+      ],
+      "source": "ai_draft",
+      "note": "“yesterday” chỉ quá khứ nên “was not” chính xác hơn; nhiều sách bài tập dùng “is not” theo mẫu."
+    },
+    "hsLesson05|ex3|4. my house is bigger than your house. -> your": {
+      "answers": [
+        "Your house is not as big as my house.",
+        "Your house is not as big as mine."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson05|ex3|5. tom is taller than peter. -> peter": {
+      "answers": ["Peter is not as tall as Tom."],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi đã học tiếng anh được 3 năm rồi. (không liên tục)": {
+      "answers": [
+        "I have learned English for 3 years. – HTHT",
+        "I have studied English for 3 years. – HTHT"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tính đến 2023, tôi đã học tiếng anh được 1 năm rồi (liên tục)": {
+      "answers": [
+        "By 2023, I had been learning English for 1 year. – QKHTTD",
+        "By 2023, I had been studying English for 1 year. – QKHTTD"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|hôm qua, sau khi tôi đã đánh răng, tôi mới đi ngủ. (xác định thì động từ ở phần in đậm)": {
+      "answers": [
+        "Yesterday, after I had brushed my teeth, I went to bed. – QKHT",
+        "Yesterday, after I had brushed my teeth, I went to sleep. – QKHT"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson04|ex2|tôi đã sống ở hà nội được 2 năm rồi (liên tục)": {
+      "answers": [
+        "I have been living in Hanoi for 2 years. – HTHTTD",
+        "I have been living in Hanoi for 2 years now. – HTHTTD"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|my friend often (study) in the library.": {
+      "answers": ["studies"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|the teacher (not/have) a new spiral notebook.": {
+      "answers": ["doesn't have", "does not have"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|we always (share) our school supplies.": {
+      "answers": ["share"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|my brother (play) judo on saturdays.": {
+      "answers": ["plays"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|i (remember) to bring my folder and backpack every day.": {
+      "answers": ["remember"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|my father (teach) science at my school.": {
+      "answers": ["teaches"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|we (not/watch) tv in the school dormitory.": {
+      "answers": ["don't watch", "do not watch"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|the pupils (be) very excited about the new school year.": {
+      "answers": ["are"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|he (not/have) a pencil sharpener.": {
+      "answers": ["doesn't have", "does not have"],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex2|the school (be) in a quiet neighbourhood.": {
+      "answers": ["is"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|bằng: beautiful": {
+      "answers": ["as beautiful as"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|bằng: intelligent": {
+      "answers": ["as intelligent as"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|bằng: tall": {
+      "answers": ["as tall as"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|bằng: busy": {
+      "answers": ["as busy as"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|bằng: good": {
+      "answers": ["as good as"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|bằng: much": {
+      "answers": ["as much as"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|hơn: beautiful": {
+      "answers": ["more beautiful than", "more beautiful"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|hơn: intelligent": {
+      "answers": ["more intelligent than", "more intelligent"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|hơn: tall": {
+      "answers": ["taller than", "taller"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|hơn: busy": {
+      "answers": ["busier than", "busier"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|hơn: good": {
+      "answers": ["better than", "better"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|hơn: much": {
+      "answers": ["more than", "more"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|kém: beautiful": {
+      "answers": ["less beautiful than", "less beautiful"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|kém: intelligent": {
+      "answers": ["less intelligent than", "less intelligent"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|kém: tall": {
+      "answers": ["less tall than", "less tall"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|kém: busy": {
+      "answers": ["less busy than", "less busy"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|kém: good": {
+      "answers": ["less good than", "less good"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|kém: much": {
+      "answers": ["less than", "less"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|nhất: beautiful": {
+      "answers": ["the most beautiful", "most beautiful"],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|nhất: intelligent": {
+      "answers": ["the most intelligent", "most intelligent"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex3|đếm được – số ít (singular)": {
+      "answers": ["teacher, friend, chair, apple, box, foot, person"],
+      "source": "ai_draft",
+      "note": "Danh từ đếm được số ít thường gặp."
+    },
+    "hsLesson06|ex3|số nhiều (plural)": {
+      "answers": [
+        "students, books, people, children, teeth, women, glasses, classes, tomatoes"
+      ],
+      "source": "ai_draft",
+      "note": "people, children, teeth, women là các dạng số nhiều đặc biệt."
+    },
+    "hsLesson06|ex3|không đếm được": {
+      "answers": [
+        "rice, bread, water, milk, homework, paper, money, food, advice, news, information, juice, butter, hair, coffee"
+      ],
+      "source": "ai_draft",
+      "note": "Xét theo nghĩa thông thường; một số từ như food, hair, paper có thể đếm được trong ngữ cảnh khác."
+    },
+    "hsLesson07|ex3|our / she / new / likes / uniform / school's. →": {
+      "answers": ["She likes our school's new uniform."],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex3|my / usually / i / with / do / my / homework / classmates. →": {
+      "answers": ["I usually do my homework with my classmates."],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex3|is / a / he / student / private / school. / in / a. →": {
+      "answers": ["He is a student in a private school."],
+      "source": "ai_draft"
+    },
+    "hsLesson05|tc|nhất: tall": {
+      "answers": ["tallest"],
+      "source": "ai_draft",
+      "note": "“Nhất” là dạng so sánh nhất."
+    },
+    "hsLesson05|tc|nhất: busy": {
+      "answers": ["busiest"],
+      "source": "ai_draft",
+      "note": "“Nhất” là dạng so sánh nhất."
+    },
+    "hsLesson05|tc|nhất: good": {
+      "answers": ["best"],
+      "source": "ai_draft",
+      "note": "“Nhất” là dạng so sánh nhất."
+    },
+    "hsLesson05|tc|nhất: much": {
+      "answers": ["most"],
+      "source": "ai_draft",
+      "note": "“Nhất” là dạng so sánh nhất."
+    },
+    "hsLesson08|ex3|is / the / bathroom. / the / my / at / mom / cleaning / moment. →": {
+      "answers": ["My mom is cleaning the bathroom at the moment."],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex3|every / i / morning. / use /alarm clock / an. →": {
+      "answers": ["I use an alarm clock every morning."],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex3|dining room / a / big / our / and / has / table / chairs. →": {
+      "answers": ["Our dining room has a big table and chairs."],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex3|front / of / is / garage. / in / the / car / my. →": {
+      "answers": ["The car is in front of my garage."],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex3|is / the/ the / between / and / the / chest of drawers. / bed / wardrobe. →.": {
+      "answers": ["The chest of drawers is between the bed and the wardrobe."],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a laptop": {
+      "answers": ["laptops"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a hero": {
+      "answers": ["heroes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a box": {
+      "answers": ["boxes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a photo": {
+      "answers": ["photos"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a watch": {
+      "answers": ["watches"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a phone": {
+      "answers": ["phones"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a brush": {
+      "answers": ["brushes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a house": {
+      "answers": ["houses"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a quiz": {
+      "answers": ["quizzes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a car": {
+      "answers": ["cars"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a class": {
+      "answers": ["classes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a dog": {
+      "answers": ["dogs"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a tomato": {
+      "answers": ["tomatoes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a potato": {
+      "answers": ["potatoes"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a church": {
+      "answers": ["churches"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex2|a bus": {
+      "answers": ["buses"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex1|căn hộ của tôi nhỏ hơn căn nhà của bạn.": {
+      "answers": ["My flat is smaller than your house."],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex1|chiếc bàn này dài hơn chiếc bàn kia.": {
+      "answers": [
+        "This table is longer than that table.",
+        "This table is longer than that one."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex1|chiếc ghế của tôi nhẹ hơn chiếc ghế của anh ấy.": {
+      "answers": [
+        "My chair is lighter than his chair.",
+        "My chair is lighter than his."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex1|căn phòng này sáng hơn căn phòng kia.": {
+      "answers": [
+        "This room is brighter than that room.",
+        "This room is brighter than that one."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex1|cái tủ lạnh này đắt hơn cái tủ bếp.": {
+      "answers": [
+        "This fridge is more expensive than the cupboard.",
+        "This fridge is more expensive than a cupboard."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex1|cô ấy đang rửa tay trong bồn rửa.": {
+      "answers": [
+        "She is washing her hands in the sink.",
+        "She's washing her hands in the sink."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex1|tôi đang chuyển bàn ra ga-ra": {
+      "answers": [
+        "I am moving the table to the garage.",
+        "I'm moving the table to the garage."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex1|anh ấy lau chùi tủ bát mỗi tuần.": {
+      "answers": [
+        "He cleans the cupboard every week.",
+        "He wipes the cupboard every week."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex1|mẹ tôi đang đặt đĩa vào trong máy rửa chén.": {
+      "answers": [
+        "My mother is putting the dishes into the dishwasher.",
+        "My mother is putting the dishes in the dishwasher.",
+        "My mother is placing the dishes in the dishwasher."
+      ],
+      "source": "ai_draft",
+      "note": "Có thể dùng \"dishes\" hoặc \"plates\" cho \"đĩa\"."
+    },
+    "hsLesson08|ex1|anh ấy thường kiểm tra tủ lạnh vào buổi sáng.": {
+      "answers": [
+        "He usually checks the fridge in the morning.",
+        "He often checks the fridge in the morning."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex3|the students with new backpacks (is/am/are) beautiful": {
+      "answers": ["are"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex3|the teachers at the international school (teach/teaches) well": {
+      "answers": ["teach"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex3|the books on the shelf (is/am/are) new": {
+      "answers": ["are"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex3|the old building in the neighborhood (was/were) damaged": {
+      "answers": ["was"],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex3|the boy in the classrooms often (play/plays) games": {
+      "answers": ["plays"],
+      "source": "ai_draft"
+    },
+    "hsLesson10|ex1|tôi có một cái cốc trong bếp.": {
+      "answers": ["I have a cup in the kitchen."],
+      "source": "ai_draft"
+    },
+    "hsLesson10|ex1|con mèo đang ở dưới bàn.": {
+      "answers": ["The cat is under the table."],
+      "source": "ai_draft"
+    },
+    "hsLesson10|ex1|chúng tôi ăn trưa với bạn bè.": {
+      "answers": ["We have lunch with friends.", "We eat lunch with friends."],
+      "source": "ai_draft"
+    },
+    "hsLesson10|ex1|cha tôi đỗ xe trong nhà để xe.": {
+      "answers": [
+        "My father parks his car in the garage.",
+        "My father parks the car in the garage.",
+        "My dad parks his car in the garage."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson10|ex1|căn phòng này rất rộng và tối.": {
+      "answers": ["This room is very large and dark."],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex1|tôi sống trong một căn hộ nhỏ.": {
+      "answers": ["I live in a small flat."],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex1|bố tôi làm việc ở một cửa hàng bách hóa.": {
+      "answers": [
+        "My father works at a department store.",
+        "My father works in a department store."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex1|cô ấy là giáo viên ở một trường tiểu học.": {
+      "answers": [
+        "She is a teacher at a primary school.",
+        "She is a teacher in a primary school."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex1|cô ấy sống trong một căn hộ lớn ở trung tâm thành phố.": {
+      "answers": ["She lives in a big flat in the city center."],
+      "source": "ai_draft"
+    },
+    "hsLesson07|ex1|anh trai tôi làm việc trong một cửa hàng bách hóa lớn.": {
+      "answers": [
+        "My brother works in a big department store.",
+        "My brother works at a big department store."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|0": {
+      "answers": ["classmates"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|1": {
+      "answers": ["likes"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|2": {
+      "answers": ["coins"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|3": {
+      "answers": ["stamps"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|4": {
+      "answers": ["watches"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|5": {
+      "answers": ["history"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|6": {
+      "answers": ["says"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|7": {
+      "answers": ["smartest"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|8": {
+      "answers": ["finishes"],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex2|my (1) have many hobbies. tom (2) to collect old (3) and (4) . he also (5) many documentaries about (6) our teacher, mrs. wilson, (7) he is one of the (8) students. he (9) his homework quickly and (10) us with our difficult exercises.|9": {
+      "answers": ["helps"],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|what you (you/do) at present?": {
+      "answers": [
+        "are you doing – Có 'at present' (hiện tại) → dấu hiệu thì Hiện tại tiếp diễn; câu hỏi với 'you' nên dùng 'are you doing'."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|my sister usually (move) the furniture in her bedroom.": {
+      "answers": [
+        "moves – Có 'usually' (thường xuyên) → diễn tả thói quen → dùng Hiện tại đơn; chủ ngữ 'My sister' ngôi thứ 3 số ít nên thêm -s."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|they (not/watch) tv every night.": {
+      "answers": [
+        "don't watch – Có 'every night' (mỗi tối) → thói quen lặp lại → dùng Hiện tại đơn; chủ ngữ 'They' nên dùng 'don't watch'.",
+        "do not watch – Có 'every night' (mỗi tối) → thói quen lặp lại → dùng Hiện tại đơn; chủ ngữ 'They' nên dùng 'do not watch'."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|the children (play) in the garage now.": {
+      "answers": [
+        "are playing – Có 'now' → dấu hiệu thì Hiện tại tiếp diễn; chủ ngữ 'The children' số nhiều nên dùng 'are'."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|my house (have) a big garden.": {
+      "answers": [
+        "has – Diễn tả sự sở hữu/đặc điểm cố định; 'have' thường không dùng ở thì tiếp diễn; chủ ngữ 'My house' ngôi thứ 3 số ít nên dùng 'has'."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|she (not/clean) the kitchen at the moment.": {
+      "answers": [
+        "is not cleaning – Có 'at the moment' → dấu hiệu thì Hiện tại tiếp diễn; chủ ngữ 'She' ngôi thứ 3 số ít nên dùng 'is not cleaning'.",
+        "isn't cleaning – Có 'at the moment' → dấu hiệu thì Hiện tại tiếp diễn; chủ ngữ 'She' ngôi thứ 3 số ít nên dùng 'isn't cleaning'."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|i always (put) my kitchen tools in the cupboard.": {
+      "answers": [
+        "put – Có 'always' → diễn tả thói quen → dùng Hiện tại đơn; chủ ngữ 'I' đi với động từ nguyên mẫu."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|where (be) the blanket? it (be) on the sofa.": {
+      "answers": [
+        "is | is – 'The blanket' và 'It' đều là ngôi thứ 3 số ít → dùng 'is'."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|we (live) in a beautiful country house.": {
+      "answers": [
+        "live – Diễn tả nơi ở lâu dài/ổn định → dùng Hiện tại đơn; chủ ngữ 'We' đi với động từ nguyên mẫu."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson08|ex2|the alarm clock (ring) at 6 a.m every morning.": {
+      "answers": [
+        "rings – Có 'every morning' → thói quen lặp lại → dùng Hiện tại đơn; chủ ngữ 'The alarm clock' ngôi thứ 3 số ít nên thêm -s."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|my friends and i go to the park. (we/us) play soccer together.": {
+      "answers": ["We"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|i see your teacher. can you talk to (she/her)?": {
+      "answers": ["her"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|my brother is at the playground. i am going to meet (he/him).": {
+      "answers": ["him"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|the classroom is big, but (it/its) is not messy.": {
+      "answers": ["it"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|my parents bought a new car. (they/them) are very excited.": {
+      "answers": ["They"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|this is a good book. i like to read (it/its).": {
+      "answers": ["it"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|tc|do (you/your) want to come to my house?": {
+      "answers": ["you"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex1|khuôn mặt của anna rất thông minh.": {
+      "answers": ["Anna's face is very clever."],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex1|mái tóc xoăn của cô ấy đẹp hơn của tôi": {
+      "answers": [
+        "Her curly hair is more beautiful than mine.",
+        "Her curly hair is more beautiful than my hair."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex1|lông mày của cô ấy dày hơn của bạn.": {
+      "answers": [
+        "Her eyebrows are thicker than yours.",
+        "Her eyebrows are thicker than your eyebrows."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex1|râu của bố cô ấy rất dài và đen.": {
+      "answers": ["Her father's beard is very long and dark."],
+      "source": "ai_draft",
+      "note": "Có thể dùng 'Her dad's beard' thay cho 'Her father's beard'."
+    },
+    "hsLesson13|ex1|má của chị gái cô ấy rất mũm mĩm.": {
+      "answers": [
+        "Her sister's cheeks are very chubby.",
+        "Her older sister's cheeks are very chubby."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson09|ex4|my classmates from the international boarding school always help me. the backpack with colorful art designs contains a calculator, and the photos on the chalkboard inspire every student.": {
+      "answers": [
+        "Nc: classmates, school, backpack, designs, calculator, photos, chalkboard, student; Dịch: Các bạn cùng lớp của tôi từ trường nội trú quốc tế luôn giúp đỡ tôi. Chiếc ba lô với các họa tiết nghệ thuật đầy màu sắc chứa một chiếc máy tính cầm tay, và những bức ảnh trên bảng đen truyền cảm hứng cho mọi học sinh."
+      ],
+      "source": "ai_draft",
+      "note": "Nc gồm danh từ chính của các cụm danh từ, kể cả cụm giới từ bổ nghĩa."
+    },
+    "hsLesson13|ex3|this is her book. → the book is .": {
+      "answers": ["hers"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex3|that is their house. → the house is .": {
+      "answers": ["theirs"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex3|this is your bike. → the bike is .": {
+      "answers": ["yours"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex3|these are my school supplies. → these school supplies are .": {
+      "answers": ["mine"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex3|is this our ball? → is this ball ?": {
+      "answers": ["ours"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|0": {
+      "answers": ["big"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|1": {
+      "answers": ["brother"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|2": {
+      "answers": ["pupil"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|3": {
+      "answers": ["private"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|4": {
+      "answers": ["His", "his"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|5": {
+      "answers": ["physics"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|6": {
+      "answers": ["him"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|7": {
+      "answers": ["phone"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|tc|my family lives in a (1) house with a lovely garden. i have a (2) named ben. he is a good (3) at a (4) school. (5) favorite subjects are (6) and art. my parents are very proud of (7) . they bought him a new (8) on his birthday. my old phone is a bit too small, so i want a new one. i hope my parents will buy one for (9) soon!|8": {
+      "answers": ["me"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|this is my sister. is a nurse.": {
+      "answers": ["She"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|i love this pen. it's pen.": {
+      "answers": ["my"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|do you know that boy? i don't know .": {
+      "answers": ["him"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|tom is my classmate. often helps me with homework.": {
+      "answers": ["He"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|we are students. these are books.": {
+      "answers": ["our"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|mary has a cat. name is kitty.": {
+      "answers": ["Its"],
+      "source": "ai_draft",
+      "note": "Thường dùng 'Its' vì chỉ tên con mèo; 'Her' có thể đúng nếu xác định mèo cái/Mary."
+    },
+    "hsLesson12|ex2|this house belongs to my parents. it's house.": {
+      "answers": ["their"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex2|these are my friends. do you know ?": {
+      "answers": ["them"],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex1|tôi thích chiếc mũi nhỏ của mình.": {
+      "answers": ["I like my small nose.", "I like my little nose."],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex1|anh ấy thích nhất vẻ ngoài của anh ấy.": {
+      "answers": [
+        "He likes his tall appearance the most.",
+        "He likes his tall appearance best.",
+        "He likes his appearance the most.",
+        "He likes his appearance best."
+      ],
+      "source": "ai_draft",
+      "note": "Câu gốc không có “cao ráo” nhưng gợi ý có “tall”; nếu bám sát đề đã cho thì bỏ “tall”."
+    },
+    "hsLesson12|ex1|cô ấy yêu những ngón tay mũm mĩm của cô ấy": {
+      "answers": ["She loves her chubby fingers."],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex1|họ đang nói về những người bạn năng động của họ.": {
+      "answers": [
+        "They are talking about their active friends.",
+        "They're talking about their active friends."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson12|ex1|tính cách của cô ấy rất hào phóng.": {
+      "answers": [
+        "Her personality is very generous.",
+        "She has a very generous personality."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex1|tôi có một vài người bạn cùng lớp thân thiện.": {
+      "answers": [
+        "I have some friendly classmates.",
+        "I have a few friendly classmates."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex1|họ không có con thú cưng nào.": {
+      "answers": [
+        "They don't have any pets.",
+        "They do not have any pets.",
+        "They have no pets."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex1|một vài bạn gái thì gầy.": {
+      "answers": ["Some girls are thin.", "A few girls are thin."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex1|một vài bạn nam thì nói nhiều.": {
+      "answers": ["Some boys are talkative.", "A few boys are talkative."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex1|một vài giáo viên có tóc lượn sóng.": {
+      "answers": [
+        "Some teachers have wavy hair.",
+        "A few teachers have wavy hair."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex1|tôi có một người bạn tốt.": {
+      "answers": ["I have a kind friend.", "I have a good friend."],
+      "source": "ai_draft",
+      "note": "Gợi ý dùng 'kind' nên đáp án chính là 'kind friend'; 'good friend' vẫn đúng nghĩa thông thường."
+    },
+    "hsLesson14|ex1|cậu ấy có một mái tóc kì lạ.": {
+      "answers": ["He has strange hair."],
+      "source": "ai_draft",
+      "note": "Hair chỉ toàn bộ mái tóc là danh từ không đếm được; không dùng 'a'."
+    },
+    "hsLesson14|ex1|mái tóc thì sẫm màu và xoăn. (mái tóc được xác định vì cả người nói và người nghe đều biết)": {
+      "answers": ["The hair is dark and curly.", "His hair is dark and curly."],
+      "source": "ai_draft",
+      "note": "Dùng 'the' vì mái tóc đã được xác định."
+    },
+    "hsLesson14|ex1|cậu ấy là một học sinh thông minh.": {
+      "answers": ["He is an intelligent student."],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex1|cậu ấy cũng là một chàng trai chăm chỉ.": {
+      "answers": [
+        "He is also a hard-working boy.",
+        "He is also a hardworking boy."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|there aren't some books on the desk. →": {
+      "answers": ["There aren't any books on the desk."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|she has any interesting ideas. →": {
+      "answers": ["She has some interesting ideas."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|would you like any water? →": {
+      "answers": ["Would you like some water?"],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|i don't need some help. →": {
+      "answers": ["I don't need any help."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|there are any students in the classroom. →": {
+      "answers": ["There are some students in the classroom."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|he didn't buy some bread yesterday. →": {
+      "answers": ["He didn't buy any bread yesterday."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|i need any money to pay for the tickets. →": {
+      "answers": ["I need some money to pay for the tickets."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|we don't have some chairs in the living room. →": {
+      "answers": ["We don't have any chairs in the living room."],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex2|can i have any biscuits, please? →": {
+      "answers": ["Can I have some biscuits, please?"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex2|is this pencil ? no, that is not my pencil.": {
+      "answers": ["your", "yours"],
+      "source": "ai_draft",
+      "note": "Chỗ trống ở trước 'pencil' thì dùng 'your'; nếu chỗ trống ở cuối câu 'Is this pencil ...?' thì dùng 'yours'."
+    },
+    "hsLesson13|ex2|my parents gave this computer to me. now it is .": {
+      "answers": ["mine"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex2|they like to play with friends at the school.": {
+      "answers": ["their"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex2|her mother is very happy because got a good grade.": {
+      "answers": ["she"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex2|look at my brother. i'm playing with .": {
+      "answers": ["him"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex2|we have a house, and this is .": {
+      "answers": ["ours"],
+      "source": "ai_draft"
+    },
+    "hsLesson13|ex2|i don't have a pen. could you lend yours?": {
+      "answers": ["me"],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex3|1. there are games in the museum today.": {
+      "answers": ["many"],
+      "source": "ai_draft",
+      "note": "Theo bài tập, mỗi lượng từ dùng một lần; nếu không có ngữ cảnh thêm, few/a few cũng có thể đúng ngữ pháp."
+    },
+    "hsLesson15|ex3|2. he doesn't have energy after the race.": {
+      "answers": ["much"],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex3|3. he has friends because he is very shy.": {
+      "answers": ["few"],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex3|4. she has friends who are very caring.": {
+      "answers": ["a few"],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex3|5. there is water in the bottle, so we can't play the game.": {
+      "answers": ["little"],
+      "source": "ai_draft"
+    },
+    "hsLesson15|ex3|6. she has time before the museum closes.": {
+      "answers": ["a little"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex3|1. (the /open / door) →": {
+      "answers": ["Open the door."],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex3|2. (class/not / the / talk / in) →": {
+      "answers": ["Don't talk in class.", "Do not talk in class."],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex3|3. (please/quiet / be ) →": {
+      "answers": ["Please be quiet.", "Be quiet, please."],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex3|4. (homework/help /with / me / with this) →": {
+      "answers": ["Help me with this homework."],
+      "source": "ai_draft",
+      "note": "Câu gợi ý có lẽ thừa một từ \"with\"; câu tự nhiên chỉ dùng một \"with\"."
+    },
+    "hsLesson16|ex3|5. (let's /football/ play /) →": {
+      "answers": ["Let's play football."],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex2|1. if you (study) hard, you (pass) the exam.": {
+      "answers": ["study | will pass", "study | 'll pass"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex2|2. if she (not / hurry), she (miss) the bus.": {
+      "answers": [
+        "doesn't hurry | will miss",
+        "does not hurry | will miss",
+        "doesn't hurry | 'll miss",
+        "does not hurry | 'll miss"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex2|3. if they (leave) now, they (arrive) on time.": {
+      "answers": ["leave | will arrive", "leave | 'll arrive"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex2|4. if it (rain) tomorrow, we (stay) at home.": {
+      "answers": ["rains | will stay", "rains | 'll stay"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex2|5. if he (eat) too much candy, he (have) a toothache.": {
+      "answers": ["eats | will have", "eats | 'll have"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|my sister wants to be artist.": {
+      "answers": ["an"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|i saw a big dog and a small cat in the garden. dog was chasing cat.": {
+      "answers": ["the | the"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|rich often help poor in my country.": {
+      "answers": ["the | the"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|can you pass me salt, please?": {
+      "answers": ["the"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|london is capital of england.": {
+      "answers": ["the"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|she has small apartment in the city.": {
+      "answers": ["a"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|he's student at university in hanoi.": {
+      "answers": ["a | a"],
+      "source": "ai_draft",
+      "note": "Tiếng Anh Anh cũng có thể dùng 'at university' (Ø)"
+    },
+    "hsLesson14|ex2|i'm going to cinema with my friends.": {
+      "answers": ["the"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|hour ago, i saw beautiful butterfly.": {
+      "answers": ["an | a"],
+      "source": "ai_draft"
+    },
+    "hsLesson14|ex2|my uncle is honest person.": {
+      "answers": ["an"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|tc|there not magnets on the chalkboard.": {
+      "answers": ["are | any"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|tc|my school an international school.": {
+      "answers": ["is"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|tc|there a timetable in the classroom.": {
+      "answers": ["is"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|tc|we have new textbooks for this school year.": {
+      "answers": ["some"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|tc|the students playing in the swimming pool.": {
+      "answers": ["are"],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex1|có một nhà thờ lớn ở bên trái.": {
+      "answers": [
+        "There is a cathedral on the left.",
+        "There is a cathedral to the left.",
+        "There is a large church on the left."
+      ],
+      "source": "ai_draft",
+      "note": "'nhà thờ lớn' có thể hiểu là 'cathedral' hoặc 'large church'."
+    },
+    "hsLesson16|ex1|đường phố khá hẹp nhưng thẳng.": {
+      "answers": [
+        "The street is quite narrow but straight.",
+        "The road is quite narrow but straight.",
+        "The street is rather narrow but straight."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex1|có một nhà ga xe lửa rất ồn ào ở đây.": {
+      "answers": [
+        "There is a very noisy railway station here.",
+        "There is a very noisy train station here.",
+        "There's a very noisy railway station here."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex1|chúng tôi có một vài quảng trường yên tĩnh ở đây.": {
+      "answers": [
+        "We have a few quiet squares here.",
+        "We have some quiet squares here.",
+        "We have got a few quiet squares here."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson16|ex1|phòng trưng bày nghệ thuật nằm ở bên phải.": {
+      "answers": [
+        "The art gallery is on the right.",
+        "The art gallery is located on the right.",
+        "The art gallery is to the right."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex4|(window / the / close) →": {
+      "answers": ["Close the window."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex4|(not / that / touch / do) →": {
+      "answers": ["Do not touch that.", "Don't touch that."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex4|(down / please / sit) →": {
+      "answers": ["Please sit down.", "Sit down, please."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex4|(teacher / to / the / listen) →": {
+      "answers": ["Listen to the teacher."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex4|(the / to / zoo / let's / go) →": {
+      "answers": ["Let's go to the zoo."],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex1|cô ấy xem phim vào cuối tuần.": {
+      "answers": [
+        "She watches movies on the weekend.",
+        "She watches movies on weekends.",
+        "She watches movies at the weekend.",
+        "She watches movies at weekends.",
+        "She watches a movie on the weekend.",
+        "She watches a movie at the weekend."
+      ],
+      "source": "ai_draft",
+      "note": "'watches movies' (thói quen xem phim nói chung) và 'watches a movie' (một bộ phim) đều có thể dùng."
+    },
+    "hsLesson11|ex1|cô ấy có ba chiếc máy tính mới.": {
+      "answers": [
+        "She has three new computers.",
+        "She has 3 new computers.",
+        "She has got three new computers."
+      ],
+      "source": "ai_draft",
+      "note": "Dạng 'has got' đúng trong tiếng Anh Anh khi nói về sở hữu."
+    },
+    "hsLesson11|ex1|cô ấy giặt quần áo bẩn của cô ấy vào buổi tối.": {
+      "answers": ["She washes her dirty clothes in the evening."],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex1|cô ấy cất những cuốn sách của cô ấy vào ba tủ khoá.": {
+      "answers": [
+        "She puts her books into three lockers.",
+        "She puts her books in three lockers."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson11|ex1|cô ấy không bao giờ mượn những chiếc kẹp giấy của tôi.": {
+      "answers": [
+        "She never borrows my paper clips.",
+        "She never borrows my paperclips."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex3|1. runs / quickly / he ⇒ .": {
+      "answers": ["He runs quickly."],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex3|2. reading / books / like / they / interesting ⇒ .": {
+      "answers": ["They like reading interesting books."],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex3|3. to / go / wants / the / he / park / to ⇒ .": {
+      "answers": ["He wants to go to the park."],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex3|4. small / has / a / she / bag ⇒ .": {
+      "answers": ["She has a small bag."],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex3|5. buy / wants / to / she / a / notebook / beautiful ⇒ .": {
+      "answers": ["She wants to buy a beautiful notebook."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|ben (not talk) on the phone right now, he (clean) the floor.": {
+      "answers": [
+        "isn't talking | is cleaning",
+        "is not talking | is cleaning"
+      ],
+      "source": "ai_draft",
+      "note": "Có thể dùng dạng không viết tắt: is not talking."
+    },
+    "hsLesson17|ex1|my grandpa (watch / usually) the news in the evening.": {
+      "answers": ["usually watches"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|my brother (play / always) drums in the afternoon.": {
+      "answers": ["always plays"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|jane's sister (be) very hard-working. she (have) a big flat now.": {
+      "answers": ["is | has"],
+      "source": "ai_draft",
+      "note": "have chỉ sở hữu, không dùng thì tiếp diễn."
+    },
+    "hsLesson17|ex1|look! those children (sail) a boat. it (be) too dangerous.": {
+      "answers": ["are sailing | is"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|(it/ rain) heavily in summer in your country?": {
+      "answers": ["Does it rain"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|how often (brian/ take) the dog for a walk?": {
+      "answers": ["does Brian take"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|it (get) darker and darker. i (have) to go home now.": {
+      "answers": ["is getting | have"],
+      "source": "ai_draft",
+      "note": "have to (phải) không dùng thì tiếp diễn."
+    },
+    "hsLesson17|ex1|where (your mother/ be) ? – she (do) the laundry.": {
+      "answers": ["is your mother | is doing"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex1|my best friend (love) writing poems.": {
+      "answers": ["loves"],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex1|tôi thích đi đến một cửa hàng tạp hóa lớn.": {
+      "answers": [
+        "I like going to a big grocery store.",
+        "I like to go to a big grocery store.",
+        "I like going to a large grocery store.",
+        "I like to go to a large grocery store."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex1|tôi muốn thấy một trung tâm y tế hiện đại.": {
+      "answers": ["I want to see a modern health center."],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex1|nhà thuốc mở cửa muộn vào buổi sáng.": {
+      "answers": ["The pharmacy opens late in the morning."],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex1|tôi thích ghé thăm tiệm làm đẹp này.": {
+      "answers": [
+        "I like visiting this beauty salon.",
+        "I like to visit this beauty salon."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex1|tôi không thích những cửa hàng quần áo đắt tiền ở đây.": {
+      "answers": [
+        "I don't like expensive dress shops here.",
+        "I do not like expensive dress shops here.",
+        "I don't like the expensive dress shops here.",
+        "I do not like the expensive dress shops here."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex1|nhà hàng nằm ở giữa cửa hàng trái cây và cửa hàng quà lưu niệm.": {
+      "answers": [
+        "The restaurant is between the fruit shop and the gift shop."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex1|chợ nằm trên con phố chính.": {
+      "answers": ["The market is on the main street."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex1|có một công viên lớn gần khách sạn.": {
+      "answers": [
+        "There is a big park near the hotel.",
+        "There is a large park near the hotel."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex1|cửa hàng giày nằm bên cạnh cửa hàng tiện lợi.": {
+      "answers": [
+        "The shoe shop is next to the convenience store.",
+        "The shoe shop is beside the convenience store."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex1|đồn cảnh sát nằm đối diện bệnh viện": {
+      "answers": [
+        "The police station is opposite the hospital.",
+        "The police station is across from the hospital."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex1|tôi giỏi nướng bánh.": {
+      "answers": ["I am good at baking.", "I'm good at baking."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex1|tiệm bánh của tôi ở gần rạp chiếu phim.": {
+      "answers": [
+        "My bakery is near the cinema.",
+        "My bakery is near the movie theater.",
+        "My bakery is close to the cinema."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex1|chị gái tôi quan tâm đến cửa hàng đồ cổ ở đây": {
+      "answers": [
+        "My older sister is interested in the antique shop here.",
+        "My elder sister is interested in the antique shop here.",
+        "My sister is interested in the antique shop here."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex1|cô ấy sợ băng qua đường.": {
+      "answers": [
+        "She is afraid of crossing the road.",
+        "She's afraid of crossing the road.",
+        "She is afraid of crossing the street."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex1|chúng tôi có các hoạt động ngoài trời trong công viên.": {
+      "answers": [
+        "We have outdoor activities in the park.",
+        "We have some outdoor activities in the park."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|golf / plays / sometimes / sundays / on / he ⇒": {
+      "answers": [
+        "He sometimes plays golf on Sundays.",
+        "He plays golf on Sundays sometimes.",
+        "Sometimes he plays golf on Sundays."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|bad / always / the / weather / november / is / in ⇒": {
+      "answers": [
+        "The weather is always bad in November.",
+        "The weather in November is always bad.",
+        "In November, the weather is always bad."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|for / have / dinner / seldom / fish / we ⇒": {
+      "answers": ["We seldom have fish for dinner."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|usually / peter / doesn't / seven / up / before / get ⇒": {
+      "answers": [
+        "Peter doesn't usually get up before seven.",
+        "Peter usually doesn't get up before seven."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|never / the / they / watch / tv / afternoon / in ⇒": {
+      "answers": ["They never watch TV in the afternoon."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|pop / the / listens / often / girl / to / music ⇒": {
+      "answers": [
+        "The girl often listens to pop music.",
+        "The girl listens to pop music often."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|winter / school / often / late / she / in / comes / to ⇒": {
+      "answers": [
+        "She often comes to school late in winter.",
+        "In winter she often comes to school late."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|am / now / my / lunch / eating / right / i ⇒": {
+      "answers": [
+        "I am eating my lunch right now.",
+        "Right now I am eating my lunch."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex3|london / tomorrow / am / to / flying / i ⇒": {
+      "answers": [
+        "I am flying to London tomorrow.",
+        "Tomorrow I am flying to London."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex4|she is good playing the piano.": {
+      "answers": ["at"],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex4|my sister is interested reading comic books.": {
+      "answers": ["in"],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex4|i am afraid dogs.": {
+      "answers": ["of"],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex4|this shirt is different that one.": {
+      "answers": ["from"],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex4|he is bad cooking meals": {
+      "answers": ["at"],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex2|my house is bigger than nam's house. → nam's house is not": {
+      "answers": [
+        "Nam's house is not as big as my house.",
+        "Nam's house is not as big as mine."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex2|he has short and black hair. → his hair": {
+      "answers": ["His hair is short and black."],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex2|my bag is heavier than yours. → your bag is not": {
+      "answers": [
+        "Your bag is not as heavy as my bag.",
+        "Your bag is not as heavy as mine."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex2|she sings better than her sister. → her sister does not": {
+      "answers": [
+        "Her sister does not sing as well as she does.",
+        "Her sister does not sing as well as her."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex2|the villa is the most beautiful house in the street. → no other house": {
+      "answers": [
+        "No other house in the street is as beautiful as the villa.",
+        "No other house in the street is more beautiful than the villa."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson17|ex2|phong is mrs. hien's son. → mrs. hien": {
+      "answers": ["Mrs. Hien is Phong's mother.", "Mrs. Hien is Phong's mom."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex2|is / the supermarket / my house / next to ⇒ .": {
+      "answers": [
+        "The supermarket is next to my house.",
+        "My house is next to the supermarket."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex2|are / there / on / some books / the shelf ⇒ .": {
+      "answers": ["There are some books on the shelf."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex2|living room / a sofa / there is / in / the ⇒ .": {
+      "answers": ["There is a sofa in the living room."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex2|the park / the bank / between / is / and/ the school ⇒ .": {
+      "answers": [
+        "The bank is between the park and the school.",
+        "The park is between the bank and the school.",
+        "The school is between the park and the bank."
+      ],
+      "source": "ai_draft",
+      "note": "Có thể dùng bất kỳ địa điểm nào làm chủ ngữ."
+    },
+    "hsLesson20|ex2|on / the wall / a clock / is / there ⇒ .": {
+      "answers": ["There is a clock on the wall."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|there is a lamp to the table. →": {
+      "answers": ["There is a lamp on the table."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|the children are playing on the garden. →": {
+      "answers": ["The children are playing in the garden."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|the bus stop is under the post office. →": {
+      "answers": [
+        "The bus stop is near the post office.",
+        "The bus stop is opposite the post office.",
+        "The bus stop is in front of the post office."
+      ],
+      "source": "ai_draft",
+      "note": "Không có ngữ cảnh bản đồ; 'near' là cách sửa phổ biến, các giới từ chỉ vị trí phù hợp khác cũng có thể đúng."
+    },
+    "hsLesson19|ex2|my house is on the library and the supermarket. →": {
+      "answers": ["My house is between the library and the supermarket."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|the café is in front between the cinema. →": {
+      "answers": [
+        "The café is in front of the cinema.",
+        "The café is opposite the cinema."
+      ],
+      "source": "ai_draft",
+      "note": "Sửa cụm 'in front between' thành 'in front of' là phổ biến nhất."
+    },
+    "hsLesson19|ex2|the cat is sleeping of the bed. →": {
+      "answers": ["The cat is sleeping on the bed."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|the picture is under the wall. →": {
+      "answers": ["The picture is on the wall."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|they live on a small village. →": {
+      "answers": ["They live in a small village."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|she is sitting in the chair. →": {
+      "answers": ["She is sitting on the chair."],
+      "source": "ai_draft"
+    },
+    "hsLesson19|ex2|my school is at nguyen trai street. →": {
+      "answers": ["My school is on Nguyen Trai Street."],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex4|hi-tech robots (look after) children and old people.": {
+      "answers": ["might look after"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex4|there (be) a tv in my future house because i can use my super smart computer to watch programmes.": {
+      "answers": ["might not be", "mightn't be"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex4|my future house (be) on the moon.": {
+      "answers": ["might be"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex4|most families (have) robots in their houses in the future.": {
+      "answers": ["might have"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex4|people (build) hotels on the moon in the future.": {
+      "answers": ["might build"],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex3|i live on a small village. →": {
+      "answers": ["I live in a small village."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex3|the bookshelf next to the desk. →": {
+      "answers": ["The bookshelf is next to the desk."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex3|my school is next to the park and the museum. →": {
+      "answers": ["My school is between the park and the museum."],
+      "source": "ai_draft",
+      "note": "Câu gốc cũng có thể hiểu là đúng trong thực tế, nhưng theo yêu cầu bài tập tìm lỗi thì đáp án dự kiến là sửa next to thành between vì có hai địa điểm."
+    },
+    "hsLesson20|ex3|there are many books in the bookshelf. →": {
+      "answers": ["There are many books on the bookshelf."],
+      "source": "ai_draft"
+    },
+    "hsLesson20|ex3|the picture is between the wall. →": {
+      "answers": ["The picture is on the wall."],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex2|you be quiet in the hospital.": {
+      "answers": ["must"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex2|you play football in the living room.": {
+      "answers": ["mustn't", "must not"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex2|we go to bed early to be healthy.": {
+      "answers": ["must"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex2|students wear a uniform at school.": {
+      "answers": ["must"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex2|they be (playing) in the garden now.": {
+      "answers": ["must"],
+      "source": "ai_draft",
+      "note": "must be playing: suy đoán ở hiện tại (chắc hẳn đang chơi)"
+    },
+    "hsLesson22|ex3|i have a big wardrobe in my bedroom. →": {
+      "answers": [
+        "I don't have a big wardrobe in my bedroom.",
+        "I do not have a big wardrobe in my bedroom."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex3|my father likes watching television on the sofa. →": {
+      "answers": [
+        "My father doesn't like watching television on the sofa.",
+        "My father does not like watching television on the sofa."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex3|they have a new kitchen. →": {
+      "answers": [
+        "They don't have a new kitchen.",
+        "They do not have a new kitchen."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex3|she uses a computer for her homework. →": {
+      "answers": [
+        "She doesn't use a computer for her homework.",
+        "She does not use a computer for her homework."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex3|he played soccer with his friends last sunday. →": {
+      "answers": [
+        "He didn't play soccer with his friends last Sunday.",
+        "He did not play soccer with his friends last Sunday."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex2|you have a television in the living room?": {
+      "answers": ["Do"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex2|she use a shower in the morning?": {
+      "answers": ["Does"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex2|your parents like the new kitchen?": {
+      "answers": ["Do"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex2|what time the children go to bed?": {
+      "answers": ["do"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex2|he have a desk in his bedroom?": {
+      "answers": ["Does"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc1|my house is big, but we (not/have) a garage.": {
+      "answers": ["don't have", "do not have"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc1|my parents (not/watch) television in the morning.": {
+      "answers": ["don't watch", "do not watch"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc1|my brother (not/use) the computer every day.": {
+      "answers": ["doesn't use", "does not use"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc1|i (not/be) in the kitchen now.": {
+      "answers": ["am not"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc1|we (not/like) the small bathroom.": {
+      "answers": ["don't like", "do not like"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex1|chúng tôi phải mang ba lô ra bờ biển.": {
+      "answers": [
+        "We must bring backpacks to the beach.",
+        "We have to bring backpacks to the beach."
+      ],
+      "source": "ai_draft",
+      "note": "\"mang\" có thể dịch là bring/take/carry."
+    },
+    "hsLesson21|ex1|chúng ta không nên xả rác ở biển.": {
+      "answers": [
+        "We shouldn't litter at the beach.",
+        "We should not litter at the beach."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex1|nhóm bạn phải bảo vệ phong cảnh biển.": {
+      "answers": [
+        "The group must protect the beach landscape.",
+        "The group of friends must protect the beach landscape."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex1|họ nên đội mũ che nắng": {
+      "answers": ["They should wear sun hats.", "They should wear a sun hat."],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex1|bạn phải đi theo lối ra bãi biển.": {
+      "answers": [
+        "You must follow the path to the beach.",
+        "You have to follow the path to the beach."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex4|1. she goes to school at 7 o'clock. →": {
+      "answers": [
+        "What time does she go to school?",
+        "When does she go to school?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex4|2. my father works in a hospital. →": {
+      "answers": ["Where does your father work?", "Where does my father work?"],
+      "source": "ai_draft",
+      "note": "Thường đổi 'my' thành 'your' khi đặt câu hỏi."
+    },
+    "hsLesson22|ex4|3. they are waiting for their teacher. →": {
+      "answers": [
+        "Who are they waiting for?",
+        "Whom are they waiting for?",
+        "For whom are they waiting?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex4|4. we have english class three times a week. →": {
+      "answers": [
+        "How often do you have English class?",
+        "How often do we have English class?"
+      ],
+      "source": "ai_draft",
+      "note": "Thường đổi 'we' thành 'you' khi đặt câu hỏi."
+    },
+    "hsLesson22|ex4|5. tom likes math because it is interesting. →": {
+      "answers": ["Why does Tom like Math?"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc2|she don't have a sofa in her room. →": {
+      "answers": [
+        "She doesn't have a sofa in her room.",
+        "She does not have a sofa in her room."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc2|do he have a fridge in the kitchen? →": {
+      "answers": ["Does he have a fridge in the kitchen?"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc2|i am not like the toilet. →": {
+      "answers": ["I don't like the toilet.", "I do not like the toilet."],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc2|they doesn't watch television in the bedroom. →": {
+      "answers": [
+        "They don't watch television in the bedroom.",
+        "They do not watch television in the bedroom."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|tc2|we goes to the living room every evening. →": {
+      "answers": ["We go to the living room every evening."],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex2|they / have / a lamp / on the desk": {
+      "answers": ["Do they have a lamp on the desk?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex2|she / like / the new house": {
+      "answers": ["Does she like the new house?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex2|your brother / sleep / in the attic": {
+      "answers": ["Does your brother sleep in the attic?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex2|you / watch / television / every night": {
+      "answers": ["Do you watch television every night?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex2|the children / play / in the garden": {
+      "answers": ["Do the children play in the garden?"],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex3|it is a good idea to tidy your bedroom. →": {
+      "answers": ["You should tidy your bedroom."],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex3|it is wrong to talk loudly in the cinema. →": {
+      "answers": [
+        "You shouldn't talk loudly in the cinema.",
+        "You should not talk loudly in the cinema."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex3|it is necessary for you to finish this task. →": {
+      "answers": ["You must finish this task."],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex3|my doctor advises me to take some medicine. →": {
+      "answers": ["I should take some medicine."],
+      "source": "ai_draft"
+    },
+    "hsLesson21|ex3|it is prohibited to bring food into the museum. →": {
+      "answers": [
+        "You mustn't bring food into the museum.",
+        "You must not bring food into the museum."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex1|bạn có thấy tảng đá lớn kia không?": {
+      "answers": [
+        "Do you see that big rock?",
+        "Can you see that big rock?",
+        "Do you see that large rock?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex1|họ có đang đi vào hang động không?": {
+      "answers": [
+        "Are they going into the cave?",
+        "Are they entering the cave?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex1|bạn đã đi qua thung lũng chưa?": {
+      "answers": [
+        "Have you gone through the valley?",
+        "Have you been through the valley?",
+        "Have you ever been through the valley?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex1|đó có phải là rừng mưa nhiệt đới không?": {
+      "answers": ["Is that a rainforest?", "Is that a tropical rainforest?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex1|bạn có thích kỳ quan này không?": {
+      "answers": ["Do you like this wonder?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex5|my house don't have a kitchen. →": {
+      "answers": [
+        "My house doesn't have a kitchen.",
+        "My house does not have a kitchen."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex5|are you do your homework now? →": {
+      "answers": ["Are you doing your homework now?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex5|they is playing in the garden. →": {
+      "answers": [
+        "They are playing in the garden.",
+        "They're playing in the garden."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex5|we doesn't have a television. →": {
+      "answers": [
+        "We don't have a television.",
+        "We do not have a television."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex5|is he like the new house? →": {
+      "answers": ["Does he like the new house?"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex2|1. there is a big market near her house. (near) → her a big market.": {
+      "answers": ["house is near"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex2|2. minh cares about everybody. (person) → minh is .": {
+      "answers": ["a caring person"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex2|3. tracy likes the dining room the best. (favourite) → the dining room is .": {
+      "answers": ["Tracy's favourite room"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex2|4. thai nguyen is not as crowded as ha noi. (more) → ha noi is thai nguyen.": {
+      "answers": ["more crowded than"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex1|tôi cầu nguyện mỗi sáng.": {
+      "answers": ["I pray every morning.", "Every morning, I pray."],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex1|chúng tôi ăn bánh chưng vào tết.": {
+      "answers": [
+        "We eat sticky rice cakes at Tet.",
+        "We eat sticky rice cake during Tet."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex1|chúng tôi trang trí nhà bằng đèn lồng.": {
+      "answers": [
+        "We decorate our house with lanterns.",
+        "We decorate the house with lanterns."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex1|mọi người xem múa lân vào tết.": {
+      "answers": [
+        "People watch dragon dances at Tet.",
+        "Everyone watches dragon dances at Tet.",
+        "People watch the dragon dance during Tet."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex1|chúng tôi thờ cúng tổ tiên vào tết.": {
+      "answers": [
+        "We worship our ancestors at Tet.",
+        "We worship ancestors during Tet."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex3|they usually eat in the kitchen. →": {
+      "answers": ["Do they usually eat in the kitchen?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex3|my dad watches television every evening. →": {
+      "answers": ["Does my dad watch television every evening?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex3|she is sleeping in a small bed. →": {
+      "answers": ["Is she sleeping in a small bed?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex3|the cat is sleeping on the sofa. →": {
+      "answers": ["Is the cat sleeping on the sofa?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex3|you are having a shower in the bathroom. →": {
+      "answers": ["Are you having a shower in the bathroom?"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex3|everybody (cheer) and (sing) happily at the moment.": {
+      "answers": ["is cheering | singing"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex3|he usually (watch) tv after dinner.": {
+      "answers": ["watches"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex3|where (you/stay) at the moment?": {
+      "answers": ["are you staying"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex3|there (be) some balloons by the window.": {
+      "answers": ["are"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex3|ms lien (not water) the plants now. she is cooking.": {
+      "answers": ["is not watering", "isn't watering"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex3|you should (keep) quiet.": {
+      "answers": ["keep"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex5|you/ have/ an art lesson on monday (no) →": {
+      "answers": ["Do you have an art lesson on Monday? – No, I don't."],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex5|they/ ride/ their bikes to school/ at the moment (yes) →": {
+      "answers": [
+        "Are they riding their bikes to school at the moment? – Yes, they are."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex5|your parents/ at home now (yes) →": {
+      "answers": ["Are your parents at home now? – Yes, they are."],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex2|/ɪ/": {
+      "answers": ["hill, chicken, thick, live"],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex2|/iː/": {
+      "answers": ["tree, see, me, freak, leave, please"],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex1|chúng tôi luôn dọn nhà trước tết.": {
+      "answers": [
+        "We always clean the house before Tet.",
+        "We always clean our house before Tet."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex1|cô ấy rất vui trong ngày tết.": {
+      "answers": ["She is very happy during Tet.", "She is very happy on Tet."],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex1|họ đang xem pháo hoa.": {
+      "answers": [
+        "They are watching fireworks.",
+        "They are watching the fireworks."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex1|cha mẹ tôi cho tôi tiền lì xì.": {
+      "answers": [
+        "My parents give me lucky money.",
+        "My parents give lucky money to me."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex1|chúng tôi ăn bánh chưng cùng nhau.": {
+      "answers": [
+        "We eat sticky rice cake together.",
+        "We eat sticky rice cakes together."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex4|1. she goes to school by bus. →": {
+      "answers": ["How does she go to school?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex4|2. they are playing football in the park. →": {
+      "answers": ["Where are they playing football?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex4|3. my brother bought a new laptop yesterday. →": {
+      "answers": ["What did your brother buy yesterday?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex4|4. she is reading a book because she likes stories. →": {
+      "answers": ["Why is she reading a book?"],
+      "source": "ai_draft"
+    },
+    "hsLesson23|ex4|5.we will visit our grandparents next sunday. →": {
+      "answers": [
+        "Who will you visit next Sunday?",
+        "Who are you going to visit next Sunday?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex3|/s/": {
+      "answers": [
+        "sand, solve, sunny, sooner, snowy, sound, summer, soap, self-educated, supper"
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex3|/ʃ/": {
+      "answers": [
+        "shuffle, shut, shine, shark, shoot, shake, shock, shoulder, shop, shoes"
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex1|tôi thường học tiếng anh sau bữa tối.": {
+      "answers": [
+        "I usually study English after dinner.",
+        "I usually learn English after dinner."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex1|cô ấy đang nấu bữa tối trong bếp.": {
+      "answers": [
+        "She is cooking dinner in the kitchen.",
+        "She's cooking dinner in the kitchen."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex1|họ đã đi đến chùa hôm qua.": {
+      "answers": ["They went to the pagoda yesterday."],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex1|chúng ta phải giữ lớp học sạch sẽ.": {
+      "answers": [
+        "We must keep our classroom clean.",
+        "We have to keep our classroom clean.",
+        "We must keep the classroom clean."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex1|nhà của tôi lớn hơn nhà của bạn.": {
+      "answers": [
+        "My house is bigger than your house.",
+        "My house is larger than your house.",
+        "My house is bigger than yours.",
+        "My house is larger than yours."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex4|/s/": {
+      "answers": [
+        "works, kicks, hopes, drinks, types, keeps, roofs, speaks, meets, drops, ships, sits"
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex4|/z/": {
+      "answers": ["replies, sings, goes, gives, cries, holds, draws"],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex4|/ɪz/": {
+      "answers": [
+        "pushes, teaches, fixes, misses, crashes, buzzes, finishes, passes, catches, brushes, changes"
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex4|they aren't helping (help) the teacher right now.": {
+      "answers": ["aren't helping"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex4|she isn't staying (stay) in a hotel.": {
+      "answers": ["isn't staying"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex4|i am not travelling (travel) a lot these days.": {
+      "answers": ["am not travelling"],
+      "source": "ai_draft",
+      "note": "Không có dạng viết tắt của 'am not'; nếu viết tắt chủ ngữ có thể viết 'I'm not travelling'."
+    },
+    "hsLesson24|ex4|we aren't studying (study) science at present.": {
+      "answers": ["aren't studying"],
+      "source": "ai_draft"
+    },
+    "hsLesson24|ex4|the children aren't playing (play) football in the playground.": {
+      "answers": ["aren't playing"],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex3|my house has a small garden. → there": {
+      "answers": [
+        "There is a small garden in my house.",
+        "There's a small garden in my house."
+      ],
+      "source": "ai_draft",
+      "note": "Có thể viết tắt There is thành There's."
+    },
+    "hsReview2|ex3|nam / be / my / new / classmate. → nam": {
+      "answers": ["Nam is my new classmate."],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex2|listen! the birds (sing) in the trees.→": {
+      "answers": ["Listen! The birds are singing in the trees."],
+      "source": "ai_draft",
+      "note": "Dùng hiện tại tiếp diễn vì có 'Listen!'."
+    },
+    "hsReview2|ex2|my father (not work) on sundays. →": {
+      "answers": [
+        "My father doesn't work on Sundays.",
+        "My father does not work on Sundays."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex2|we usually (go) to school by bike. →": {
+      "answers": ["We usually go to school by bike."],
+      "source": "ai_draft"
+    },
+    "hsReview2|ex2|i (meet) my best friend this afternoon. →": {
+      "answers": [
+        "I'm meeting my best friend this afternoon.",
+        "I am meeting my best friend this afternoon."
+      ],
+      "source": "ai_draft",
+      "note": "Hiện tại tiếp diễn diễn tả kế hoạch trong tương lai."
+    },
+    "hsReview1|ex5|câu gốc: the square in hoi an is smaller than the square in ha noi. → the square in ha noi": {
+      "answers": [
+        "The square in Ha Noi is bigger than the square in Hoi An.",
+        "The square in Ha Noi is larger than the square in Hoi An."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex5|câu gốc: it is wrong of us to write on the walls or tables in our classroom. → we mustn't": {
+      "answers": [
+        "We mustn't write on the walls or tables in our classroom.",
+        "We must not write on the walls or tables in our classroom."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex5|câu gốc: my hair is short and curly. →i have": {
+      "answers": ["I have short curly hair.", "I have short and curly hair."],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex5|câu gốc: it's not good to eat lots of sweets. → you": {
+      "answers": [
+        "You shouldn't eat lots of sweets.",
+        "You should not eat lots of sweets."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex5|câu gốc: does your father cycle to work? → does your father get": {
+      "answers": [
+        "Does your father get to work by bike?",
+        "Does your father get to work by bicycle?"
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex5|câu gốc: my house is to the right of the bakery. → the bakery": {
+      "answers": [
+        "The bakery is to the left of my house.",
+        "The bakery is on the left of my house."
+      ],
+      "source": "ai_draft"
+    },
+    "hsReview1|ex5|câu gốc: parking in this street is prohibited. → you": {
+      "answers": [
+        "You mustn't park in this street.",
+        "You must not park in this street.",
+        "You can't park in this street.",
+        "You cannot park in this street.",
+        "You are not allowed to park in this street."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex2|\"she is a very beautiful girl.\" beautiful do từ nào sinh ra? →": {
+      "answers": ["beauty"],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex2|\"he answered all the questions correctly.\" correctly do từ nào sinh ra? →": {
+      "answers": ["correct"],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex2|\"my brother is a very creative student.\" creative do từ nào sinh ra? →": {
+      "answers": ["create"],
+      "source": "ai_draft"
+    },
+    "hsLesson18|ex2|\"she drives carefully on the street.\" carefully do từ nào sinh ra? →": {
+      "answers": ["careful", "care"],
+      "source": "ai_draft",
+      "note": "Nếu hỏi từ trực tiếp: careful; nếu hỏi từ gốc: care."
+    },
+    "hsLesson18|ex2|\"that was a dangerous game.\" dangerous do từ nào sinh ra? →": {
+      "answers": ["danger"],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex2|are / schoolbags / there / five /table / on /the. →": {
+      "answers": [
+        "There are five schoolbags on the table.",
+        "On the table, there are five schoolbags."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson06|ex2|my / a / new / student. / is / friend / from / america. →": {
+      "answers": [
+        "My friend is a new student from America.",
+        "My new friend is a student from America."
+      ],
+      "source": "ai_draft",
+      "note": "Cả hai cách đều đúng; đáp án thường gặp là câu đầu."
+    },
+    "hsLesson06|ex2|a / classroom / a / big / is / there / teacher's / desk. / in. →": {
+      "answers": [
+        "There is a big teacher's desk in a classroom.",
+        "There is a teacher's desk in a big classroom."
+      ],
+      "source": "ai_draft",
+      "note": "Cả hai cách đều đúng vì 'big' có thể bổ nghĩa cho 'teacher's desk' hoặc 'classroom'."
+    },
+    "hsLesson22|ex1|chúng ta không thấy thuyền trên hồ.": {
+      "answers": [
+        "We don't see a boat on the lake.",
+        "We do not see a boat on the lake.",
+        "We don't see the boat on the lake.",
+        "We do not see the boat on the lake."
+      ],
+      "source": "ai_draft",
+      "note": "Nếu ngữ cảnh xác định chiếc thuyền thì dùng 'the boat'; chưa xác định thì dùng 'a boat'."
+    },
+    "hsLesson22|ex1|bạn có la bàn không?": {
+      "answers": ["Do you have a compass?", "Have you got a compass?"],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex1|cô ấy không mang ủng đi bộ.": {
+      "answers": [
+        "She doesn't wear boots.",
+        "She does not wear boots.",
+        "She doesn't wear walking boots.",
+        "She does not wear walking boots.",
+        "She doesn't wear hiking boots.",
+        "She does not wear hiking boots."
+      ],
+      "source": "ai_draft",
+      "note": "'Mang ủng' ở đây là wear boots; 'ủng đi bộ' có thể hiểu là walking/hiking boots."
+    },
+    "hsLesson22|ex1|họ không đi bộ trong rừng.": {
+      "answers": [
+        "They don't walk in the forest.",
+        "They do not walk in the forest."
+      ],
+      "source": "ai_draft"
+    },
+    "hsLesson22|ex1|tôi không có túi ngủ.": {
+      "answers": [
+        "I don't have a sleeping bag.",
+        "I do not have a sleeping bag.",
+        "I haven't got a sleeping bag."
+      ],
+      "source": "ai_draft"
+    }
+  }
+}

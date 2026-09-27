@@ -29,3 +29,6 @@ CLAUDE.md
 .claude/skills/gitnexus/gitnexus-guide/SKILL.md
 .claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md
 .claude/skills/gitnexus/gitnexus-refactoring/SKILL.md
+
+# HS answer-key review sheet (scripts/buildHsAnswerKey.js export)
+backend/hs-answer-key.csv

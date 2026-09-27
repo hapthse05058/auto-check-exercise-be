@@ -16,9 +16,13 @@
  * scripts/migrate-courses.js puts every existing class on the Basic course.
  *
  * `gradingProfile` picks HOW a course's classes are graded: "basic" (the
- * sentence/paragraph prompts, lib/doc tables) or "ielts" (lib/ieltsWriting.js,
- * its own prompt and its own doc template). A course stored before the field
- * existed — and every class without a course — grades as "basic", unchanged.
+ * sentence/paragraph prompts, lib/doc tables), "ielts" (lib/ieltsWriting.js,
+ * its own prompt and its own doc template) or "hs" (the HS course for primary
+ * and lower-secondary pupils: lib/hsGrading.js, prompt_hs.txt, lib/doc/hsDoc.js).
+ * A course stored before the field existed — and every class without a
+ * course — grades as "basic", unchanged. Any OTHER stored value is unknown and
+ * refused (null), never graded as Basic: a course made for a profile this
+ * build does not know must not get another profile's prompt and doc writer.
  *
  * A class on a course still records its template in `classes.classType`: the
  * teacher picks one of the course's templates (`classType/{id}`: {code, name,
@@ -31,13 +35,22 @@ const NAME_MAX = 120;
 
 const GRADING_PROFILE_BASIC = "basic";
 const GRADING_PROFILE_IELTS = "ielts";
-const GRADING_PROFILES = [GRADING_PROFILE_BASIC, GRADING_PROFILE_IELTS];
+const GRADING_PROFILE_HS = "hs";
+const GRADING_PROFILES = [
+  GRADING_PROFILE_BASIC,
+  GRADING_PROFILE_IELTS,
+  GRADING_PROFILE_HS,
+];
 
-/** The stored value, or "basic" for a course from before profiles existed. */
+/**
+ * The stored profile; "basic" for a course from before profiles existed (no
+ * field, or ""); null for a value this build does not know — the caller
+ * refuses it (fail closed) rather than grading it as Basic.
+ */
 function gradingProfileOf(course) {
-  return GRADING_PROFILES.includes(course?.gradingProfile)
-    ? course.gradingProfile
-    : GRADING_PROFILE_BASIC;
+  const value = course?.gradingProfile;
+  if (value === undefined || value === "") return GRADING_PROFILE_BASIC;
+  return GRADING_PROFILES.includes(value) ? value : null;
 }
 
 /** The grading profile a doc template (a `classType` doc) belongs to. */
@@ -334,6 +347,7 @@ module.exports = {
   CourseError,
   GRADING_PROFILE_BASIC,
   GRADING_PROFILE_IELTS,
+  GRADING_PROFILE_HS,
   GRADING_PROFILES,
   gradingProfileOf,
   createCourses,

@@ -9,6 +9,7 @@ const { DocsApiError } = require("../../lib/googleDocsApi.js");
 const { createGradingJobs } = require("../../lib/gradingJobs.js");
 const { scheduleAwareOnFinished } = require("../../lib/gradingSchedules.js");
 const { consumePointsForDocs } = require("../../lib/teacherPoints.js");
+const { applyHsRequests } = require("./hsDocs.js");
 
 const LESSON = "BUỔI 10 - Lesson";
 
@@ -222,9 +223,17 @@ function applyInserts(tab, requests) {
   flush();
 }
 
+/**
+ * `tabsByDocId` maps a doc id to ONE lesson tab (Basic, IELTS) — or to a
+ * whole document ({tabs: [...]}, the HS form), whose writes are applied by
+ * the HS simulator (helpers/hsDocs.js).
+ */
 function createFakeDocs(tabsByDocId) {
   const docs = new Map(
-    Object.entries(tabsByDocId).map(([id, tab]) => [id, { tab, rev: 1 }]),
+    Object.entries(tabsByDocId).map(([id, value]) => [
+      id,
+      value.tabs ? { doc: value, rev: 1 } : { tab: value, rev: 1 },
+    ]),
   );
   const faults = []; // { op, docId, phase, error, times }
   const calls = { get: 0, batchUpdate: 0, applied: 0 };
@@ -259,7 +268,7 @@ function createFakeDocs(tabsByDocId) {
     /** A teacher typing in the doc: changes it and its revision. */
     edit(docId, fn) {
       const doc = entry(docId);
-      fn(doc.tab);
+      fn(doc.doc || doc.tab);
       doc.rev += 1;
     },
     async getDocument(docId) {
@@ -267,6 +276,12 @@ function createFakeDocs(tabsByDocId) {
       await new Promise((r) => setImmediate(r));
       fault("get", docId, "before");
       const doc = entry(docId);
+      if (doc.doc) {
+        return {
+          ...JSON.parse(JSON.stringify(doc.doc)),
+          revisionId: `r${doc.rev}`,
+        };
+      }
       return {
         revisionId: `r${doc.rev}`,
         tabs: [JSON.parse(JSON.stringify(doc.tab))],
@@ -284,7 +299,8 @@ function createFakeDocs(tabsByDocId) {
       if (requiredRevisionId && requiredRevisionId !== `r${doc.rev}`) {
         throw new DocsApiError(400, "The document was modified");
       }
-      applyInserts(doc.tab, requests);
+      if (doc.doc) applyHsRequests(doc.doc, requests);
+      else applyInserts(doc.tab, requests);
       doc.rev += 1;
       calls.applied += 1;
       fault("batchUpdate", docId, "after");
@@ -364,6 +380,8 @@ function createHarness({
   startAt = 1_000_000,
   gradingProfile = "basic",
   ieltsEnabled = true,
+  hsEnabled = true,
+  lesson = { id: "l10", name: LESSON },
 } = {}) {
   const db = new FakeFirestore();
   const admin = createFakeAdmin();
@@ -377,7 +395,7 @@ function createHarness({
     classType: "basic_since_01042026",
     teacherId: ["t1"],
   });
-  seed("lesson", "l10", { name: LESSON });
+  seed("lesson", lesson.id, { name: lesson.name });
   seed("teachers", "t1", { gmail: "teacher@x.com", name: "Cô Hà" });
   seed("TeacherPoint", "t1", { point: points });
   Object.keys(tabs).forEach((docId, i) =>
@@ -401,6 +419,8 @@ function createHarness({
     ielts: 0, // gradeIelts calls
     ieltsInputs: [], // every validated IELTS submission graded
     images: [], // every chart uri downloaded
+    hs: 0, // gradeHs calls
+    hsItems: [], // every item handed to gradeHs
   };
   const hooks = {
     gradeGate: null, // Promise the next grade call waits on
@@ -415,6 +435,16 @@ function createHarness({
     ieltsFeedback: IELTS_FEEDBACK, // what the AI says about an IELTS essay
     ieltsFail: null, // (input) => Error | null — the IELTS grader fails
     imageFail: null, // (uri) => boolean — a chart download fails
+    // (item) => verdict | null — what the HS grader says about an item
+    hsVerdict: (item) =>
+      /garden|on the table/i.test(JSON.stringify(item.answer))
+        ? { correct: true }
+        : {
+            correct: false,
+            corrected: "Fixed **it**.",
+            explanation: "vì vậy nhé",
+          },
+    hsFail: null, // () => Error | null — the HS grader throws
   };
   const finished = [];
 
@@ -440,9 +470,30 @@ function createHarness({
         import("../../lib/doc/docTableDetect.js"),
         import("../../lib/doc/docWriter.js"),
         import("../../lib/doc/ieltsDoc.js"),
-      ]).then((modules) => Object.assign({}, ...modules)),
+        import("../../lib/doc/hsDoc.js"),
+      ]).then(([...modules]) => {
+        const hs = modules.pop(); // as server.js: under its own key
+        return Object.assign({}, ...modules, { hs });
+      }),
     gradingProfileOfClass: async () => gradingProfile,
     ieltsEnabled,
+    hsEnabled,
+    async gradeHs(items) {
+      counters.hs += 1;
+      counters.hsItems.push(...items);
+      const error = hooks.hsFail?.();
+      if (error) throw error;
+      const { hsItemIdentity } = require("../../lib/hsGrading.js");
+      return new Map(
+        items.map((item) => {
+          const verdict = hooks.hsVerdict(item);
+          return [
+            hsItemIdentity(item),
+            verdict ? { verdict } : { verdict: null, warning: "hsAiInvalid" },
+          ];
+        }),
+      );
+    },
     async gradeIelts(input) {
       counters.ielts += 1;
       counters.ieltsInputs.push(input);
@@ -517,7 +568,7 @@ function createHarness({
       authKind: "google",
       isAdmin: false,
       classId: "c1",
-      lessonId: "l10",
+      lessonId: lesson.id,
       ...overrides,
     });
 
