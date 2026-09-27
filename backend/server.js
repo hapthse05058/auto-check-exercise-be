@@ -3048,6 +3048,14 @@ app.post("/classes", verifyGoogleToken, async (req, res) => {
           currentLesson,
         });
         placement = { courseId: course.id };
+        // The doc template the teacher picked among the course's.
+        if (req.body.classType) {
+          const template = await courses.resolveTemplate(
+            req.body.classType,
+            course,
+          );
+          placement.classType = template.code;
+        }
       } catch (error) {
         if (error instanceof CourseError) {
           return res.status(error.status).json({ error: error.code });
@@ -3237,15 +3245,9 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
  */
 app.get("/class-types", verifyGoogleToken, async (req, res) => {
   try {
-    const classTypeRef = db.collection("classType");
-    const snapshot = await classTypeRef.get();
-
-    const classTypes = [];
-    snapshot.forEach((doc) => {
-      classTypes.push({ id: doc.id, ...doc.data() });
-    });
-
-    res.json(classTypes);
+    // Each template with the grading profile it belongs to, so a class
+    // form offers only its course's templates.
+    res.json(await courses.templates());
   } catch (error) {
     console.error("Error fetching class types:", error);
     res.status(500).json({ error: "Failed to fetch class types" });
@@ -3487,12 +3489,46 @@ app.patch("/classes/:id", verifyGoogleToken, async (req, res) => {
       }
     }
 
+    // Another doc template: one of the templates of the class's course (the
+    // new one when it moves). "" drops it — a course without templates.
+    if (req.body.classType !== undefined) {
+      const courseId = updates.courseId || classDoc.data().courseId;
+      const course = courseId ? await courses.get(courseId) : null;
+      if (!course) {
+        return res.status(400).json({ error: "course_not_found" });
+      }
+      if (req.body.classType) {
+        try {
+          const template = await courses.resolveTemplate(
+            req.body.classType,
+            course,
+          );
+          if (template.code !== classDoc.data().classType)
+            updates.classType = template.code;
+        } catch (error) {
+          if (error instanceof CourseError) {
+            return res.status(error.status).json({ error: error.code });
+          }
+          throw error;
+        }
+      } else if (classDoc.data().classType) {
+        updates.classType = admin.firestore.FieldValue.delete();
+      }
+    }
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "Nothing to update" });
     }
 
     await classRef.update(updates);
-    res.json({ success: true, ...updates });
+    res.json({
+      success: true,
+      ...updates,
+      // A dropped template, not Firestore's delete marker.
+      ...("classType" in updates && typeof updates.classType !== "string"
+        ? { classType: null }
+        : {}),
+    });
   } catch (error) {
     console.error("Error updating class:", error);
     res.status(500).json({ error: "Failed to update class" });

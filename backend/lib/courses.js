@@ -19,6 +19,12 @@
  * sentence/paragraph prompts, lib/doc tables) or "ielts" (lib/ieltsWriting.js,
  * its own prompt and its own doc template). A course stored before the field
  * existed — and every class without a course — grades as "basic", unchanged.
+ *
+ * A class on a course still records its template in `classes.classType`: the
+ * teacher picks one of the course's templates (`classType/{id}`: {code, name,
+ * gradingProfile?}) when creating the class. A template belongs to the
+ * profile in its `gradingProfile` field, or by its code: "ielts…" is IELTS,
+ * anything else (the three `basic_…` templates) Basic.
  */
 
 const NAME_MAX = 120;
@@ -31,6 +37,16 @@ const GRADING_PROFILES = [GRADING_PROFILE_BASIC, GRADING_PROFILE_IELTS];
 function gradingProfileOf(course) {
   return GRADING_PROFILES.includes(course?.gradingProfile)
     ? course.gradingProfile
+    : GRADING_PROFILE_BASIC;
+}
+
+/** The grading profile a doc template (a `classType` doc) belongs to. */
+function templateProfileOf(template) {
+  if (GRADING_PROFILES.includes(template?.gradingProfile)) {
+    return template.gradingProfile;
+  }
+  return /^ielts/i.test(String(template?.code || ""))
+    ? GRADING_PROFILE_IELTS
     : GRADING_PROFILE_BASIC;
 }
 const LESSONS_MAX = 200;
@@ -269,6 +285,37 @@ function createCourses({ db, now = () => Date.now() }) {
     return course;
   }
 
+  /** Every doc template, each with the profile it belongs to, by name. */
+  async function templates() {
+    const snap = await db.collection("classType").get();
+    return snap.docs
+      .map((d) => {
+        const data = d.data() || {};
+        return {
+          id: d.id,
+          code: data.code || d.id,
+          name: data.name || data.code || d.id,
+          gradingProfile: templateProfileOf(data),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  }
+
+  /**
+   * Checks the template picked for a class on `course`: a known code of the
+   * course's grading profile. Returns the template.
+   */
+  async function resolveTemplate(code, course) {
+    const template = (await templates()).find(
+      (item) => item.code === String(code ?? "").trim(),
+    );
+    if (!template) throw new CourseError(400, "template_not_found");
+    if (template.gradingProfile !== course.gradingProfile) {
+      throw new CourseError(400, "template_not_in_course");
+    }
+    return template;
+  }
+
   return {
     allLessons,
     create,
@@ -277,6 +324,8 @@ function createCourses({ db, now = () => Date.now() }) {
     lessonsForCourse,
     list,
     resolveForClass,
+    resolveTemplate,
+    templates,
     update,
   };
 }
@@ -290,5 +339,6 @@ module.exports = {
   createCourses,
   lessonNumber,
   sortLessons,
+  templateProfileOf,
   validateCourseInput,
 };

@@ -210,6 +210,63 @@ describe("courses", () => {
     );
   });
 
+  it("offers each course only its own doc templates", async () => {
+    const { courses, seed } = setup();
+    seed("classType/classType02", {
+      code: "basic_since_01042026",
+      name: "Mẫu tháng 4",
+    });
+    seed("classType/classType03", {
+      code: "basic_since_20072026",
+      name: "Mẫu 20/07",
+    });
+    seed("classType/ielts01", { code: "ielts_writing", name: "IELTS" });
+    seed("classType/odd", {
+      code: "custom",
+      name: "Custom",
+      gradingProfile: "ielts",
+    });
+    const profiles = Object.fromEntries(
+      (await courses.templates()).map((t) => [t.code, t.gradingProfile]),
+    );
+    assert.deepEqual(profiles, {
+      basic_since_01042026: "basic",
+      basic_since_20072026: "basic",
+      ielts_writing: "ielts",
+      custom: "ielts",
+    });
+
+    const basic = await courses.create({ name: "B", lessonIds: ["lesson01"] });
+    const ielts = await courses.create({
+      name: "I",
+      lessonIds: ["lesson01"],
+      gradingProfile: "ielts",
+    });
+    assert.equal(
+      (await courses.resolveTemplate("basic_since_20072026", basic)).code,
+      "basic_since_20072026",
+    );
+    assert.equal(
+      (await courses.resolveTemplate("ielts_writing", ielts)).code,
+      "ielts_writing",
+    );
+    await rejects(
+      courses.resolveTemplate("ielts_writing", basic),
+      400,
+      "template_not_in_course",
+    );
+    await rejects(
+      courses.resolveTemplate("basic_since_01042026", ielts),
+      400,
+      "template_not_in_course",
+    );
+    await rejects(
+      courses.resolveTemplate("nope", basic),
+      400,
+      "template_not_found",
+    );
+  });
+
   it("lists a class's lessons: by course, else by the old template", async () => {
     const { courses } = setup();
     const c = await courses.create({
