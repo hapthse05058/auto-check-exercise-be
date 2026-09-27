@@ -147,6 +147,76 @@ export function imageUri(tab, objectId) {
   return embedded?.imageProperties?.contentUri || null;
 }
 
+const normalizeTitle = (text) =>
+  String(text ?? "")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** "BUỔI 12", "Buổi 12", "buổi 012" → 12; null when there is no number. */
+export function lessonNumberOf(name) {
+  const match = /bu[oổ]i\s*0*(\d+)/u.exec(normalizeTitle(name));
+  return match ? Number(match[1]) : null;
+}
+
+/** Every tab of the doc, child tabs included, in document order. */
+function allTabs(tabs, out = []) {
+  for (const tab of tabs || []) {
+    out.push(tab);
+    allTabs(tab.childTabs, out);
+  }
+  return out;
+}
+
+const hasIeltsTable = (tab) =>
+  listTables(tab).some(({ table }) => resolveIeltsTable(table) !== null);
+
+const WRITING_TAB = /^writing\s*[-–:]?\s*bu[oổ]i\s*0*(\d+)$/u;
+const LESSON_TAB = /^bu[oổ]i\s*0*(\d+)$/u;
+
+/**
+ * The tab holding a lesson's IELTS tables. The IELTS docs name a lesson's
+ * tab "Buổi 12" and put the writing in a tab "Writing buổi 12" after it (the
+ * first lessons: just "Writing", "Writing -DCadj"), while the course's lesson
+ * is "BUỔI 12" — so the lesson is matched by its NUMBER, case-insensitively,
+ * in this order:
+ *   1. a "Writing buổi N" tab;
+ *   2. a tab starting with "Writing" among the lesson's tabs — those from
+ *      "Buổi N" up to the next "Buổi …" tab, in document order (child tabs
+ *      or following siblings alike);
+ *   3. a tab titled exactly like the lesson;
+ *   4. the "Buổi N" tab itself.
+ * The first of those with an IELTS WRITING table wins; with none, the first
+ * one found (so the caller reports "no table" rather than "no tab"). Null
+ * when none exists.
+ */
+export function findIeltsTab(tabs, lessonName) {
+  const list = allTabs(tabs).filter((tab) => tab?.documentTab);
+  const titleOf = (tab) => normalizeTitle(tab.tabProperties?.title);
+  const number = lessonNumberOf(lessonName);
+  const exact = normalizeTitle(lessonName);
+  const titled = (pattern) => (tab) => {
+    const match = pattern.exec(titleOf(tab));
+    return Boolean(match) && Number(match[1]) === number;
+  };
+
+  const lessonTab = number === null ? -1 : list.findIndex(titled(LESSON_TAB));
+  const lessonTabs = [];
+  for (let i = lessonTab + 1; lessonTab >= 0 && i < list.length; i++) {
+    if (LESSON_TAB.test(titleOf(list[i]))) break;
+    lessonTabs.push(list[i]);
+  }
+
+  const candidates = [
+    ...(number === null ? [] : list.filter(titled(WRITING_TAB))),
+    ...lessonTabs.filter((tab) => titleOf(tab).startsWith("writing")),
+    ...list.filter((tab) => titleOf(tab) === exact),
+    ...(lessonTab >= 0 ? [list[lessonTab]] : []),
+  ];
+  return candidates.find(hasIeltsTable) || candidates[0] || null;
+}
+
 /**
  * Every IELTS Writing table of a tab, as row entries (see the file header).
  *

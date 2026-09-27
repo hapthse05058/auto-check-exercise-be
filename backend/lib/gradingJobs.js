@@ -160,6 +160,13 @@ function createGradingJobs(deps) {
   } = deps;
 
   const isIelts = (job) => job.gradingProfile === GRADING_PROFILE_IELTS;
+  /** The lesson tab of a doc: an IELTS lesson "BUỔI 12" lives in the tab
+   * "Writing buổi 12" (lib/doc/ieltsDoc.js findIeltsTab); Basic matches the
+   * tab title exactly, as it always has. */
+  const findLessonTab = (lib, job, data) =>
+    isIelts(job)
+      ? lib.findIeltsTab(data.tabs || [], job.lessonName)
+      : lib.findTabByTitle(data.tabs || [], job.lessonName);
 
   const jobRef = (jobId) => db.collection(JOBS).doc(jobId);
   const docRef = (jobId, docId) => jobRef(jobId).collection("docs").doc(docId);
@@ -461,7 +468,7 @@ function createGradingJobs(deps) {
       };
     }
 
-    const tab = lib.findTabByTitle(data.tabs || [], job.lessonName);
+    const tab = findLessonTab(lib, job, data);
     if (!tab || !tab.documentTab) {
       return {
         docId,
@@ -1089,7 +1096,7 @@ function createGradingJobs(deps) {
       } catch (err) {
         return finishDoc(jobId, docId, readFailure(job, docId, err));
       }
-      const tab = lib.findTabByTitle(data.tabs || [], job.lessonName);
+      const tab = findLessonTab(lib, job, data);
       if (!tab || !tab.documentTab) {
         return finishDoc(jobId, docId, {
           status: "failed",

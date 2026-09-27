@@ -60,6 +60,24 @@ describe("IELTS grading job", () => {
     );
   });
 
+  it("finds lesson BUỔI 10 in the real docs' tab 'Writing buổi 10'", async () => {
+    const h = ielts({
+      docA: makeIeltsTab({
+        title: "Writing buổi 10",
+        tables: [{ essay: ESSAY }],
+      }),
+      docB: makeIeltsTab({
+        title: "Writing buổi 1", // another lesson: never taken for BUỔI 10
+        tables: [{ essay: ESSAY }],
+      }),
+    });
+    const jobId = await runJob(h);
+    assert.equal(h.docsApi.ieltsFeedbackOf("docA"), WRITTEN);
+    assert.equal(h.docsApi.ieltsFeedbackOf("docB"), "");
+    assert.ok(warningCodes(h, jobId).includes("tabMissing"));
+    assert.equal(h.points(), 9);
+  });
+
   it("grades every IELTS table of a doc, each into its own cell", async () => {
     const h = ielts({
       docA: makeIeltsTab({
