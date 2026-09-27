@@ -284,8 +284,12 @@ export function splitBySlots(formText, studentText) {
   const fills = [];
   for (let i = 1; i < pieces.length; i++) {
     const piece = pieces[i];
+    // The first occurrence after the cursor: a pupil who wrote the sentence
+    // twice must not have the second copy read as the answer. Only a tiny
+    // closing piece ("." / "?") is searched from the end, since the answer
+    // itself may hold one ("a.m.").
     const isLast = i === pieces.length - 1;
-    at = find(piece, cursor, isLast);
+    at = find(piece, cursor, isLast && piece.length < 3);
     if (at < 0) return null;
     fills.push({ from: cursor, to: at });
     if (piece) fixed.push([at, at + piece.length]);
