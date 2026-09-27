@@ -28,8 +28,19 @@
  */
 const crypto = require("crypto");
 
+const {
+  GRADING_PROFILE_BASIC,
+  GRADING_PROFILE_IELTS,
+} = require("./courses.js");
 const { extractDocId } = require("./googleDoc.js");
 const { ReauthRequiredError } = require("./googleUserToken.js");
+const {
+  CHART_TASKS: IELTS_CHART_TASKS,
+  IeltsError,
+  MAX_IMAGES: IELTS_MAX_IMAGES,
+  TASK_1: IELTS_TASK_1,
+  validateRequest: validateIeltsRequest,
+} = require("./ieltsWriting.js");
 const { pointLedgerId } = require("./teacherPoints.js");
 
 const JOBS = "gradingJobs";
@@ -53,6 +64,8 @@ const JOB_STALE_MS = 2 * 60 * 60 * 1000;
 /** Docs per job — one prepare transaction writes them all (limit 500). */
 const MAX_DOCS = 200;
 const READ_CONCURRENCY = 5;
+/** IELTS essays graded at once — each is one long vision-model call. */
+const IELTS_CONCURRENCY = 3;
 /** Re-read + retry rounds for a write refused because the doc moved. */
 const MAX_WRITE_ROUNDS = 3;
 
@@ -118,6 +131,15 @@ const info = (...args) => console.log("[GRADING-JOB]", ...args);
  * @param deps.enqueue         (name, payload, opts) => Promise
  * @param deps.onFinished      { recordSummary(job), notify(job), push(job) }
  * @param deps.now             () => ms
+ *
+ * IELTS classes (course gradingProfile "ielts") take a separate path at three
+ * points — reading (lib/doc/ieltsDoc.js), grading (lib/ieltsWriting.js) and
+ * the rows the write targets — and share everything else (locks, leases,
+ * write-once, per-doc receipts). A job without the field is Basic.
+ * @param deps.gradingProfileOfClass (classData) => Promise<"basic"|"ielts">
+ * @param deps.gradeIelts      (input, {useCache, requestId}) => {feedback}
+ * @param deps.fetchImage      (contentUri, accessToken) => Promise<{mime, buffer}>
+ * @param deps.ieltsEnabled    false refuses IELTS jobs up front (no model set)
  */
 function createGradingJobs(deps) {
   const {
@@ -131,7 +153,13 @@ function createGradingJobs(deps) {
     enqueue,
     onFinished,
     now = () => Date.now(),
+    gradingProfileOfClass = async () => GRADING_PROFILE_BASIC,
+    gradeIelts,
+    fetchImage,
+    ieltsEnabled = true,
   } = deps;
+
+  const isIelts = (job) => job.gradingProfile === GRADING_PROFILE_IELTS;
 
   const jobRef = (jobId) => db.collection(JOBS).doc(jobId);
   const docRef = (jobId, docId) => jobRef(jobId).collection("docs").doc(docId);
@@ -240,6 +268,13 @@ function createGradingJobs(deps) {
     const payer = await resolvePayer(email, classId);
     if (!payer) throw new JobError(403, "payer_not_found");
 
+    // Fixed at creation: a class moved to another course mid-run must not
+    // switch the running job to another reader, prompt or cell layout.
+    const gradingProfile = await gradingProfileOfClass(classSnap.data());
+    if (gradingProfile === GRADING_PROFILE_IELTS && !ieltsEnabled) {
+      throw new JobError(503, "ielts_not_configured");
+    }
+
     const jobId = fixedJobId || crypto.randomUUID().replace(/-/g, "");
     const at = now();
     const job = {
@@ -248,6 +283,8 @@ function createGradingJobs(deps) {
       origin,
       className: classSnap.data().name || "",
       classType: classSnap.data().classType || "",
+      courseId: classSnap.data().courseId || null,
+      gradingProfile,
       lessonName: lessonSnap.data().name || "",
       docIds: ids,
       // Only admins may skip the cache — same rule as /grade-cached.
@@ -433,6 +470,7 @@ function createGradingJobs(deps) {
         warnings: [warning("tabMissing", { docId })],
       };
     }
+    if (isIelts(job)) return readIeltsForGrading(lib, tab, docId);
 
     const warnings = [];
     const { rows, unclassifiedWithQuestions } = lib.collectExerciseRows(
@@ -501,6 +539,137 @@ function createGradingJobs(deps) {
     return { docId, status: "pending", qa: toGrade, warnings };
   }
 
+  /**
+   * readForGrading for an IELTS class: the IELTS Writing tables of the tab
+   * (lib/doc/ieltsDoc.js), each graded on its own "GV chữa" cell. The charts
+   * are only LOCATED here (download URLs); runPrepare fetches them, so a
+   * submission count (countSubmissions) never downloads an image.
+   */
+  function readIeltsForGrading(lib, tab, docId) {
+    const { rows, invalidTables } = lib.collectIeltsRows(tab);
+    const warnings = [];
+    if (invalidTables.length) {
+      warnings.push(
+        warning("ieltsTemplateInvalid", {
+          docId,
+          list: invalidTables.map((i) => i + 1).join(", "),
+        }),
+      );
+    }
+    if (!rows.length) {
+      return {
+        docId,
+        status: "skipped",
+        reason: "noTable",
+        warnings: [...warnings, warning("noTable", { docId })],
+      };
+    }
+    const { items, graded } = lib.selectIeltsItemsToGrade(rows);
+    if (!items.length) {
+      return {
+        docId,
+        status: "skipped",
+        reason: graded ? "alreadyGraded" : "noAnswers",
+        warnings,
+      };
+    }
+    return {
+      docId,
+      status: "pending",
+      ielts: items.map((item) => ({
+        ...item,
+        imageUris: item.imageIds.map((id) => lib.imageUri(tab, id)),
+      })),
+      warnings,
+    };
+  }
+
+  /**
+   * Grades every pending IELTS submission of the class (lib/ieltsWriting.js)
+   * and turns each into a gradingResult for its "GV chữa" cell. A submission
+   * that cannot be graded — chart missing or unreadable, AI failing twice —
+   * is left out with a warning and its cell stays empty; it is never written
+   * with empty feedback. Anything else (network, Firestore) is thrown, so the
+   * prepare step is retried; the cache makes a retry cheap.
+   */
+  async function gradeIeltsDocs(jobId, job, pending, accessToken) {
+    const tasks = [];
+    for (const doc of pending) {
+      doc.gradingResults = [];
+      for (const item of doc.ielts) tasks.push({ doc, item });
+    }
+    await mapLimit(tasks, IELTS_CONCURRENCY, async ({ doc, item }) => {
+      const where = { docId: doc.docId, table: item.tableIdx + 1 };
+      let images = [];
+      // Task 1 needs its chart; a paragraph about a chart (Intro/Overview,
+      // sentences) sends its images too, so its numbers can be checked.
+      if (item.task === IELTS_TASK_1 && !item.imageUris.length) {
+        doc.warnings.push(warning("ieltsChartMissing", where));
+        return;
+      }
+      if (IELTS_CHART_TASKS.includes(item.task) && item.imageUris.length) {
+        if (item.imageUris.length > IELTS_MAX_IMAGES) {
+          doc.warnings.push(
+            warning("ieltsTooManyImages", { ...where, max: IELTS_MAX_IMAGES }),
+          );
+          return;
+        }
+        if (item.imageUris.some((uri) => !uri)) {
+          doc.warnings.push(warning("ieltsChartMissing", where));
+          return;
+        }
+        try {
+          images = await Promise.all(
+            item.imageUris.map((uri) => fetchImage(uri, accessToken)),
+          );
+        } catch (err) {
+          info(`${jobId}/${doc.docId}: chart download failed: ${err.message}`);
+          doc.warnings.push(warning("ieltsChartMissing", where));
+          return;
+        }
+      }
+      let input;
+      try {
+        input = validateIeltsRequest({
+          task: item.task,
+          prompt: item.question,
+          essay: item.answer,
+          images,
+        });
+      } catch (err) {
+        if (!(err instanceof IeltsError)) throw err;
+        doc.warnings.push(
+          warning("ieltsInvalid", { ...where, code: err.code }),
+        );
+        return;
+      }
+      try {
+        const { feedback } = await gradeIelts(input, {
+          useCache: job.useCache,
+          requestId: jobId,
+        });
+        doc.gradingResults.push({
+          rowKey: `${item.tableIdx}:${item.rowIdx}`,
+          questionIndex: null,
+          aiFeedback: feedback,
+        });
+      } catch (err) {
+        if (!(err instanceof IeltsError)) throw err;
+        doc.warnings.push(warning("ieltsAiInvalid", where));
+      }
+    });
+
+    for (const doc of pending) {
+      delete doc.ielts;
+      if (doc.gradingResults.length) {
+        doc.status = "ready";
+      } else {
+        doc.status = "skipped";
+        doc.reason = "noMatch";
+      }
+    }
+  }
+
   /** The body of prepare, run by the worker holding `epoch`. */
   async function runPrepare(jobId, job, epoch) {
     const started = now();
@@ -516,7 +685,19 @@ function createGradingJobs(deps) {
     const readMs = now() - started;
     const pending = docs.filter((d) => d.status === "pending");
 
-    if (pending.length) {
+    if (pending.length && isIelts(job)) {
+      // Same gate as Basic below: 1 point per doc to write.
+      const have = await readPoint(job.payerTeacherId);
+      if (pending.length > have) {
+        await failPrepare(jobId, epoch, "not_enough_points", {
+          need: pending.length,
+          have,
+          teacher: job.payerName,
+        });
+        return;
+      }
+      await gradeIeltsDocs(jobId, job, pending, access.token);
+    } else if (pending.length) {
       // Point gate before anything is written: 1 point per doc to write.
       const have = await readPoint(job.payerTeacherId);
       if (pending.length > have) {
@@ -668,6 +849,7 @@ function createGradingJobs(deps) {
     const reading = {
       lessonName: lessonSnap.data().name || "",
       classType: classSnap.data().classType || "",
+      gradingProfile: await gradingProfileOfClass(classSnap.data()),
       createdByEmail: String(email).toLowerCase(),
     };
     const docs = await mapLimit(ids, READ_CONCURRENCY, (docId) =>
@@ -915,7 +1097,9 @@ function createGradingJobs(deps) {
           warnings: [warning("tabMissing", { docId })],
         });
       }
-      const { rows } = lib.collectExerciseRows(tab, job.classType);
+      const { rows } = isIelts(job)
+        ? lib.collectIeltsRows(tab)
+        : lib.collectExerciseRows(tab, job.classType);
 
       // Only the cells this job is about to write matter. A doc-level check
       // would refuse to write a paragraph into a doc whose sentences were

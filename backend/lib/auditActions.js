@@ -131,6 +131,15 @@ const AUDIT_ACTIONS = [
     resourceType: "grading",
     severity: "INFO",
   },
+  // One IELTS Writing submission pasted on the website (lib/ieltsWriting.js).
+  // The route sets a short auditDetail: the essay and chart images stay out.
+  {
+    method: "POST",
+    pattern: /^\/ielts-writing\/grade$/,
+    action: "grading.ieltsWriting",
+    resourceType: "grading",
+    severity: "INFO",
+  },
   // Starts a background grading job (lib/gradingJobs.js). The job closes itself
   // out with a SYSTEM "grading.pointsSummary" row, like the website used to.
   {

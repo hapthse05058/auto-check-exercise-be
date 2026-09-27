@@ -219,3 +219,44 @@ test("planCacheCleanup keeps task types apart and skips empty records", () => {
   assert.equal(writes[0].data.taskType, TASK_VI_EN);
   assert.deepEqual(skipped, [{ id: "e", reason: "empty_after_clean" }]);
 });
+
+// Hard gate for the IELTS work: Basic keys are pinned to the exact values the
+// code produced before IELTS existed. If one of these changes, every Basic
+// answer in gradingCache becomes a miss and is re-graded (and re-paid).
+const cases = [
+  [
+    [
+      "v1",
+      "deepseek-chat",
+      "1. Tôi học tiếng Anh.",
+      "→ I study English.",
+      "vi_en",
+    ],
+    "ceff85f64e7332f3b31d8d31a53eb8b6dac9a16d",
+  ],
+  [
+    [
+      "v1",
+      "deepseek-chat",
+      "Chủ đề: Hobbies",
+      "My hobby are play guitar.",
+      "paragraph",
+    ],
+    "7e8f4fdf4bcd9e51ca5121620e469d179e1dc7ac",
+  ],
+  [
+    [
+      "v1",
+      "deepseek-chat",
+      "He wrote a letter.",
+      "A letter was written by him.",
+      "active_passive",
+    ],
+    "85f5bd203a7a819494fc0317155435b3b79ab14b",
+  ],
+];
+for (const [args, expected] of cases) {
+  test(`Basic ${args[4]} cache key is frozen`, () => {
+    assert.equal(gradingCacheKey(...args), expected);
+  });
+}

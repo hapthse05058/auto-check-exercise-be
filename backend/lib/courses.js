@@ -15,11 +15,24 @@
  * `lessonsForClass` — so the backend can ship before
  * scripts/migrate-courses.js puts every existing class on the Basic course.
  *
- * Later each course will carry its own grading system prompt; the class's
- * `courseId` is what grading will look it up by.
+ * `gradingProfile` picks HOW a course's classes are graded: "basic" (the
+ * sentence/paragraph prompts, lib/doc tables) or "ielts" (lib/ieltsWriting.js,
+ * its own prompt and its own doc template). A course stored before the field
+ * existed — and every class without a course — grades as "basic", unchanged.
  */
 
 const NAME_MAX = 120;
+
+const GRADING_PROFILE_BASIC = "basic";
+const GRADING_PROFILE_IELTS = "ielts";
+const GRADING_PROFILES = [GRADING_PROFILE_BASIC, GRADING_PROFILE_IELTS];
+
+/** The stored value, or "basic" for a course from before profiles existed. */
+function gradingProfileOf(course) {
+  return GRADING_PROFILES.includes(course?.gradingProfile)
+    ? course.gradingProfile
+    : GRADING_PROFILE_BASIC;
+}
 const LESSONS_MAX = 200;
 
 class CourseError extends Error {
@@ -91,6 +104,13 @@ function validateCourseInput(body, { partial = false } = {}) {
     out.isActive = input.isActive;
   }
 
+  if (input.gradingProfile !== undefined) {
+    if (!GRADING_PROFILES.includes(input.gradingProfile)) {
+      throw new CourseError(400, "invalid_grading_profile");
+    }
+    out.gradingProfile = input.gradingProfile;
+  }
+
   return out;
 }
 
@@ -101,6 +121,7 @@ function describeCourse(snap) {
     name: d.name || snap.id,
     lessonIds: Array.isArray(d.lessonIds) ? d.lessonIds : [],
     isActive: d.isActive !== false,
+    gradingProfile: gradingProfileOf(d),
     createdAt: d.createdAt ?? null,
     updatedAt: d.updatedAt ?? null,
   };
@@ -158,7 +179,13 @@ function createCourses({ db, now = () => Date.now() }) {
     await assertUniqueName(input.name);
     const at = now();
     const ref = courses().doc();
-    await ref.set({ ...input, isActive: true, createdAt: at, updatedAt: at });
+    await ref.set({
+      gradingProfile: GRADING_PROFILE_BASIC,
+      ...input,
+      isActive: true,
+      createdAt: at,
+      updatedAt: at,
+    });
     return get(ref.id);
   }
 
@@ -256,6 +283,10 @@ function createCourses({ db, now = () => Date.now() }) {
 
 module.exports = {
   CourseError,
+  GRADING_PROFILE_BASIC,
+  GRADING_PROFILE_IELTS,
+  GRADING_PROFILES,
+  gradingProfileOf,
   createCourses,
   lessonNumber,
   sortLessons,

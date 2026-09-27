@@ -18,6 +18,7 @@ const FILES = [
   "docTableDetect.js",
   "docTables.js",
   "docWriter.js",
+  "ieltsDoc.js",
 ];
 const TARGET = path.join(__dirname, "..", "lib", "doc");
 const DEFAULT_SOURCE = path.join(

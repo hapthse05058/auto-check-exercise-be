@@ -17,6 +17,7 @@ const FILES = [
   "docTableDetect.js",
   "docTables.js",
   "docWriter.js",
+  "ieltsDoc.js",
 ];
 const normalize = (text) => text.replace(/\r\n/g, "\n");
 

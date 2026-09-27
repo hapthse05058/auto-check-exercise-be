@@ -17,7 +17,11 @@ const auditActions = require("./lib/auditActions.js");
 const auditLog = require("./lib/auditLog.js");
 const balanceMonitor = require("./lib/balanceMonitor.js");
 const billing = require("./lib/billing.js");
-const { CourseError, createCourses } = require("./lib/courses.js");
+const {
+  CourseError,
+  createCourses,
+  gradingProfileOf,
+} = require("./lib/courses.js");
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const googleDocsApi = require("./lib/googleDocsApi.js");
@@ -54,6 +58,9 @@ const pushDevices = require("./lib/pushDevices.js");
 const { createCloudQueue, createInlineQueue } = require("./lib/taskQueue.js");
 const teacherFilter = require("./lib/teacherFilter.js");
 const teacherPoints = require("./lib/teacherPoints.js");
+const ieltsWriting = require("./lib/ieltsWriting.js");
+const ieltsChartData = require("./lib/ieltsChartData.js");
+const ieltsPaste = require("./lib/ieltsPaste.js");
 
 const app = express();
 const courses = createCourses({ db });
@@ -402,6 +409,129 @@ async function callGrader(instruction, inputText, model) {
     .replace(/【.*?】|<br>|/g, "")
     .trim();
 }
+
+// ---------------------------------------------------------------------------
+// IELTS Writing (lib/ieltsWriting.js) — a separate model, prompt and version.
+// Nothing here touches the Basic grader above.
+// The GRADER (OpenAI-compatible chat completions):
+//   IELTS_AI_BASE_URL, IELTS_AI_API_KEY, IELTS_AI_MODEL
+//   IELTS_AI_JSON_MODE=true   send response_format json_object (if supported)
+//   IELTS_AI_THINKING=enabled|disabled   DeepSeek only (`thinking` param);
+//                             unset = the model's default. Other providers: unset.
+//   IELTS_PROMPT_VERSION      bump to invalidate ieltsGradingCache
+// The CHART READER (lib/ieltsChartData.js): a strong vision model that reads
+// each Task 1 chart once into text, cached in ieltsChartData; the grader then
+// grades from that text and never sees the image. Unset → the grader gets the
+// images itself (and must then be a vision model).
+//   IELTS_CHART_AI_BASE_URL, IELTS_CHART_AI_API_KEY, IELTS_CHART_AI_MODEL
+//   IELTS_CHART_PROMPT_VERSION   bump to re-read every chart
+// ---------------------------------------------------------------------------
+const IELTS_AI_BASE_URL = process.env.IELTS_AI_BASE_URL || "";
+const IELTS_AI_API_KEY = process.env.IELTS_AI_API_KEY || "";
+const IELTS_AI_MODEL = process.env.IELTS_AI_MODEL || "";
+const IELTS_AI_JSON_MODE = ["true", "1", "on"].includes(
+  String(process.env.IELTS_AI_JSON_MODE || "").toLowerCase(),
+);
+const IELTS_AI_THINKING = String(process.env.IELTS_AI_THINKING || "")
+  .trim()
+  .toLowerCase();
+const IELTS_PROMPT_VERSION = process.env.IELTS_PROMPT_VERSION || "v1";
+const ieltsConfigured = Boolean(IELTS_AI_API_KEY && IELTS_AI_MODEL);
+if (!ieltsConfigured) {
+  console.warn(
+    "WARNING: IELTS_AI_API_KEY / IELTS_AI_MODEL not set. IELTS grading is off.",
+  );
+}
+const ieltsClient = ieltsConfigured
+  ? new OpenAI({
+      apiKey: IELTS_AI_API_KEY,
+      ...(IELTS_AI_BASE_URL ? { baseURL: IELTS_AI_BASE_URL } : {}),
+    })
+  : null;
+
+async function callIeltsModel(instruction, content, model) {
+  const params = {
+    model,
+    messages: [
+      { role: "system", content: instruction },
+      { role: "user", content },
+    ],
+    temperature: 0.3,
+    // deepseek-flash writes up to ~15k tokens (mostly reasoning) on a long
+    // essay; at 16000 some answers were cut off before the JSON.
+    max_tokens: 24000,
+  };
+  if (IELTS_AI_JSON_MODE) params.response_format = { type: "json_object" };
+  if (IELTS_AI_THINKING) params.thinking = { type: IELTS_AI_THINKING };
+  let response = await ieltsClient.chat.completions.create(params);
+  // A thinking model can reason past any limit and answer nothing (seen on a
+  // sentence-rewrite exercise, twice at 32k): ask once more with low effort,
+  // which answered it in ~15k. DeepSeek's `reasoning_effort`: low|high|max.
+  if (
+    response.choices?.[0]?.finish_reason === "length" &&
+    IELTS_AI_THINKING !== "disabled"
+  ) {
+    response = await ieltsClient.chat.completions.create({
+      ...params,
+      reasoning_effort: "low",
+    });
+  }
+  return (response.choices?.[0]?.message?.content || "").trim();
+}
+
+const IELTS_CHART_AI_BASE_URL = process.env.IELTS_CHART_AI_BASE_URL || "";
+const IELTS_CHART_AI_API_KEY = process.env.IELTS_CHART_AI_API_KEY || "";
+const IELTS_CHART_AI_MODEL = process.env.IELTS_CHART_AI_MODEL || "";
+const IELTS_CHART_PROMPT_VERSION =
+  process.env.IELTS_CHART_PROMPT_VERSION || "v1";
+const ieltsChartClient =
+  IELTS_CHART_AI_API_KEY && IELTS_CHART_AI_MODEL
+    ? new OpenAI({
+        apiKey: IELTS_CHART_AI_API_KEY,
+        ...(IELTS_CHART_AI_BASE_URL
+          ? { baseURL: IELTS_CHART_AI_BASE_URL }
+          : {}),
+      })
+    : null;
+if (ieltsConfigured && !ieltsChartClient) {
+  console.warn(
+    "WARNING: IELTS_CHART_AI_* not set. Task 1 charts go to IELTS_AI_MODEL as images.",
+  );
+}
+
+async function callIeltsChartModel(instruction, content, model) {
+  const response = await ieltsChartClient.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: instruction },
+      { role: "user", content },
+    ],
+    temperature: 0,
+    max_tokens: 8000,
+  });
+  return (response.choices?.[0]?.message?.content || "").trim();
+}
+
+const ieltsChartReader = ieltsChartClient
+  ? ieltsChartData.createChartReader({
+      db,
+      callModel: callIeltsChartModel,
+      readPrompt: () =>
+        fs.readFileSync(path.join(__dirname, "prompt_ielts_chart.txt"), "utf8"),
+      model: IELTS_CHART_AI_MODEL,
+      version: IELTS_CHART_PROMPT_VERSION,
+    })
+  : null;
+
+const ieltsGrader = ieltsWriting.createIeltsGrader({
+  db,
+  callModel: callIeltsModel,
+  readPrompt: () =>
+    fs.readFileSync(path.join(__dirname, "prompt_ielts_writing.txt"), "utf8"),
+  model: IELTS_AI_MODEL,
+  promptVersion: IELTS_PROMPT_VERSION,
+  readChart: ieltsChartReader ? ieltsChartReader.read : null,
+});
 // Used by the retired Chrome extension. Kept only while installed copies may
 // still call it; the website grades through /grading-jobs.
 app.post("/grade", verifyGoogleToken, async (req, res) => {
@@ -1583,6 +1713,90 @@ app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
   } catch (err) {
     console.error("[TEACHER-POINTS] consume error:", err);
     return res.status(500).json({ error: "failed_to_consume" });
+  }
+});
+
+/**
+ * Grades ONE pasted IELTS Writing submission (the website's "Chấm IELTS
+ * Writing" page) and returns the three-part feedback.
+ *
+ * Billing reuses consumePointsForDocs, the same receipts as Basic: the receipt
+ * "doc" is the submission itself (pasteReceiptDocId: task + prompt + essay +
+ * charts), so the same teacher grading the same submission again pays once.
+ * The balance is checked BEFORE the model is called and the point is taken
+ * only AFTER a valid result exists — a failed grading costs nothing.
+ *
+ * Who pays: an admin who picks a class bills that class's teacher (as Basic
+ * does); without a class, and for every teacher, the caller pays.
+ */
+app.post("/ielts-writing/grade", verifyToken, async (req, res) => {
+  if (!ieltsConfigured) {
+    return res.status(503).json({ error: "ielts_not_configured" });
+  }
+  let input;
+  try {
+    input = ieltsWriting.validateRequest(req.body);
+  } catch (err) {
+    if (err instanceof ieltsWriting.IeltsError) {
+      return res
+        .status(err.status)
+        .json({ error: err.code, ...(err.params || {}) });
+    }
+    throw err;
+  }
+
+  try {
+    const email = String(req.userEmail || "").toLowerCase();
+    const isAdmin = ADMIN_EMAILS.includes(email);
+    const classId = req.body.classId ? String(req.body.classId) : null;
+    const payer = classId
+      ? await resolvePayer(email, classId)
+      : await findTeacherByEmail(email);
+    if (!payer) return res.status(403).json({ error: "payer_not_found" });
+
+    let graded;
+    try {
+      graded = await ieltsPaste.gradePasted(
+        { db, grader: ieltsGrader, consumePoints: consumePointsForDocs },
+        {
+          payer,
+          input,
+          classId,
+          email,
+          useCache: isAdmin ? req.body.useCache !== false : true,
+          requestId: req.requestId,
+        },
+      );
+    } catch (err) {
+      if (
+        err instanceof ieltsWriting.IeltsError ||
+        err instanceof ieltsPaste.PasteError
+      ) {
+        res.locals.auditDetail = `IELTS ${input.task} · ${err.code}`;
+        return res
+          .status(err.status)
+          .json({ error: err.code, ...(err.params || {}) });
+      }
+      throw err;
+    }
+
+    const { result, feedback, cached, charged, point, chartData } = graded;
+    res.locals.auditDetail =
+      `IELTS ${input.task} · ${result.wordCount} từ · Overall ` +
+      `${result.overall ?? "-"} · ${cached ? "cache" : "AI"} · ` +
+      `trừ ${charged} point`;
+    return res.json({
+      result,
+      feedback,
+      cached,
+      charged,
+      point,
+      payerName: payer.name || payer.gmail || "",
+      chartData: chartData || null,
+    });
+  } catch (err) {
+    console.error("[IELTS] grade error:", err);
+    return res.status(500).json({ error: "ielts_grade_failed" });
   }
 });
 
@@ -3350,6 +3564,26 @@ const googleUserTokens = createGoogleUserTokens({
 });
 
 /**
+ * Downloads one image of a Google Doc by its `contentUri` (a short-lived URL
+ * the Docs API hands out with the document). It is normally readable as is;
+ * when Google asks for credentials, the doc reader's own token is sent.
+ */
+async function fetchDocImage(uri, accessToken) {
+  let response = await fetch(uri);
+  if ((response.status === 401 || response.status === 403) && accessToken) {
+    response = await fetch(uri, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  }
+  if (!response.ok) throw new Error(`image_http_${response.status}`);
+  const mime = (response.headers.get("content-type") || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  return { mime, buffer: Buffer.from(await response.arrayBuffer()) };
+}
+
+/**
  * lib/doc/ is the website's own ES modules, copied verbatim (see
  * scripts/syncDocLib.js), so it is loaded with import() rather than require().
  */
@@ -3359,6 +3593,7 @@ function loadDocLib() {
     import("./lib/doc/docParser.js"),
     import("./lib/doc/docTableDetect.js"),
     import("./lib/doc/docWriter.js"),
+    import("./lib/doc/ieltsDoc.js"),
   ]).then((modules) => Object.assign({}, ...modules));
   return docLibPromise;
 }
@@ -3410,6 +3645,14 @@ const gradingJobs = createGradingJobs({
   loadDocLib,
   gradeItems: gradeItemsCached,
   consumePoints: consumePointsForDocs,
+  // IELTS classes (course gradingProfile "ielts") — see lib/gradingJobs.js.
+  gradingProfileOfClass: async (classData) =>
+    classData?.courseId
+      ? gradingProfileOf(await courses.get(classData.courseId))
+      : gradingProfileOf(null),
+  gradeIelts: (input, options) => ieltsGrader.grade(input, options),
+  fetchImage: fetchDocImage,
+  ieltsEnabled: ieltsConfigured,
   resolvePayer,
   enqueue: (name, payload, options) =>
     taskQueue.enqueue(name, payload, options),

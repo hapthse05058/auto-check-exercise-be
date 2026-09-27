@@ -108,10 +108,68 @@ function makeTab({
   };
 }
 
+/** Default AI feedback for one IELTS submission (lib/ieltsWriting format). */
+const IELTS_FEEDBACK =
+  "**1. BẢN CHỮA**\nI **go** → went (thì)\n\n**3. NHẬN XÉT**\n**Overall: 6.5**";
+
+/**
+ * An IELTS lesson tab (lib/doc/ieltsDoc.js template): one table per entry of
+ * `tables` — {title, prompt, images: [objectId], essay, feedback}. Table i's
+ * "GV chữa" cell starts at 2000 + 1000*i. `objects` maps objectId → uri.
+ */
+function makeIeltsTab({ tables, objects = {}, title = LESSON }) {
+  const P2 = (text, at) => P(`${text}\n`, at);
+  const image = (id) => ({
+    startIndex: 1,
+    paragraph: { elements: [{ inlineObjectElement: { inlineObjectId: id } }] },
+  });
+  return {
+    tabProperties: { title, tabId: "t.x" },
+    documentTab: {
+      inlineObjects: Object.fromEntries(
+        Object.entries(objects).map(([id, uri]) => [
+          id,
+          {
+            inlineObjectProperties: {
+              embeddedObject: { imageProperties: { contentUri: uri } },
+            },
+          },
+        ]),
+      ),
+      body: {
+        content: tables.map((t, i) => {
+          const at = 2000 + 1000 * i;
+          return {
+            table: {
+              tableRows: [
+                row(
+                  [P2(t.title || "IELTS WRITING – TASK 2", at - 100)],
+                  [P2("", at - 99)],
+                ),
+                row(
+                  [P2("Đề bài", at - 98)],
+                  [
+                    P2(t.prompt || "Some people think … Discuss.", at - 97),
+                    ...(t.images || []).map(image),
+                  ],
+                ),
+                row([P2("Bài làm", at - 96)], [P2(t.essay ?? "", at - 95)]),
+                row([P2("GV chữa", at - 94)], [P2(t.feedback || "", at)]),
+              ],
+            },
+          };
+        }),
+      },
+    },
+  };
+}
+
 /** All text of a cell's paragraphs, joined. */
 const cellText = (cell) =>
   cell.content
-    .flatMap((p) => p.paragraph.elements.map((e) => e.textRun?.content ?? ""))
+    .flatMap((p) =>
+      (p.paragraph?.elements || []).map((e) => e.textRun?.content ?? ""),
+    )
     .join("");
 
 /** Every cell of a tab, in document order. */
@@ -243,6 +301,13 @@ function createFakeDocs(tabsByDocId) {
           .tableCells[0],
       ).trim();
     },
+    /** IELTS table `i`'s "GV chữa" cell (makeIeltsTab), blank lines kept. */
+    ieltsFeedbackOf(docId, i = 0) {
+      return cellText(
+        entry(docId).tab.documentTab.body.content[i].table.tableRows[3]
+          .tableCells[1],
+      ).replace(/\n$/, "");
+    },
     /** The paragraph table's "GV sửa" cell, blank lines kept. */
     paragraphFeedbackOf(docId) {
       return cellText(
@@ -297,6 +362,8 @@ function createHarness({
   points = 100,
   isAdminTeacher = false,
   startAt = 1_000_000,
+  gradingProfile = "basic",
+  ieltsEnabled = true,
 } = {}) {
   const db = new FakeFirestore();
   const admin = createFakeAdmin();
@@ -331,6 +398,9 @@ function createHarness({
     consume: 0,
     tokenCalls: 0,
     gradedItems: [], // every item handed to gradeItems
+    ielts: 0, // gradeIelts calls
+    ieltsInputs: [], // every validated IELTS submission graded
+    images: [], // every chart uri downloaded
   };
   const hooks = {
     gradeGate: null, // Promise the next grade call waits on
@@ -342,6 +412,9 @@ function createHarness({
     // delegation server.js does through scheduleAwareOnFinished).
     schedules: null,
     paragraphFeedback: PARAGRAPH_FEEDBACK, // what the AI says about a paragraph
+    ieltsFeedback: IELTS_FEEDBACK, // what the AI says about an IELTS essay
+    ieltsFail: null, // (input) => Error | null — the IELTS grader fails
+    imageFail: null, // (uri) => boolean — a chart download fails
   };
   const finished = [];
 
@@ -366,7 +439,22 @@ function createHarness({
         import("../../lib/doc/docParser.js"),
         import("../../lib/doc/docTableDetect.js"),
         import("../../lib/doc/docWriter.js"),
+        import("../../lib/doc/ieltsDoc.js"),
       ]).then((modules) => Object.assign({}, ...modules)),
+    gradingProfileOfClass: async () => gradingProfile,
+    ieltsEnabled,
+    async gradeIelts(input) {
+      counters.ielts += 1;
+      counters.ieltsInputs.push(input);
+      const error = hooks.ieltsFail?.(input);
+      if (error) throw error;
+      return { feedback: hooks.ieltsFeedback };
+    },
+    async fetchImage(uri, token) {
+      counters.images.push({ uri, token });
+      if (hooks.imageFail?.(uri)) throw new Error("image_http_403");
+      return { mime: "image/png", buffer: Buffer.from(`png:${uri}`) };
+    },
     async gradeItems(items) {
       counters.grade += 1;
       if (hooks.gradeGate) {
@@ -459,11 +547,13 @@ function createHarness({
 }
 
 module.exports = {
+  IELTS_FEEDBACK,
   LESSON,
   P,
   PARAGRAPH_FEEDBACK,
   createFakeDocs,
   createHarness,
+  makeIeltsTab,
   makeTab,
   row,
 };

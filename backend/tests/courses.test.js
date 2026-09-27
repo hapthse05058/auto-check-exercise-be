@@ -97,6 +97,31 @@ describe("courses", () => {
     assert.equal((await courses.list({ includeInactive: true })).length, 2);
   });
 
+  it("grades as basic unless the course says ielts", async () => {
+    const { courses, seed } = setup();
+    const basic = await courses.create({ name: "B", lessonIds: ["lesson01"] });
+    assert.equal(basic.gradingProfile, "basic");
+
+    const ielts = await courses.create({
+      name: "I",
+      lessonIds: ["lesson01"],
+      gradingProfile: "ielts",
+    });
+    assert.equal(ielts.gradingProfile, "ielts");
+
+    // A course stored before the field existed.
+    seed("courses/old", { name: "Old", lessonIds: ["lesson01"] });
+    assert.equal((await courses.get("old")).gradingProfile, "basic");
+
+    const moved = await courses.update(basic.id, { gradingProfile: "ielts" });
+    assert.equal(moved.gradingProfile, "ielts");
+    await rejects(
+      courses.update(basic.id, { gradingProfile: "toeic" }),
+      400,
+      "invalid_grading_profile",
+    );
+  });
+
   it("refuses unknown lessons and a duplicate name", async () => {
     const { courses } = setup();
     await rejects(

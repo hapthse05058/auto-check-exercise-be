@@ -27,7 +27,9 @@ const readline = require("readline");
 const { getDb } = require("../lib/firestore.js");
 
 // Collections that are safe to promote. gradingCache is opt-in (--include-cache).
-const ALLOWED = ["classType", "lesson"];
+// `courses` carries each course's lessons and gradingProfile (basic / ielts), so
+// an IELTS course set up on dev can be promoted together with its lessons.
+const ALLOWED = ["classType", "lesson", "courses"];
 const CACHE = "gradingCache";
 // Never read or write these — real per-environment user data.
 const FORBIDDEN = new Set([
