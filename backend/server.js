@@ -3230,7 +3230,14 @@ app.get("/classes", verifyGoogleToken, async (req, res) => {
     }
     const classes = [];
     snapshot.forEach((doc) => {
-      classes.push({ id: doc.id, ...doc.data() });
+      const d = doc.data();
+      // A Timestamp would serialize as {_seconds, _nanoseconds}; send ISO
+      // like /classes/all does.
+      classes.push({
+        id: doc.id,
+        ...d,
+        createdAt: d.createdAt?.toDate?.().toISOString() ?? null,
+      });
     });
 
     res.json(classes);
@@ -3409,9 +3416,11 @@ app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
       db.collection("teachers").get(),
     ]);
     const teacherNameById = new Map();
+    const teacherGmailById = new Map();
     teacherSnap.forEach((doc) => {
       const d = doc.data();
       teacherNameById.set(doc.id, d.name || d.gmail || doc.id);
+      if (d.gmail) teacherGmailById.set(doc.id, d.gmail);
     });
     const classes = [];
     classSnap.forEach((doc) => {
@@ -3424,8 +3433,14 @@ app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
         courseId: d.courseId ?? null,
         currentLesson: d.currentLesson ?? null,
         isActive: d.isActive,
+        // Classes created before createdAt was stored have none.
+        createdAt: d.createdAt?.toDate?.().toISOString() ?? null,
         teacherId: teacherIds,
         teacherNames: teacherIds.map((id) => teacherNameById.get(id) || id),
+        // For searching by teacher gmail; teachers without one are skipped.
+        teacherEmails: teacherIds
+          .map((id) => teacherGmailById.get(id))
+          .filter(Boolean),
       });
     });
     res.json(classes);
