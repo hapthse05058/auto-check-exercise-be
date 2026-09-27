@@ -1,0 +1,793 @@
+{
+  "basic": {
+    "written": 2,
+    "gradedItems": [
+      {
+        "question": "1. Câu hỏi số 1",
+        "answer": "→ ok one",
+        "taskType": "vi_en"
+      },
+      {
+        "question": "1. Câu hỏi số 1",
+        "answer": "→ ok two",
+        "taskType": "vi_en"
+      },
+      {
+        "question": "2. Câu hỏi số 2",
+        "answer": "→ I goes home",
+        "taskType": "vi_en"
+      },
+      {
+        "question": "2. Câu hỏi số 2",
+        "answer": "→ She do it",
+        "taskType": "vi_en"
+      },
+      {
+        "question": "Chủ đề: Hobbies\nĐoạn văn mẫu:\nMy favourite hobby is playing the guitar.",
+        "answer": "My name are Tom.",
+        "taskType": "paragraph"
+      }
+    ],
+    "writes": [
+      {
+        "docId": "docA",
+        "requests": [
+          {
+            "insertText": {
+              "location": {
+                "index": 929,
+                "tabId": "t.x"
+              },
+              "text": "  Hãy rút kinh nghiệm và cố gắng hơn nữa nhé!🔥🔥"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 90,
+                "tabId": "t.x"
+              },
+              "text": "She "
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 94,
+                "tabId": "t.x"
+              },
+              "text": "has done"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 102,
+                "tabId": "t.x"
+              },
+              "text": " it.\n(Sai thì.)"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 90,
+                "endIndex": 94,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 94,
+                "endIndex": 102,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 102,
+                "endIndex": 117,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 50,
+                "tabId": "t.x"
+              },
+              "text": "✅ Đúng"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 50,
+                "endIndex": 56,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          }
+        ]
+      },
+      {
+        "docId": "docB",
+        "requests": [
+          {
+            "insertText": {
+              "location": {
+                "index": 929,
+                "tabId": "t.x"
+              },
+              "text": "  Hãy rút kinh nghiệm và cố gắng hơn nữa nhé!🔥🔥"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 700,
+                "tabId": "t.x"
+              },
+              "text": "My name "
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 708,
+                "tabId": "t.x"
+              },
+              "text": "is"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 710,
+                "tabId": "t.x"
+              },
+              "text": " Tom.\n(S “My name” số ít → dùng “is” nhé.)\n\nI "
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 756,
+                "tabId": "t.x"
+              },
+              "text": "usually play"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 768,
+                "tabId": "t.x"
+              },
+              "text": " it every weekend.\n(“Usually” đứng trước V thường nhé.)"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 700,
+                "endIndex": 708,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 708,
+                "endIndex": 710,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 710,
+                "endIndex": 756,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 756,
+                "endIndex": 768,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 768,
+                "endIndex": 823,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 90,
+                "tabId": "t.x"
+              },
+              "text": "She "
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 94,
+                "tabId": "t.x"
+              },
+              "text": "has done"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 102,
+                "tabId": "t.x"
+              },
+              "text": " it.\n(Sai thì.)"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 90,
+                "endIndex": 94,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 94,
+                "endIndex": 102,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 102,
+                "endIndex": 117,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 50,
+                "tabId": "t.x"
+              },
+              "text": "✅ Đúng"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 50,
+                "endIndex": 56,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "ielts": {
+    "written": 2,
+    "inputs": [
+      {
+        "task": "task2",
+        "prompt": "Some people think … Discuss.",
+        "essay": "Homework is useless. I disagree.",
+        "images": 0
+      },
+      {
+        "task": "task1",
+        "prompt": "Some people think … Discuss.",
+        "essay": "The chart shows.",
+        "images": 1
+      }
+    ],
+    "images": ["https://img/1"],
+    "writes": [
+      {
+        "docId": "docA",
+        "requests": [
+          {
+            "insertText": {
+              "location": {
+                "index": 2000,
+                "tabId": "t.x"
+              },
+              "text": "1. BẢN CHỮA"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2011,
+                "tabId": "t.x"
+              },
+              "text": "\nI "
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2014,
+                "tabId": "t.x"
+              },
+              "text": "go"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2016,
+                "tabId": "t.x"
+              },
+              "text": " → went (thì)\n\n"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2031,
+                "tabId": "t.x"
+              },
+              "text": "3. NHẬN XÉT"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2042,
+                "tabId": "t.x"
+              },
+              "text": "\n"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2043,
+                "tabId": "t.x"
+              },
+              "text": "Overall: 6.5"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2000,
+                "endIndex": 2011,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2011,
+                "endIndex": 2014,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2014,
+                "endIndex": 2016,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2016,
+                "endIndex": 2031,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2031,
+                "endIndex": 2042,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2042,
+                "endIndex": 2043,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2043,
+                "endIndex": 2055,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          }
+        ]
+      },
+      {
+        "docId": "docB",
+        "requests": [
+          {
+            "insertText": {
+              "location": {
+                "index": 2000,
+                "tabId": "t.x"
+              },
+              "text": "1. BẢN CHỮA"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2011,
+                "tabId": "t.x"
+              },
+              "text": "\nI "
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2014,
+                "tabId": "t.x"
+              },
+              "text": "go"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2016,
+                "tabId": "t.x"
+              },
+              "text": " → went (thì)\n\n"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2031,
+                "tabId": "t.x"
+              },
+              "text": "3. NHẬN XÉT"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2042,
+                "tabId": "t.x"
+              },
+              "text": "\n"
+            }
+          },
+          {
+            "insertText": {
+              "location": {
+                "index": 2043,
+                "tabId": "t.x"
+              },
+              "text": "Overall: 6.5"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2000,
+                "endIndex": 2011,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2011,
+                "endIndex": 2014,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2014,
+                "endIndex": 2016,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2016,
+                "endIndex": 2031,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2031,
+                "endIndex": 2042,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2042,
+                "endIndex": 2043,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": false,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          },
+          {
+            "updateTextStyle": {
+              "range": {
+                "startIndex": 2043,
+                "endIndex": 2055,
+                "tabId": "t.x"
+              },
+              "textStyle": {
+                "bold": true,
+                "italic": false,
+                "underline": false
+              },
+              "fields": "bold,italic,underline"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "cacheKeys": {
+    "basic": [
+      "98bafd42e1747172db539b388bc885a8f992e54f",
+      "8e4db29ae91952832617701a0f99f3aa5592edc7",
+      "7867f78aca8ba3a2f4ce3fcc9fb32826a06dca5f"
+    ],
+    "ielts": [
+      "cffb7150d2418ab96291774da4d8dca077478344",
+      "af12dfbb4b7668dadf63d9497e877df0dc514e43"
+    ]
+  },
+  "modelPayloads": [
+    [
+      "PARAGRAPH-PROMPT",
+      "DATASET:\n[STT]: 1\n[ĐỀ + ĐOẠN MẪU]: Bài tập viết đoạn văn: Hobbies\nĐoạn văn mẫu\n[ĐOẠN VĂN HỌC VIÊN]:\nMy hobby are music.\n\n[STT]: 2\n[ĐỀ + ĐOẠN MẪU]: Q2\n[ĐOẠN VĂN HỌC VIÊN]:\nI likes it.\n\n[CRITICAL RULE]: Return ONLY the JSON object. Every [STT] above must have exactly one item.",
+      "m"
+    ],
+    [
+      "IELTS-PROMPT",
+      [
+        {
+          "type": "text",
+          "text": "[TASK]: task2\n\n[ĐỀ BÀI]:\nDiscuss.\n\n[BÀI LÀM CỦA HỌC VIÊN] (3 từ; tối thiểu 250 từ → BÀI CÒN NGẮN):\nAn essay here."
+        }
+      ],
+      "m"
+    ],
+    [
+      "IELTS-PROMPT",
+      [
+        {
+          "type": "text",
+          "text": "[TASK]: task2\n\n[ĐỀ BÀI]:\nDiscuss.\n\n[BÀI LÀM CỦA HỌC VIÊN] (3 từ; tối thiểu 250 từ → BÀI CÒN NGẮN):\nAn essay here."
+        }
+      ],
+      "m"
+    ]
+  ],
+  "pinned": {
+    "prompts": {
+      "prompt_and_instruction_for_responses_api_2.txt": "38097cdc4fddd63f7c8472b8f2f796d57b67153c8e547fd8c631840f67be4d2f",
+      "prompt_paragraph.txt": "00369bfc8b5902cfbbfef3cf99e7928825b134fca1db2c4032232406ef145e31",
+      "prompt_ielts_writing.txt": "66f5fa8dfea0a15e9ed705db2d36c4229a10e198cfea5b896c7a52115f56d82b",
+      "prompt_ielts_chart.txt": "19d2011c7a74049f5ff5f5f7aa4e3f11d1f9f68c8f9804922b1dfa48d960dd03"
+    },
+    "serverFunctions": {
+      "callGrader": "14a73a9e2da79f8d951aafbbfc7f1821e73a1d0a02060368812b7413aba03577",
+      "parseGradedTable": "372f23fe64b5ecdd9a3813284a88e61a9a0a80bbd7bd2a9559731cc803b92494",
+      "gradeGroupWithOpenAI": "57eaf27a05da950ae1a2ca984b5d1a91b88e3fb2c2e4bc57d95af837be98cbc8",
+      "gradeItemsCached": "4fb4407bd41d0f67b95e7681adc4eaff04b93f84add3b334d2da69e0996d8243",
+      "callIeltsModel": "a9ae2e07606904ac7972adcba497b2ed01a4b653c2774ff85ef7d2e9bcad5af8"
+    }
+  }
+}
