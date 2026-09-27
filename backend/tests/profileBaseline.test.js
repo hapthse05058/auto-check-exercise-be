@@ -203,7 +203,10 @@ function functionSource(source, name) {
 }
 
 function pinnedSources() {
-  const server = fs.readFileSync(path.join(ROOT, "server.js"), "utf8");
+  // A Windows checkout (core.autocrlf) has CRLF; the snapshot is of LF text.
+  const server = fs
+    .readFileSync(path.join(ROOT, "server.js"), "utf8")
+    .replace(/\r\n/g, "\n");
   const files = [
     "prompt_and_instruction_for_responses_api_2.txt",
     "prompt_paragraph.txt",
