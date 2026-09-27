@@ -2946,7 +2946,9 @@ app.get("/teacher-info", verifyGoogleToken, async (req, res) => {
     }
 
     const teacherDoc = snapshot.docs[0];
-    res.json({ id: teacherDoc.id, ...teacherDoc.data() });
+    // Never send the password hash to the browser.
+    const { password, ...info } = teacherDoc.data();
+    res.json({ id: teacherDoc.id, ...info });
   } catch (error) {
     console.error("Error fetching teacher info:", error);
     res.status(500).json({ error: "Failed to fetch teacher info" });
@@ -3408,11 +3410,19 @@ app.patch("/classes/current-lesson", verifyGoogleToken, async (req, res) => {
  * Admin: list ALL classes (every teacher) with teacher names joined. Used by the
  * class-management screen when an admin is logged in. Missing `isActive` is
  * treated as active so pre-migration docs still show up as active.
+ *
+ * Only active classes by default (every class picker uses this);
+ * ?includeInactive=1 adds the closed ones, for the class-management filter.
  */
 app.get("/classes/all", verifyGoogleToken, requireAdmin, async (req, res) => {
   try {
+    const includeInactive = req.query.includeInactive === "1";
+    const classesRef = db.collection("classes");
     const [classSnap, teacherSnap] = await Promise.all([
-      db.collection("classes").where("isActive", "==", true).get(),
+      (includeInactive
+        ? classesRef
+        : classesRef.where("isActive", "==", true)
+      ).get(),
       db.collection("teachers").get(),
     ]);
     const teacherNameById = new Map();
