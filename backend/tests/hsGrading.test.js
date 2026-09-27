@@ -317,3 +317,14 @@ describe("batches, dedupe and the cache", () => {
     assert.equal(model.calls.length, 2);
   });
 });
+
+describe("lib/hs/hsAnswerKey.json", () => {
+  it("covers every item of the form, no unknown or duplicate key, B3 teacher-verified", async () => {
+    const {
+      formItems,
+      validateKey,
+    } = require("../scripts/buildHsAnswerKey.js");
+    const key = require("../lib/hs/hsAnswerKey.json");
+    assert.deepEqual(validateKey(key, await formItems()), []);
+  });
+});
