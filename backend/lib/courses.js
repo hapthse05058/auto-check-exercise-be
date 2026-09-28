@@ -64,6 +64,13 @@ function templateProfileOf(template) {
 }
 const LESSONS_MAX = 200;
 
+/**
+ * A template's code is what `classes.classType` stores and what the doc-table
+ * detection keys its overrides on (lib/doc/docTables.js), so it is fixed once
+ * created: lowercase letters, digits, "_" and "-".
+ */
+const TEMPLATE_CODE_RE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
+
 class CourseError extends Error {
   constructor(status, code, params) {
     super(code);
@@ -134,6 +141,45 @@ function validateCourseInput(body, { partial = false } = {}) {
   }
 
   if (input.gradingProfile !== undefined) {
+    if (!GRADING_PROFILES.includes(input.gradingProfile)) {
+      throw new CourseError(400, "invalid_grading_profile");
+    }
+    out.gradingProfile = input.gradingProfile;
+  }
+
+  return out;
+}
+
+/**
+ * Validates a template create (`partial: false`: code, name, gradingProfile)
+ * or edit (`partial: true`: name and/or gradingProfile — never the code).
+ * Returns only the fields that were given, normalized. Throws CourseError(400).
+ */
+function validateTemplateInput(body, { partial = false } = {}) {
+  const input = body && typeof body === "object" ? body : {};
+  const out = {};
+
+  if (!partial) {
+    const code = String(input.code ?? "")
+      .trim()
+      .toLowerCase();
+    if (!code) throw new CourseError(400, "code_required");
+    if (!TEMPLATE_CODE_RE.test(code)) {
+      throw new CourseError(400, "invalid_code");
+    }
+    out.code = code;
+  } else if (input.code !== undefined) {
+    throw new CourseError(400, "code_immutable");
+  }
+
+  if (input.name !== undefined || !partial) {
+    const name = String(input.name ?? "").trim();
+    if (!name) throw new CourseError(400, "name_required");
+    if (name.length > NAME_MAX) throw new CourseError(400, "name_too_long");
+    out.name = name;
+  }
+
+  if (input.gradingProfile !== undefined || !partial) {
     if (!GRADING_PROFILES.includes(input.gradingProfile)) {
       throw new CourseError(400, "invalid_grading_profile");
     }
@@ -298,20 +344,140 @@ function createCourses({ db, now = () => Date.now() }) {
     return course;
   }
 
+  const templateCol = () => db.collection("classType");
+
+  function describeTemplate(snap) {
+    const data = snap.data() || {};
+    return {
+      id: snap.id,
+      code: data.code || snap.id,
+      name: data.name || data.code || snap.id,
+      gradingProfile: templateProfileOf(data),
+      createdAt: data.createdAt ?? null,
+      updatedAt: data.updatedAt ?? null,
+    };
+  }
+
   /** Every doc template, each with the profile it belongs to, by name. */
   async function templates() {
-    const snap = await db.collection("classType").get();
+    const snap = await templateCol().get();
     return snap.docs
-      .map((d) => {
-        const data = d.data() || {};
-        return {
-          id: d.id,
-          code: data.code || d.id,
-          name: data.name || data.code || d.id,
-          gradingProfile: templateProfileOf(data),
-        };
-      })
+      .map(describeTemplate)
       .sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  }
+
+  async function getTemplate(templateId) {
+    if (!templateId || String(templateId).includes("/")) return null;
+    const snap = await templateCol().doc(String(templateId)).get();
+    return snap.exists ? describeTemplate(snap) : null;
+  }
+
+  /**
+   * Who uses a template: the classes whose `classType` is its code (active
+   * ones by name — they block a delete or a profile change) and the lessons
+   * that list it in `lesson.classType`.
+   */
+  async function templateUsage(code) {
+    const [classSnap, lessonSnap] = await Promise.all([
+      db.collection("classes").where("classType", "==", code).get(),
+      lessonCol().where("classType", "array-contains", code).get(),
+    ]);
+    const active = classSnap.docs
+      .filter((d) => d.data().isActive !== false)
+      .map((d) => d.data().name || d.id);
+    return {
+      classCount: classSnap.size,
+      activeClasses: active,
+      lessonCount: lessonSnap.size,
+    };
+  }
+
+  /** The templates with their usage — the admin's template screen. */
+  async function templatesWithUsage() {
+    const list = await templates();
+    return Promise.all(
+      list.map(async (template) => {
+        const usage = await templateUsage(template.code);
+        return {
+          ...template,
+          classCount: usage.classCount,
+          activeClassCount: usage.activeClasses.length,
+          lessonCount: usage.lessonCount,
+        };
+      }),
+    );
+  }
+
+  async function assertUniqueTemplate({ code, name }, exceptId) {
+    const snap = await templateCol().get();
+    for (const d of snap.docs) {
+      if (d.id === exceptId) continue;
+      const other = describeTemplate(d);
+      if (code && (d.id === code || other.code === code)) {
+        throw new CourseError(409, "duplicate_code");
+      }
+      if (name && other.name.trim().toLowerCase() === name.toLowerCase()) {
+        throw new CourseError(409, "duplicate_template_name");
+      }
+    }
+  }
+
+  /** A new template; its doc id is its code. */
+  async function createTemplate(body) {
+    const input = validateTemplateInput(body);
+    await assertUniqueTemplate(input);
+    const at = now();
+    await templateCol()
+      .doc(input.code)
+      .set({ ...input, createdAt: at, updatedAt: at });
+    return getTemplate(input.code);
+  }
+
+  /**
+   * Renames a template or moves it to another grading profile. The move is
+   * refused while an active class uses it: that class's course is of the old
+   * profile, and a template must belong to its class's course.
+   */
+  async function updateTemplate(templateId, body) {
+    const current = await getTemplate(templateId);
+    if (!current) throw new CourseError(404, "template_not_found");
+    const input = validateTemplateInput(body, { partial: true });
+    if (input.name === current.name) delete input.name;
+    if (input.gradingProfile === current.gradingProfile) {
+      delete input.gradingProfile;
+    }
+    if (Object.keys(input).length === 0) {
+      throw new CourseError(400, "nothing_to_update");
+    }
+    if (input.name)
+      await assertUniqueTemplate({ name: input.name }, current.id);
+    if (input.gradingProfile) {
+      const { activeClasses } = await templateUsage(current.code);
+      if (activeClasses.length) {
+        throw new CourseError(409, "template_in_use", {
+          classes: activeClasses,
+        });
+      }
+    }
+    await templateCol()
+      .doc(current.id)
+      .update({ ...input, updatedAt: now() });
+    return getTemplate(current.id);
+  }
+
+  /**
+   * Deletes a template no active class uses. Closed classes keep the code
+   * (shown as is); lessons keep listing it, which nothing reads any more.
+   */
+  async function deleteTemplate(templateId) {
+    const current = await getTemplate(templateId);
+    if (!current) throw new CourseError(404, "template_not_found");
+    const { activeClasses } = await templateUsage(current.code);
+    if (activeClasses.length) {
+      throw new CourseError(409, "template_in_use", { classes: activeClasses });
+    }
+    await templateCol().doc(current.id).delete();
+    return current;
   }
 
   /**
@@ -332,14 +498,19 @@ function createCourses({ db, now = () => Date.now() }) {
   return {
     allLessons,
     create,
+    createTemplate,
+    deleteTemplate,
     get,
+    getTemplate,
     lessonsForClass,
     lessonsForCourse,
     list,
     resolveForClass,
     resolveTemplate,
     templates,
+    templatesWithUsage,
     update,
+    updateTemplate,
   };
 }
 
@@ -355,4 +526,5 @@ module.exports = {
   sortLessons,
   templateProfileOf,
   validateCourseInput,
+  validateTemplateInput,
 };

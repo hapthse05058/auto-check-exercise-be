@@ -7,6 +7,7 @@ const {
   gradingProfileOf,
   sortLessons,
   validateCourseInput,
+  validateTemplateInput,
 } = require("../lib/courses.js");
 const { planMigration } = require("../scripts/migrate-courses.js");
 const { FakeFirestore } = require("./helpers/fakeFirestore.js");
@@ -366,5 +367,133 @@ describe("migration to courses", () => {
       existingCourses: new Set(["basic"]),
     });
     assert.deepEqual(plan, { courses: [], classUpdates: [] });
+  });
+});
+
+describe("doc templates", () => {
+  it("validates a template", () => {
+    const code = (body, opts) => {
+      try {
+        validateTemplateInput(body, opts);
+        return null;
+      } catch (error) {
+        return error.code;
+      }
+    };
+    const base = { code: "basic_x", name: "X", gradingProfile: "basic" };
+    assert.deepEqual(
+      validateTemplateInput({ ...base, code: " Basic_X ", name: " X " }),
+      base,
+    );
+    assert.equal(code({ ...base, code: "" }), "code_required");
+    assert.equal(code({ ...base, code: "có dấu" }), "invalid_code");
+    assert.equal(code({ ...base, code: "a/b" }), "invalid_code");
+    assert.equal(code({ ...base, name: "" }), "name_required");
+    assert.equal(
+      code({ ...base, gradingProfile: "x" }),
+      "invalid_grading_profile",
+    );
+    assert.equal(code({ code: "a" }, { partial: true }), "code_immutable");
+    assert.equal(code({ name: "Y" }, { partial: true }), null);
+  });
+
+  it("creates, edits and deletes a template", async () => {
+    const { courses, seed } = setup();
+    seed("classType/classType02", {
+      code: "basic_since_01042026",
+      name: "Mẫu tháng 4",
+    });
+
+    const created = await courses.createTemplate({
+      code: "ielts_v2",
+      name: "IELTS v2",
+      gradingProfile: "ielts",
+    });
+    assert.equal(created.id, "ielts_v2");
+    assert.equal(created.gradingProfile, "ielts");
+
+    await rejects(
+      courses.createTemplate({
+        code: "basic_since_01042026",
+        name: "Z",
+        gradingProfile: "basic",
+      }),
+      409,
+      "duplicate_code",
+    );
+    await rejects(
+      courses.createTemplate({
+        code: "other",
+        name: "mẫu tháng 4",
+        gradingProfile: "basic",
+      }),
+      409,
+      "duplicate_template_name",
+    );
+
+    const renamed = await courses.updateTemplate("ielts_v2", {
+      name: "IELTS 2026",
+      gradingProfile: "hs",
+    });
+    assert.equal(renamed.name, "IELTS 2026");
+    assert.equal(renamed.gradingProfile, "hs");
+    await rejects(
+      courses.updateTemplate("ielts_v2", { name: "IELTS 2026" }),
+      400,
+      "nothing_to_update",
+    );
+
+    await courses.deleteTemplate("ielts_v2");
+    assert.equal(await courses.getTemplate("ielts_v2"), null);
+    await rejects(
+      courses.deleteTemplate("ielts_v2"),
+      404,
+      "template_not_found",
+    );
+  });
+
+  it("keeps a template an active class uses", async () => {
+    const { courses, seed } = setup();
+    seed("classType/classType02", {
+      code: "basic_since_01042026",
+      name: "Mẫu tháng 4",
+    });
+    seed("classes/c1", {
+      name: "Lớp A",
+      classType: "basic_since_01042026",
+      isActive: true,
+    });
+    seed("classes/c2", {
+      name: "Lớp cũ",
+      classType: "basic_since_01042026",
+      isActive: false,
+    });
+
+    const [usage] = await courses.templatesWithUsage();
+    assert.equal(usage.classCount, 2);
+    assert.equal(usage.activeClassCount, 1);
+    assert.equal(usage.lessonCount, 4);
+
+    await rejects(
+      courses.updateTemplate("classType02", { gradingProfile: "ielts" }),
+      409,
+      "template_in_use",
+    );
+    await rejects(
+      courses.deleteTemplate("classType02"),
+      409,
+      "template_in_use",
+    );
+    // A rename is harmless: classes store the code.
+    await courses.updateTemplate("classType02", { name: "Mẫu 04/2026" });
+
+    // Only closed classes left: it can go.
+    seed("classes/c1", {
+      name: "Lớp A",
+      classType: "basic_since_01042026",
+      isActive: false,
+    });
+    await courses.deleteTemplate("classType02");
+    assert.deepEqual(await courses.templates(), []);
   });
 });

@@ -3345,6 +3345,63 @@ app.get("/class-types", verifyGoogleToken, async (req, res) => {
   }
 });
 
+// Doc templates (`classType`), managed by admins (lib/courses.js).
+
+/** The templates with how many classes and lessons use each. */
+app.get(
+  "/class-types/usage",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      res.json({ templates: await courses.templatesWithUsage() });
+    } catch (error) {
+      sendCourseError(res, error, "Error listing template usage:");
+    }
+  },
+);
+
+app.post("/class-types", verifyGoogleToken, requireAdmin, async (req, res) => {
+  try {
+    const template = await courses.createTemplate(req.body);
+    res.locals.auditDetail = `Tạo template ${template.name} (${template.code}, ${template.gradingProfile})`;
+    res.status(201).json({ template });
+  } catch (error) {
+    sendCourseError(res, error, "Error creating template:");
+  }
+});
+
+app.patch(
+  "/class-types/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const template = await courses.updateTemplate(req.params.id, req.body);
+      const changed = Object.keys(req.body || {}).join(", ");
+      res.locals.auditDetail = `Sửa template ${template.code}: ${changed}`;
+      res.json({ template });
+    } catch (error) {
+      sendCourseError(res, error, "Error updating template:");
+    }
+  },
+);
+
+app.delete(
+  "/class-types/:id",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const template = await courses.deleteTemplate(req.params.id);
+      res.locals.auditDetail = `Xóa template ${template.name} (${template.code})`;
+      res.json({ template });
+    } catch (error) {
+      sendCourseError(res, error, "Error deleting template:");
+    }
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Courses (lib/courses.js): a class is Basic or IELTS and follows one course.
 // Teachers read them; only admins create or edit them.

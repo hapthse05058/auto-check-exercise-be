@@ -93,6 +93,29 @@ const AUDIT_ACTIONS = [
     severity: "WARN",
   },
 
+  // --- doc templates (classType) ---
+  {
+    method: "POST",
+    pattern: /^\/class-types$/,
+    action: "template.create",
+    resourceType: "template",
+    severity: "WARN",
+  },
+  {
+    method: "PATCH",
+    pattern: /^\/class-types\/[^/]+$/,
+    action: "template.update",
+    resourceType: "template",
+    severity: "WARN",
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/class-types\/[^/]+$/,
+    action: "template.delete",
+    resourceType: "template",
+    severity: "CRITICAL",
+  },
+
   // --- students ---
   {
     method: "POST",
