@@ -39,6 +39,13 @@ const AUDIT_ACTIONS = [
     severity: "WARN",
   },
   {
+    method: "PATCH",
+    pattern: /^\/teacher-info\/preferences$/,
+    action: "teacher.updatePreferences",
+    resourceType: "teacher",
+    severity: "INFO",
+  },
+  {
     method: "DELETE",
     pattern: /^\/teachers\/[^/]+$/,
     action: "teacher.delete",
@@ -468,6 +475,7 @@ const TRAILING_ACTION_SEGMENTS = [
   "refresh",
   "all",
   "me",
+  "preferences",
   "read",
   "read-all",
   "devices",

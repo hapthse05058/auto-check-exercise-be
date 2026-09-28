@@ -57,6 +57,7 @@ const notifications = require("./lib/notifications.js");
 const pushDevices = require("./lib/pushDevices.js");
 const { createCloudQueue, createInlineQueue } = require("./lib/taskQueue.js");
 const teacherFilter = require("./lib/teacherFilter.js");
+const teacherPreferences = require("./lib/teacherPreferences.js");
 const teacherPoints = require("./lib/teacherPoints.js");
 const ieltsWriting = require("./lib/ieltsWriting.js");
 const hsGrading = require("./lib/hsGrading.js");
@@ -3034,6 +3035,36 @@ app.get("/teacher-info", verifyGoogleToken, async (req, res) => {
   } catch (error) {
     console.error("Error fetching teacher info:", error);
     res.status(500).json({ error: "Failed to fetch teacher info" });
+  }
+});
+
+/**
+ * Saves the signed-in teacher's own UI preferences (light/dark theme), so they
+ * follow the account to another device. Only the keys sent are written; GET
+ * /teacher-info returns them back as `preferences`.
+ */
+app.patch("/teacher-info/preferences", verifyGoogleToken, async (req, res) => {
+  const { preferences, error } = teacherPreferences.parsePreferences(req.body);
+  if (error) return res.status(400).json({ error });
+  try {
+    const snapshot = await db
+      .collection("teachers")
+      .where("gmail", "==", req.userEmail)
+      .limit(1)
+      .get();
+    if (snapshot.empty) {
+      return res.status(403).json({ error: "Teacher not found" });
+    }
+    const teacherDoc = snapshot.docs[0];
+    await teacherDoc.ref.update(
+      teacherPreferences.toFirestoreUpdate(preferences),
+    );
+    res.json({
+      preferences: { ...(teacherDoc.data().preferences || {}), ...preferences },
+    });
+  } catch (err) {
+    console.error("Error saving teacher preferences:", err);
+    res.status(500).json({ error: "Failed to save preferences" });
   }
 });
 
