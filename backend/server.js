@@ -1544,6 +1544,38 @@ app.get("/notifications", verifyGoogleToken, async (req, res) => {
   }
 });
 
+// The "all notifications" page. Filters are validated against fixed lists so a
+// typo answers 400 instead of silently returning everything.
+app.get("/notifications/search", verifyGoogleToken, async (req, res) => {
+  const {
+    status = "all",
+    category = "all",
+    severity = "all",
+    since = "",
+  } = req.query;
+  if (
+    !notifications.SEARCH_STATUSES.includes(status) ||
+    !notifications.SEARCH_CATEGORIES.includes(category) ||
+    !notifications.SEARCH_SEVERITIES.includes(severity) ||
+    (since && Number.isNaN(Date.parse(since)))
+  ) {
+    return res.status(400).json({ error: "invalid_filter" });
+  }
+  try {
+    const result = await notifications.searchNotifications(db, {
+      email: req.userEmail,
+      status,
+      category,
+      severity,
+      since: since || null,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error("[NOTIFY] search failed:", err.message);
+    return res.status(500).json({ error: "notifications_search_failed" });
+  }
+});
+
 app.post("/notifications/read-all", verifyGoogleToken, async (req, res) => {
   try {
     const count = await notifications.markAllRead(db, admin, req.userEmail);

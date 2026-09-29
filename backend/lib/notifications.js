@@ -46,6 +46,20 @@ const NOTIFICATION_PAGE_LIMIT = 50;
 /** Rows returned to the client by default. */
 const NOTIFICATION_LIST_LIMIT = 50;
 
+/** Rows scanned by the notifications page (searchNotifications). With the TTL
+ *  a viewer's whole history fits well inside this; `truncated` says when not. */
+const NOTIFICATION_SEARCH_SCAN_LIMIT = 500;
+
+/** Filter values the notifications page may send. */
+const SEARCH_STATUSES = ["all", "unread", "read"];
+const SEARCH_CATEGORIES = ["all", "grading", "system"];
+const SEARCH_SEVERITIES = ["all", "INFO", "WARN", "CRITICAL"];
+
+/** "grading.jobDone" → "grading"; everything else (deepseek.*) → "system". */
+function categoryOf(type) {
+  return String(type || "").startsWith("grading.") ? "grading" : "system";
+}
+
 /**
  * Deterministic notification id.
  *
@@ -128,6 +142,7 @@ function toClient(snap, email) {
   return {
     id: snap.id,
     type: data.type || null,
+    category: categoryOf(data.type),
     severity: data.severity || "INFO",
     title: data.title || "",
     body: data.body || "",
@@ -179,6 +194,60 @@ async function listNotifications(
     results: visible.slice(0, limit || NOTIFICATION_LIST_LIMIT),
     unreadCount,
     total: all.length,
+  };
+}
+
+/**
+ * The notifications page: everything addressed to `email`, filtered, newest
+ * first.
+ *
+ * Scans the viewer's newest NOTIFICATION_SEARCH_SCAN_LIMIT rows with the same
+ * query (and index) as listNotifications, then filters in memory. Firestore
+ * cannot filter "readBy does not contain", and the other filters would each
+ * need another composite index; with a 30-day TTL the scan already covers a
+ * viewer's whole history. `truncated` is true when it may not have.
+ *
+ * `since` is an ISO timestamp (the page works out "today" in the viewer's own
+ * timezone); null means no time filter.
+ */
+async function searchNotifications(
+  db,
+  {
+    email,
+    status = "all",
+    category = "all",
+    severity = "all",
+    since = null,
+  } = {},
+) {
+  const viewer = String(email || "").toLowerCase();
+  if (!viewer) return { results: [], truncated: false };
+
+  const snap = await db
+    .collection(COLLECTION)
+    .where("recipients", "array-contains", viewer)
+    .orderBy("createdAt", "desc")
+    .limit(NOTIFICATION_SEARCH_SCAN_LIMIT)
+    .get();
+
+  const sinceMs = since ? Date.parse(since) : null;
+  const results = snap.docs
+    .map((doc) => toClient(doc, viewer))
+    .filter((item) =>
+      status === "unread" ? !item.read : status === "read" ? item.read : true,
+    )
+    .filter((item) => category === "all" || item.category === category)
+    .filter((item) => severity === "all" || item.severity === severity)
+    .filter(
+      (item) =>
+        sinceMs === null ||
+        (item.createdAt !== null && Date.parse(item.createdAt) >= sinceMs),
+    )
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  return {
+    results,
+    truncated: snap.docs.length >= NOTIFICATION_SEARCH_SCAN_LIMIT,
   };
 }
 
@@ -243,8 +312,14 @@ module.exports = {
   NOTIFICATION_LIST_LIMIT,
   NOTIFICATION_RETENTION_DAYS,
   NOTIFICATION_PAGE_LIMIT,
+  NOTIFICATION_SEARCH_SCAN_LIMIT,
+  SEARCH_CATEGORIES,
+  SEARCH_SEVERITIES,
+  SEARCH_STATUSES,
+  categoryOf,
   createNotification,
   listNotifications,
+  searchNotifications,
   markAllRead,
   markRead,
   notificationId,
