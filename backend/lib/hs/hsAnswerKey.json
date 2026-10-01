@@ -1029,10 +1029,10 @@
     },
     "hsLesson09|ex4|my classmates from the international boarding school always help me. the backpack with colorful art designs contains a calculator, and the photos on the chalkboard inspire every student.": {
       "answers": [
-        "Nc: classmates, school, backpack, designs, calculator, photos, chalkboard, student; Dịch: Các bạn cùng lớp của tôi từ trường nội trú quốc tế luôn giúp đỡ tôi. Chiếc ba lô với các họa tiết nghệ thuật đầy màu sắc chứa một chiếc máy tính cầm tay, và những bức ảnh trên bảng đen truyền cảm hứng cho mọi học sinh."
+        "Nc: classmates, backpack, photos; Dịch: Các bạn cùng lớp của tôi từ trường nội trú quốc tế luôn giúp đỡ tôi. Chiếc ba lô với các họa tiết nghệ thuật đầy màu sắc chứa một chiếc máy tính cầm tay, và những bức ảnh trên bảng đen truyền cảm hứng cho mọi học sinh."
       ],
-      "source": "ai_draft",
-      "note": "Nc gồm danh từ chính của các cụm danh từ, kể cả cụm giới từ bổ nghĩa."
+      "source": "teacher_verified",
+      "note": "Theo GV: Nc CHỈ gồm classmates, backpack, photos (Nc của 3 cụm danh từ làm chủ ngữ). Không gạch school, designs, calculator, chalkboard, student."
     },
     "hsLesson10|ex1|tôi có một cái cốc trong bếp.": {
       "answers": ["I have a cup in the kitchen."],
@@ -1805,25 +1805,29 @@
       "source": "ai_draft"
     },
     "hsLesson18|ex2|\"she is a very beautiful girl.\" beautiful do từ nào sinh ra? →": {
-      "answers": ["beauty"],
-      "source": "ai_draft"
+      "answers": ["girl"],
+      "source": "teacher_verified",
+      "note": "Theo GV: Beautiful do từ girl sinh ra (N → Adj). Sai thì giải thích đúng dạng này."
     },
     "hsLesson18|ex2|\"he answered all the questions correctly.\" correctly do từ nào sinh ra? →": {
-      "answers": ["correct"],
-      "source": "ai_draft"
+      "answers": ["answered"],
+      "source": "teacher_verified",
+      "note": "Theo GV: Correctly do từ answered sinh ra (V → Adv). Sai thì giải thích đúng dạng này."
     },
     "hsLesson18|ex2|\"my brother is a very creative student.\" creative do từ nào sinh ra? →": {
-      "answers": ["create"],
-      "source": "ai_draft"
+      "answers": ["student"],
+      "source": "teacher_verified",
+      "note": "Theo GV: Creative do từ student sinh ra (N → Adj). Sai thì giải thích đúng dạng này."
     },
     "hsLesson18|ex2|\"she drives carefully on the street.\" carefully do từ nào sinh ra? →": {
-      "answers": ["careful", "care"],
-      "source": "ai_draft",
-      "note": "Nếu hỏi từ trực tiếp: careful; nếu hỏi từ gốc: care."
+      "answers": ["drives"],
+      "source": "teacher_verified",
+      "note": "Theo GV: Carefully do từ drives sinh ra (V → Adv). Sai thì giải thích đúng dạng này."
     },
     "hsLesson18|ex2|\"that was a dangerous game.\" dangerous do từ nào sinh ra? →": {
-      "answers": ["danger"],
-      "source": "ai_draft"
+      "answers": ["game"],
+      "source": "teacher_verified",
+      "note": "Theo GV: Dangerous do từ game sinh ra (N → Adj). Sai thì giải thích đúng dạng này."
     },
     "hsLesson18|ex3|1. runs / quickly / he ⇒ .": {
       "answers": ["He runs quickly."],

@@ -103,11 +103,33 @@ function cacheKey({ promptVersion, model, item, entry }) {
   );
 }
 
+/**
+ * The rearrange-the-words exercises (Buổi 05–08, 17, 18, 20): the teachers
+ * want the Vietnamese meaning of the sentence written with the correction.
+ * Not the "Sắp xếp từ vào âm" sound sorting — that is kind "sort".
+ */
+const REARRANGE =
+  /\b(re)?arrange the (following )?words\b|\bput the words in the correct order\b/i;
+const wantsTranslation = (item) =>
+  item.kind === "line" && REARRANGE.test(String(item.instruction || ""));
+
+/**
+ * The lesson's number in course order: hsLesson09 → 9; the two reviews come
+ * after Buổi 24. Null when the id is not an HS lesson.
+ */
+function lessonNumber(lessonId) {
+  const lesson = /^hsLesson(\d+)$/.exec(String(lessonId || ""));
+  if (lesson) return Number(lesson[1]);
+  const review = /^hsReview(\d+)$/.exec(String(lessonId || ""));
+  return review ? 24 + Number(review[1]) : null;
+}
+
 /** What the model sees of one item (the exercise's instruction is shared). */
 function itemPayload(id, item, entry) {
   return {
     id,
     kind: item.kind,
+    ...(wantsTranslation(item) ? { translate: true } : {}),
     prompt: item.prompt,
     ...(item.hint ? { hint: item.hint } : {}),
     ...(item.labels ? { labels: item.labels } : {}),
@@ -127,8 +149,10 @@ function buildBatchContent(batch) {
     const exKey = `${item.lessonId || ""}|${item.exerciseId}`;
     let ex = exercises.find((e) => e.key === exKey);
     if (!ex) {
+      const lesson = lessonNumber(item.lessonId);
       ex = {
         key: exKey,
+        ...(lesson ? { lesson } : {}),
         exercise: item.exerciseId,
         instruction: String(item.instruction || "").slice(0, 600),
         items: [],
@@ -167,9 +191,10 @@ const text = (value) => {
 
 /**
  * The verdicts of a batch answer, keyed by id — or null when the answer is
- * not complete and valid (then NONE of it is used).
+ * not complete and valid (then NONE of it is used). An id in `translate`
+ * must come with its Vietnamese "translation", right or wrong.
  */
-function parseBatchAnswer(raw, ids) {
+function parseBatchAnswer(raw, ids, translate = new Set()) {
   const parsed = extractJson(raw);
   const list = Array.isArray(parsed?.items) ? parsed.items : null;
   if (!list || list.length !== ids.length) return null;
@@ -188,6 +213,11 @@ function parseBatchAnswer(raw, ids) {
       if (expected) verdict.expected = expected;
       const explanation = text(entry.explanation);
       if (explanation) verdict.explanation = explanation;
+    }
+    if (translate.has(id)) {
+      const translation = text(entry.translation);
+      if (!translation) return null;
+      verdict.translation = translation;
     }
     out.set(id, verdict);
   }
@@ -221,6 +251,9 @@ function createHsGrader({
     const instruction = readPrompt();
     const content = buildBatchContent(batch);
     const ids = batch.map((b) => b.id);
+    const translate = new Set(
+      batch.filter((b) => wantsTranslation(b.item)).map((b) => b.id),
+    );
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       let raw;
       try {
@@ -229,7 +262,7 @@ function createHsGrader({
         log(`${requestId || "-"} batch attempt ${attempt}: ${err.message}`);
         continue;
       }
-      const verdicts = parseBatchAnswer(raw, ids);
+      const verdicts = parseBatchAnswer(raw, ids, translate);
       if (verdicts) return verdicts;
       log(`${requestId || "-"} batch attempt ${attempt}: invalid answer`);
     }
@@ -328,6 +361,8 @@ module.exports = {
   createHsGrader,
   decideFromKey,
   hsItemIdentity,
+  lessonNumber,
   normalizeAnswer,
   parseBatchAnswer,
+  wantsTranslation,
 };

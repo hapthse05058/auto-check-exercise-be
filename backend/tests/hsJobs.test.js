@@ -79,7 +79,7 @@ describe("HS grading job", () => {
     assert.equal(h.docsApi.calls.applied, 2);
 
     // After the form's leftover "____", like the teachers' own ticks.
-    assert.match(b19Line(h, "docA", 0), /on the table\.[_ ]*✅Well-done!\n$/);
+    assert.match(b19Line(h, "docA", 0), /on the table\.[_ ]*✅\n$/);
     // A wrong one: a soft line break (stays in the list item), then the fix.
     assert.ok(
       b19Line(h, "docA", 2).endsWith(
@@ -94,7 +94,7 @@ describe("HS grading job", () => {
           "The cat is sleeping",
         ),
       ),
-      /Well-done|Câu đúng/,
+      /✅|Câu đúng/,
     );
   });
 
@@ -141,7 +141,7 @@ describe("HS grading job", () => {
     await h.drain();
     assert.equal(h.job(jobId).written, 1);
     assert.match(b19Line(h, "docA", 0), / ✅\n$/); // the teacher's, alone
-    assert.match(b19Line(h, "docA", 1), /✅Well-done!/);
+    assert.match(b19Line(h, "docA", 1), /✅\n$/);
   });
 
   it("skips (no charge) a doc the teacher fully corrected meanwhile", async () => {
@@ -168,7 +168,7 @@ describe("HS grading job", () => {
     assert.equal(h.points(), 9);
     assert.equal(h.docsApi.calls.applied, 1);
     // Exactly one correction per item.
-    assert.equal(b19Line(h, "docA", 0).split("Well-done").length, 2);
+    assert.equal(b19Line(h, "docA", 0).split("✅").length, 2);
   });
 
   it("leaves items the grader could not grade unwritten, with a warning", async () => {
@@ -177,8 +177,8 @@ describe("HS grading job", () => {
       item.prompt.startsWith("There is a lamp") ? null : { correct: true };
     const jobId = await runJob(h);
     assert.ok(warningCodes(h, jobId).includes("hsAiInvalid"));
-    assert.doesNotMatch(b19Line(h, "docA", 0), /Well-done|Câu đúng/);
-    assert.match(b19Line(h, "docA", 1), /✅Well-done!/);
+    assert.doesNotMatch(b19Line(h, "docA", 0), /✅|Câu đúng/);
+    assert.match(b19Line(h, "docA", 1), /✅\n$/);
   });
 
   it("is refused up front when the HS model is not configured", async () => {

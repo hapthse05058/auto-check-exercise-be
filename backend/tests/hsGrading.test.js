@@ -8,12 +8,15 @@ const { describe, it } = require("node:test");
 
 const {
   BATCH_SIZE,
+  buildBatchContent,
   CACHE_COLLECTION,
   createHsGrader,
   decideFromKey,
   hsItemIdentity,
+  lessonNumber,
   normalizeAnswer,
   parseBatchAnswer,
+  wantsTranslation,
 } = require("../lib/hsGrading.js");
 const { FakeFirestore } = require("./helpers/fakeFirestore.js");
 
@@ -207,6 +210,33 @@ describe("model answers: complete and valid, or not used at all", () => {
     }
   });
 
+  it("an item to translate needs its translation, right or wrong", () => {
+    const answer = (extra) =>
+      JSON.stringify({
+        items: [
+          { id: "1", correct: true, ...extra },
+          { id: "2", correct: true },
+        ],
+      });
+    assert.equal(
+      parseBatchAnswer(answer({}), ["1", "2"], new Set(["1"])),
+      null,
+    );
+    assert.deepEqual(
+      parseBatchAnswer(
+        answer({ translation: "Anh ấy chạy nhanh." }),
+        ["1", "2"],
+        new Set(["1"]),
+      ).get("1"),
+      { correct: true, translation: "Anh ấy chạy nhanh." },
+    );
+    // Not asked for → not kept.
+    assert.deepEqual(
+      parseBatchAnswer(answer({ translation: "x" }), ["1", "2"]).get("1"),
+      { correct: true },
+    );
+  });
+
   it("malformed first answer → the second one is used, whole", async () => {
     const model = fakeModel((ids, attempt) =>
       attempt === 1
@@ -349,5 +379,52 @@ describe("lib/hs/hsAnswerKey.json", () => {
     } = require("../scripts/buildHsAnswerKey.js");
     const key = require("../lib/hs/hsAnswerKey.json");
     assert.deepEqual(validateKey(key, await formItems()), []);
+  });
+});
+
+describe("what the model is told about the class", () => {
+  it("each exercise carries its lesson number (reviews after Buổi 24)", () => {
+    assert.equal(lessonNumber("hsLesson09"), 9);
+    assert.equal(lessonNumber("hsReview1"), 25);
+    assert.equal(lessonNumber("lesson5"), null);
+    const content = JSON.parse(
+      buildBatchContent([{ id: "1", item: line("a", "x"), entry: null }]),
+    );
+    assert.equal(content.exercises[0].lesson, 19);
+  });
+
+  it("only the rearrange-the-words exercises ask for a translation", () => {
+    const rearrange = (instruction, kind = "line") => ({
+      kind,
+      instruction,
+    });
+    for (const yes of [
+      "Exercise 2: Rearrange the words to make correct sentences.",
+      "Exercise 3: Arrange the following words into complete sentences.",
+      "Exercise 3: Put the words in the correct order to make a complete sentence.",
+    ]) {
+      assert.ok(wantsTranslation(rearrange(yes)), yes);
+    }
+    assert.ok(
+      !wantsTranslation(rearrange("There is a mistake in each sentence.")),
+    );
+    assert.ok(
+      !wantsTranslation(
+        rearrange("Exercise 2: Sort the words into the correct sound.", "sort"),
+      ),
+    );
+    const content = JSON.parse(
+      buildBatchContent([
+        {
+          id: "1",
+          item: {
+            ...line("a", "x"),
+            instruction: "Rearrange the words to make correct sentences.",
+          },
+          entry: null,
+        },
+      ]),
+    );
+    assert.equal(content.exercises[0].items[0].translate, true);
   });
 });

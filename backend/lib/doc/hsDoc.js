@@ -25,7 +25,7 @@
  * by item, so a teacher's partial grading is kept byte for byte.
  *
  * Writing: the correction goes right after the answer, the way the class's
- * teachers do it — " ✅Well-done!" at the end of the line, or a soft line
+ * teachers do it — " ✅" at the end of the line, or a soft line
  * break and "Câu đúng: …" — in red; for the two tables that have a "Chữa bài"
  * column (Exercise 1 and the Buổi 01 S/V/O table) into that cell. Every piece
  * of text the AI inserts is wrapped in a named range whose name carries a
@@ -1082,11 +1082,16 @@ const stripParens = (text) =>
 
 /**
  * The text written for one graded item. `result` is the grader's verdict:
- * {correct, corrected?, explanation?, expected?}. `**…**` marks bold.
+ * {correct, corrected?, explanation?, expected?, translation?}. `**…**`
+ * marks bold. A right answer gets the tick alone — the teachers asked for no
+ * "Well-done!", so a page with many mistakes is not a wall of red words.
  *
  *   inline (a blank in a passage)  "✅"  |  " ❌ → hall"
- *   cell   (the "Chữa bài" column) "✅Well-done!" | "Câu đúng: … (…)"
- *   append (end of the answer)     " ✅Well-done!" | ⏎ "Câu đúng: … (…)"
+ *   cell   (the "Chữa bài" column) "✅" | "Câu đúng: … (…)"
+ *   append (end of the answer)     " ✅" | ⏎ "Câu đúng: … (…)"
+ *
+ * `translation` (the rearrange-the-words exercises) follows either one:
+ * " ✅ Dịch: …" | ⏎ "Câu đúng: … (…) Dịch: …".
  */
 export function formatHsFeedback(item, result) {
   const mode = item.target?.mode;
@@ -1102,11 +1107,15 @@ export function formatHsFeedback(item, result) {
     const expected = oneLine(result.expected || result.corrected);
     return expected ? ` ❌ → **${expected}**` : " ❌";
   }
-  if (result.correct) return mode === "cell" ? "✅Well-done!" : " ✅Well-done!";
+  const translation = oneLine(result.translation);
+  const meaning = translation ? ` Dịch: ${translation}` : "";
+  if (result.correct) return mode === "cell" ? `✅${meaning}` : ` ✅${meaning}`;
   const corrected = oneLine(result.corrected);
   const body = corrected ? `Câu đúng: ${corrected}${why}` : explanation;
-  if (!body) return mode === "cell" ? "❌" : " ❌";
-  return mode === "cell" ? body : `${LINE_BREAK}${body}`;
+  if (!body) return mode === "cell" ? `❌${meaning}` : ` ❌${meaning}`;
+  return mode === "cell"
+    ? `${body}${meaning}`
+    : `${LINE_BREAK}${body}${meaning}`;
 }
 
 /** Name of the named range around one inserted text. */

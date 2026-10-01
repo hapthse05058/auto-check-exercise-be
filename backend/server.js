@@ -552,7 +552,9 @@ const HS_AI_JSON_MODE = ["true", "1", "on"].includes(
 const HS_AI_THINKING = String(process.env.HS_AI_THINKING || "")
   .trim()
   .toLowerCase();
-const HS_PROMPT_VERSION = process.env.HS_PROMPT_VERSION || "v1";
+// v2 (2026-10-01): teachers' feedback — "V nguyên thể", no NTNS before Buổi 14,
+// Vietnamese meaning for the rearrange exercises.
+const HS_PROMPT_VERSION = process.env.HS_PROMPT_VERSION || "v2";
 const hsConfigured = Boolean(HS_AI_API_KEY && HS_AI_MODEL);
 if (!hsConfigured) {
   console.warn("WARNING: HS_AI_* / AI_* not set. HS grading is off.");
