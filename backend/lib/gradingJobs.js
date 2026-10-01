@@ -1306,19 +1306,28 @@ function createGradingJobs(deps) {
         if (planned.finish) return finishDoc(jobId, docId, planned.finish);
         requests = planned.requests;
       } else {
-        const { rows } = isIelts(job)
+        // IELTS: the old-layout tables go through docWriter unchanged; the
+        // teachers' 2-column tables are written below their heading, in a
+        // named range (lib/doc/ieltsDoc.js).
+        const ielts = isIelts(job);
+        const { rows } = ielts
           ? lib.collectIeltsRows(tab)
           : lib.collectExerciseRows(tab, job.classType);
+        const filled = ielts
+          ? lib.ieltsTargetsAlreadyFilled(record.gradingResults, rows)
+          : lib.targetsAlreadyFilled(record.gradingResults, rows);
 
         // Only the cells this job is about to write matter. A doc-level check
         // would refuse to write a paragraph into a doc whose sentences were
         // graded long ago — exactly the doc prepare picked it for.
-        if (lib.targetsAlreadyFilled(record.gradingResults, rows)) {
+        if (filled) {
           // "writing" means an earlier attempt may have written and died
           // before recording it. Bill it only if the text is provably ours.
           if (
             status === "writing" &&
-            lib.matchesOwnFeedback(record.gradingResults, rows)
+            (ielts
+              ? lib.matchesOwnIeltsFeedback(record.gradingResults, rows, tab)
+              : lib.matchesOwnFeedback(record.gradingResults, rows))
           ) {
             return chargeAndFinish(jobId, job, docId);
           }
@@ -1335,11 +1344,9 @@ function createGradingJobs(deps) {
           });
         }
 
-        requests = lib.buildFeedbackRequests(
-          record.gradingResults,
-          rows,
-          tab.tabProperties.tabId,
-        );
+        requests = (
+          ielts ? lib.buildIeltsFeedbackRequests : lib.buildFeedbackRequests
+        )(record.gradingResults, rows, tab.tabProperties.tabId);
       }
       if (!requests.length) {
         return finishDoc(jobId, docId, {
