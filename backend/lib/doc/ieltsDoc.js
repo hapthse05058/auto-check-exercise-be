@@ -23,10 +23,17 @@
  *   | Bài viết của học viên (Task 1)  | GV chữa/nhận xét            |
  *   | <student's writing>             | <empty: AI writes below it> |
  *
- * The prompt and chart are the paragraphs right ABOVE the table (after the
+ * Or the lesson's own writing table, kept as it is, with a last row added
+ * ("below"):
+ *
+ *   | Intro: <student>                     |
+ *   | Overview: <student>                  |
+ *   | GV chữa/nhận xét (Đoạn văn)          |  <empty: AI writes below it>
+ *
+ * In both, the prompt and chart are the paragraphs right ABOVE the table (after the
  * "Exercise N" line). The task is the heading's "(Task 1)", "(Task 2)" or
- * "(Đoạn văn)"; without one it is guessed from the exercise line. The AI
- * writes just below the "GV chữa/nhận xét" heading, wrapped in a named range
+ * "(Đoạn văn)" (on either heading); without one it is guessed from the
+ * exercise line. The AI writes just below the "GV chữa/nhận xét" heading, wrapped in a named range
  * (IELTS_NAMED_RANGE_PREFIX) so "Xóa feedback" removes exactly what it wrote
  * and never the heading or a teacher's notes. Old-layout tables keep the
  * docWriter path byte for byte (buildIeltsFeedbackRequests delegates).
@@ -54,9 +61,17 @@ const ESSAY_LABEL =
   /^\s*b[aà]i\s*l[aà]m(\s*c[uủ]a\s*h[oọ]c\s*vi[eê]n)?\s*:?\s*$/i;
 const FEEDBACK_LABEL = /^\s*(gv\s*(ch[uữ]a|s[uử]a)|ch[uữ]a\s*b[aà]i)\s*:?\s*$/i;
 
-/** Layout of an entry: the old 3-row template or the teachers' 2 columns. */
+/**
+ * Layout of an entry: the old 3-row template, the teachers' 2 columns, or
+ * the lesson's own writing table with a "GV chữa/nhận xét" row added at its
+ * bottom ("below").
+ */
 export const LAYOUT_ROWS = "rows";
 export const LAYOUT_COLUMNS = "columns";
+export const LAYOUT_BELOW = "below";
+/** Layouts whose feedback goes below a heading, in a named range. */
+const headedLayout = (entry) =>
+  entry?.layout === LAYOUT_COLUMNS || entry?.layout === LAYOUT_BELOW;
 
 /**
  * Heading of the student's cell in the 2-column layout, and whatever follows
@@ -73,6 +88,9 @@ const COLUMN_FEEDBACK_HEAD =
 const EXERCISE_LINE = /^\s*(exercise|ex\.?|b[aà]i\s*t[aậ]p)\s*\d+/iu;
 /** The exercise asks for a whole essay (Task 1 / Task 2), not a paragraph. */
 const FULL_ESSAY = /ho[aà]n\s*ch[iỉ]nh|full\s*essay|complete\s*essay/iu;
+/** A line holding only a part label of the template: "Intro:", "Body 1:". */
+const PART_LABEL_LINE =
+  /^\s*(intro(duction)?|overview|body\s*\d*|conclusion|m[ởo]\s*b[aà]i|k[ếe]t\s*b[aà]i|th[âa]n\s*b[aà]i\s*\d*)\s*:?\s*$/iu;
 /** Prompt text kept from above a table: enough for any IELTS prompt. */
 const MAX_COLUMN_PROMPT = 4000;
 
@@ -212,7 +230,8 @@ function resolveColumnRow(row) {
     if (!essayHead || !fbHead) continue;
     const essayMatch = COLUMN_ESSAY_HEAD.exec(essayHead.text.normalize("NFC"));
     if (!essayMatch) continue;
-    if (!COLUMN_FEEDBACK_HEAD.test(fbHead.text.normalize("NFC"))) continue;
+    const fbHeading = feedbackHeading(fbHead.text);
+    if (!fbHeading) continue;
 
     const last = fbHead.block.paragraph.elements?.at(-1);
     const text = last?.textRun?.content;
@@ -222,9 +241,10 @@ function resolveColumnRow(row) {
     // line is the student's first words, typed right after it.
     const rest = essayMatch.groups.rest || "";
     const wrapped = COLUMN_ESSAY_REST.exec(rest);
-    const taskLabel = wrapped ? taskOf(wrapped.groups.task) : null;
+    const essayTask = wrapped ? taskOf(wrapped.groups.task) : null;
     const firstLine =
-      taskLabel || !rest.trim() ? "" : rest.replace(/^[\s:–—-]+/u, "");
+      essayTask || !rest.trim() ? "" : rest.replace(/^[\s:–—-]+/u, "");
+    const taskLabel = essayTask || fbHeading.taskLabel;
     const essayLines = getCellLines(cells[i]).slice(1);
     const feedbackLines = getCellLines(cells[i + 1]).slice(1);
     return {
@@ -239,10 +259,63 @@ function resolveColumnRow(row) {
   return null;
 }
 
-/** A table the student writes in: either IELTS layout. */
+/**
+ * A feedback heading — "GV chữa/nhận xét", optionally naming the task:
+ * "GV chữa/nhận xét (Task 1)". Null when the text is not one.
+ */
+function feedbackHeading(text) {
+  const t = String(text ?? "").normalize("NFC");
+  const m = /^(?<head>.*?)\s*[(–—-]\s*(?<task>[^()]*?)\s*\)?\s*:?\s*$/u.exec(t);
+  const task = m ? taskOf(m.groups.task) : null;
+  if (task && COLUMN_FEEDBACK_HEAD.test(m.groups.head)) {
+    return { taskLabel: task };
+  }
+  return COLUMN_FEEDBACK_HEAD.test(t) ? { taskLabel: null } : null;
+}
+
+/**
+ * Reads a table as the "below" layout: the lesson's own writing rows (Intro,
+ * Overview, … or one cell), then a last row headed "GV chữa/nhận xét" — the
+ * AI writes below that heading. The writing is every row above it.
+ *
+ * @returns {{rowIdx, essayCell, fbCell, essayText, feedbackText, taskLabel,
+ *   insertAt}|null}
+ */
+function resolveBelowTable(table) {
+  const rows = table?.tableRows || [];
+  for (let r = rows.length - 1; r >= 1; r--) {
+    const cell = (rows[r].tableCells || []).find((c) => headingOf(c));
+    if (!cell) continue; // an empty trailing row
+    const head = headingOf(cell);
+    const heading = feedbackHeading(head.text);
+    if (!heading) return null;
+    const last = head.block.paragraph.elements?.at(-1);
+    const text = last?.textRun?.content;
+    if (last?.endIndex === undefined || !text?.endsWith("\n")) return null;
+    // Rows and cells above, in reading order; a merged cell's placeholders
+    // hold nothing, so they add nothing.
+    const essayText = rows
+      .slice(0, r)
+      .flatMap((row) => (row.tableCells || []).flatMap((c) => getCellLines(c)))
+      .join("\n");
+    return {
+      rowIdx: r,
+      essayCell: rows[0].tableCells?.[0] || null,
+      fbCell: cell,
+      essayText,
+      feedbackText: getCellLines(cell).slice(1).join("\n"),
+      taskLabel: heading.taskLabel,
+      insertAt: last.endIndex - 1,
+    };
+  }
+  return null;
+}
+
+/** A table the student writes in: any IELTS layout. */
 const isWritingTable = (table) =>
   resolveIeltsTable(table) !== null ||
-  (table?.tableRows || []).some((row) => resolveColumnRow(row));
+  (table?.tableRows || []).some((row) => resolveColumnRow(row)) ||
+  resolveBelowTable(table) !== null;
 
 /** Vietnamese letters: a hint or an instruction, never an IELTS prompt. */
 const VIETNAMESE =
@@ -361,11 +434,7 @@ function allTabs(tabs, out = []) {
 }
 
 const hasIeltsTable = (tab) =>
-  listTables(tab).some(
-    ({ table }) =>
-      resolveIeltsTable(table) !== null ||
-      (table.tableRows || []).some((row) => resolveColumnRow(row)),
-  );
+  listTables(tab).some(({ table }) => isWritingTable(table));
 
 const WRITING_TAB = /^writing\s*[-–:]?\s*bu[oổ]i\s*0*(\d+)$/u;
 /** "Buổi 12", and a lesson tab named for its topic: "Buổi 22 (Maps)". */
@@ -452,9 +521,11 @@ export function collectIeltsRows(tab) {
       });
       return;
     }
+    let columns = 0;
     (table.tableRows || []).forEach((row, rowIdx) => {
       const column = resolveColumnRow(row);
       if (!column) return;
+      columns++;
       const above = promptAbove(body, at);
       rows.push({
         tableIdx,
@@ -477,6 +548,29 @@ export function collectIeltsRows(tab) {
         insertAt: column.insertAt,
       });
     });
+    if (columns) return;
+    const below = resolveBelowTable(table);
+    if (!below) return;
+    const above = promptAbove(body, at);
+    rows.push({
+      tableIdx,
+      rowIdx: below.rowIdx,
+      kind: KIND_IELTS_WRITING,
+      layout: LAYOUT_BELOW,
+      row: table.tableRows[below.rowIdx],
+      qCell: below.essayCell,
+      fbCell: below.fbCell,
+      numberCell: null,
+      isOverall: false,
+      overallCell: null,
+      task: below.taskLabel || guessColumnTask(above.exercise, above.imageIds),
+      taskFromLabel: Boolean(below.taskLabel),
+      promptText: above.promptText,
+      imageIds: above.imageIds,
+      essayText: below.essayText,
+      feedbackText: below.feedbackText,
+      insertAt: below.insertAt,
+    });
   });
   return { rows, invalidTables };
 }
@@ -496,9 +590,16 @@ export function selectIeltsItemsToGrade(rows) {
     if (entry.kind !== KIND_IELTS_WRITING) continue;
     // The 2-column layout: its cells start with a heading, which is neither
     // the student's writing nor anyone's feedback.
-    const columns = entry.layout === LAYOUT_COLUMNS;
+    const columns = headedLayout(entry);
     const essay = (columns ? entry.essayText : getCellText(entry.qCell)).trim();
     if (!essay) continue;
+    // The template's own part labels ("Intro:", "Body 1:") are not writing.
+    if (
+      columns &&
+      essay.split("\n").every((line) => PART_LABEL_LINE.test(line))
+    ) {
+      continue;
+    }
     if ((columns ? entry.feedbackText : getCellText(entry.fbCell)).trim()) {
       graded++;
       continue;
@@ -517,7 +618,7 @@ export function selectIeltsItemsToGrade(rows) {
 }
 
 // ---------------------------------------------------------------------------
-// Writing and clearing the 2-column layout
+// Writing and clearing the headed layouts (2 columns, row below)
 // ---------------------------------------------------------------------------
 
 export const IELTS_NAMED_RANGE_PREFIX = "aiFb:ielts:v1:";
@@ -560,12 +661,10 @@ function columnText(feedback) {
   return { plain, bold };
 }
 
-/** The 2-column entries `gradingResults` target, with what goes into each. */
+/** The headed entries `gradingResults` target, with what goes into each. */
 function planColumnWrites(gradingResults, rows) {
   const byKey = new Map(
-    (rows || [])
-      .filter((entry) => entry.layout === LAYOUT_COLUMNS)
-      .map((entry) => [rowKeyOf(entry), entry]),
+    (rows || []).filter(headedLayout).map((entry) => [rowKeyOf(entry), entry]),
   );
   const writes = [];
   for (const result of gradingResults || []) {
@@ -580,15 +679,14 @@ function planColumnWrites(gradingResults, rows) {
   return writes;
 }
 
-const hasColumns = (rows) =>
-  (rows || []).some((entry) => entry.layout === LAYOUT_COLUMNS);
+const hasColumns = (rows) => (rows || []).some(headedLayout);
 const oldLayout = (rows) =>
-  (rows || []).filter((entry) => entry.layout !== LAYOUT_COLUMNS);
+  (rows || []).filter((entry) => !headedLayout(entry));
 
 /**
  * batchUpdate requests writing `gradingResults` into an IELTS tab. A tab of
- * old-layout tables only gets docWriter's requests, unchanged. A 2-column
- * entry gets its feedback below the "GV chữa/nhận xét" heading, un-bolded
+ * old-layout tables only gets docWriter's requests, unchanged. A headed (2-column,
+ * row-below) entry gets its feedback below the "GV chữa/nhận xét" heading, un-bolded
  * (the heading is bold) except its "**" spans, inside a named range. Groups
  * run from the end of the tab backwards, so no insert moves another.
  */
@@ -650,7 +748,7 @@ export function buildIeltsFeedbackRequests(gradingResults, rows, tabId) {
 
 /**
  * True when a cell `gradingResults` would write to already holds feedback:
- * an old-layout "GV chữa" cell with any text, a 2-column cell with anything
+ * an old-layout "GV chữa" cell with any text, a headed cell with anything
  * below its heading.
  */
 export function ieltsTargetsAlreadyFilled(gradingResults, rows) {
@@ -714,7 +812,7 @@ function ownColumnFeedback(tab) {
 /**
  * True when the doc, read back after a write, holds exactly what
  * `gradingResults` would write: docWriter's check for old-layout cells, an
- * intact named range for each 2-column one.
+ * intact named range for each headed one.
  */
 export function matchesOwnIeltsFeedback(gradingResults, rows, tab) {
   if (!hasColumns(rows)) return matchesOwnFeedback(gradingResults, rows);
@@ -737,7 +835,7 @@ export function matchesOwnIeltsFeedback(gradingResults, rows, tab) {
 
 /**
  * "Xóa feedback" for an IELTS tab. Old-layout tables: their "GV chữa" cells
- * are emptied, as before (docWriter). 2-column tables: only the text of this
+ * are emptied, as before (docWriter). Headed tables: only the text of this
  * module's named ranges still holding exactly what was written — the heading
  * and anything a teacher typed stay; a range a teacher edited into is kept.
  *
