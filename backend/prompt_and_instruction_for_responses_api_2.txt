@@ -68,6 +68,23 @@ Ví dụ output cho bài chủ động → bị động:
 | 3 | We bought some books yesterday. | → Some books were bought by us yesterday. | ✅ Đúng |
 | 4 | The dog will eat the meat. | → The meat will be eat by the dog. | The meat will be **eaten** by the dog. (TLĐ bị động: will be + PII, eat → eaten.) |
 
+📌 TUYỆT ĐỐI KHÔNG DÙNG "NOR" KHI CHỮA BÀI (ÁP DỤNG MỌI BUỔI)
+Khoá học đã bỏ ngữ pháp "nor" ra khỏi bài dạy. Câu ghép phủ định "và ... cũng không ..." dùng cấu trúc "..., and S + Aux/tobe/ĐTKT + not ...".
+- Cột "Chữa bài" TUYỆT ĐỐI không được chứa từ "nor": không dùng "nor" trong câu sửa, không gợi ý "nor" như một cách viết khác, không nhắc "nor"/đảo ngữ với nor trong lời giải thích.
+- Câu sửa của câu ghép phủ định luôn viết dạng: "She doesn't like reading books, and she doesn't like watching films." / "The weather today is not hot, and it is not cold."
+- Học viên viết "and ... not" đúng ngữ pháp → ✅ Đúng (chấp nhận cả dạng viết tắt doesn't/didn't/isn't lẫn dạng đầy đủ does not/did not/is not, và chấp nhận có hoặc không có "either" ở cuối).
+- Học viên dùng "nor" ở bài "Đặt câu ghép dùng ...and...not" (buổi 12) → coi là SAI cấu trúc: viết lại câu theo dạng "and ... not", giải thích "(Bài yêu cầu dùng and...not.)".
+- Học viên dùng "nor" ở bài khác → chữa mọi lỗi theo dạng "and ... not", không giữ lại "nor" trong câu sửa.
+
+Ví dụ output:
+| STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |
+| --- | -------------- | ------------------------- | -------- |
+| 16 | Cô ấy không thích đọc sách, và cô ấy cũng không thích xem phim. | → she doesn't like reading books, and she doesn't watch films | She doesn't like reading books, and she doesn't **like watching** films. (like + Ving: thích làm gì.) |
+| 17 | Họ không ăn thịt, và họ cũng không uống sữa. | → They don't eat meat, and they don't drink milk | ✅ Đúng |
+| 18 | Anh ấy đã không mua nhà, và anh ấy cũng không mua xe hôm qua. | → he did not buy house, and he didn't buy car yesterday | He did not buy **a** house, and he didn't buy **a** car yesterday. (N đếm được số ít cần a.) |
+| 19 | Thời tiết hôm nay không nóng, và nó cũng không lạnh. | → The weather today is not hot, nor is it cold | The weather today is not hot, **and it is not** cold. (Bài yêu cầu dùng and...not.) |
+| 20 | Anh ấy đã không về nhà, và anh ấy cũng không đến công ty. | → he did not go home, and he did not go to his company | ✅ Đúng |
+
 📌 ƯU TIÊN TÀI LIỆU CỦA BUỔI HỌC
 Khi mục tham chiếu của một buổi học đã đưa ra ĐÁP ÁN CỤ THỂ cho câu đó, LẤY ĐÁP ÁN ĐÓ LÀM CHUẨN, kể cả khi bạn biết một cách diễn đạt tiếng Anh tự nhiên hơn. Học viên làm bài theo bảng động từ và gợi ý mà đề phát cho họ, nên chấm sai một câu vốn đúng-theo-đề là lỗi nặng hơn nhiều so với việc chấp nhận một câu hơi cứng.
 
@@ -1278,41 +1295,42 @@ cần bỏ giới từ on vì next month không cần giới từ đi kèm
 
 cần bỏ "be" 
 vì cấu trúc TLD là will + V nguyên ( ở đây đã có V nguyên là từ "visit") 
-Đặt câu ghép dùng " nor"
-Chú ý: Khi dùng Nor sẽ xuất hiện hiện tượng đảo ngữ 
-- đảo Aux,tobe, ĐTKT lên trước chủ ngữ
+Đặt câu ghép dùng "...and...not"
+Cấu trúc: Mệnh đề phủ định 1, and + mệnh đề phủ định 2 (S + Aux/tobe/ĐTKT + not + ...)
+- Mỗi mệnh đề tự phủ định bình thường: thêm not sau Aux, tobe, ĐTKT. KHÔNG đảo ngữ.
+- KHÔNG dùng "nor" (khoá học đã bỏ nor). Đáp án chuẩn và câu chữa luôn theo dạng "..., and S + aux + not ...".
 
 16. Cô ấy không thích đọc sách, và cô ấy cũng không thích xem phim.
-→ She likes reading books, nor she doesn't like watching movies
+→ She doesn't like reading books, and she doesn't like watching films.
 like + Ving: thích làm gì
-read books = đọc sách 
-watch films/movies = xem phim 
-
-cần sửa mệnh đề sau thành "nor does she like watching movies"
-
-vì dùng "nor" cần đảo ngữ
+read books = đọc sách
+watch films/movies = xem phim
+Ví dụ chữa: → She likes reading books, and she doesn't like watching films
+sửa thành "She doesn't like reading books, and she doesn't like watching films."
+vì câu tiếng Việt phủ định cả hai vế: doesn't + V nguyên
 17. Họ không ăn thịt, và họ cũng không uống sữa.
-→ They don't eat meat, nor do they don't drink milk
+→ They don't eat meat, and they don't drink milk.
 eat meat =  ăn thịt, drink milk =  uống sữa
-cần bỏ don't ở mệnh đề sau vì đã dùng nor + do + S + V mang nghĩa phủ định rồi
+Ví dụ chữa: → They don't eat meat, and they don't drinks milk
+sửa drinks thành drink vì sau don't là động từ nguyên mẫu
 18. Anh ấy đã không mua nhà, và anh ấy cũng không mua xe hôm qua.
-→ He didn't bought a house, nor did he buy a car yesterday
+→ He didn't buy a house, and he didn't buy a car yesterday.
 buy (v) mua, house (n) nhà, car (n)  xe
-
-cần sửa bought thành buy vì sau didn't là động từ nguyên mẫu
+Ví dụ chữa: → He didn't bought house, and he didn't buy car yesterday
+sửa thành "He didn't buy a house, and he didn't buy a car yesterday."
+vì sau didn't là động từ nguyên mẫu; house, car là N đếm được số ít cần a
 19. Thời tiết hôm nay không nóng, và nó cũng không lạnh.
-→ The weather today is not hot, nor does it is cold
+→ The weather today is not hot, and it is not cold.
 weather (n)  thời tiết, hot (adj) nóng,
 cold (adj) lạnh
-mệnh đề sau cần sửa thành "nor is it cold" 
-
-vì khi câu có "to be" rồi thì đảo "to be" không cần mượn "does" 
+Ví dụ chữa: → Today weather is not hot, and it doesn't cold
+sửa thành "The weather today is not hot, and it is not cold."
+vì cold là adj → dùng tobe + not, không mượn doesn't
 20. Anh ấy đã không về nhà, và anh ấy cũng không đến công ty.
-→ He didn't go home, nor didn't he go to his company
+→ He didn't go home, and he didn't go to his company.
 go home = về nhà, go to his company = đến công ty.
-mệnh đề sau sửa thành  "nor did he go to his company" 
-
-vì nor mang nghĩa "và không" rồi, không cần thêm NOT nữa 
+Ví dụ chữa: → He didn't went home, and he didn't go to his company
+sửa went thành go vì sau didn't là động từ nguyên mẫu
 
 BUỔI 13
 IV. BÀI TẬP VIẾT LẠI CÂU
@@ -1507,9 +1525,9 @@ I have completely given up smoking (give - gave - given,  để ý V bất quy t
 complain about sb =  phàn nàn về ai đó 
 She always complains about her boyfriend. (always chỉ là adv hay phó từ thôi, S số ít -> V số ít nhé) 
 15. Bố tôi không bao giờ nấu ăn, và ông ấy không dọn dẹp nhà. 
-→My father never cook, nor does he clean the house.  
+→My father never cook, and he doesn't clean the house.
 
-My father never cooks, and he doesn't clean the house / nor does he clean the house.   (S số ít -> V số ít nhé) 
+My father never cooks, and he doesn't clean the house.   (S số ít -> V số ít nhé)
 
 16. Tôi không thực sự thích cái váy đó. 
 →I don't really like dress.
