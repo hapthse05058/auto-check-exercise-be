@@ -7,6 +7,7 @@ const {
   WEEK,
   createGradingSchedules,
   firstReachable,
+  jitterFor,
   nextLessonId,
   occurrence,
   offPeakSegments,
@@ -471,6 +472,215 @@ describe("several lessons a week", () => {
     assert.equal(thu.lessonId, "lesson11");
     assert.equal(thu.state, "cancelled_no_submissions");
     assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
+  });
+});
+
+describe("grading days", () => {
+  const ADMIN = { email: "admin@x.com", authKind: "jwt", isAdmin: true };
+  /** HH:mm Vietnam time on a day of September (8) / October (9) 2026. */
+  const vn = (month, day, h, m = 0) => Date.UTC(2026, month, day, h - 7, m);
+  const WED7 = vn(8, 30, 7);
+  const J1 = jitterFor("c1");
+  const saveDays = (h, days, viewer = TEACHER, classId = "c1") =>
+    h.s.upsert({
+      viewer,
+      classId,
+      slots: days.map(([date, part]) => ({ date, part })),
+    });
+
+  it("grades each chosen day in its part of the day, at the default time spread by the class's jitter", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    const saved = await saveDays(h, [
+      ["2026-10-01", "evening"],
+      ["2026-09-30", "morning"],
+    ]);
+    const s = h.schedule();
+    assert.deepEqual(
+      s.slots.map((slot) => [slot.weekday, slot.part]),
+      [
+        [3, "morning"],
+        [4, "evening"],
+      ],
+    );
+    assert.deepEqual(s.runTimes, DEFAULTS.runTimes);
+    assert.deepEqual(s.customRunTimes, {});
+    assert.equal(s.next.runKey, "2026-09-30");
+    assert.equal(s.next.runAt, WED7 + J1);
+    assert.equal(s.next.offPeak, true, "07:00 + jitter is before 07:30");
+    assert.equal(s.nextDueAt, WED7 + J1 - 30 * MIN);
+    assert.deepEqual(
+      saved.slots.map((slot) => [slot.kind, slot.weekday, slot.part]),
+      [
+        ["day", 3, "morning"],
+        ["day", 4, "evening"],
+      ],
+    );
+    assert.deepEqual(saved.runTimes, DEFAULTS.runTimes);
+  });
+
+  it("refuses two parts of one weekday, a date that does not exist and a missing part", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await assert.rejects(
+      saveDays(h, [
+        ["2026-09-30", "morning"],
+        ["2026-10-07", "evening"],
+      ]),
+      (e) => e.code === "slots_same_day" && e.params.other === 2,
+    );
+    await assert.rejects(
+      saveDays(h, [["2026-09-31", "morning"]]),
+      (e) => e.code === "invalid_date" && e.params.slot === 1,
+    );
+    await assert.rejects(
+      saveDays(h, [["2026-09-30", "night"]]),
+      (e) => e.code === "invalid_part",
+    );
+    assert.equal(h.schedule(), undefined);
+  });
+
+  it("grades Wednesday morning, then Thursday evening on the next lesson", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await saveDays(h, [
+      ["2026-09-30", "morning"],
+      ["2026-10-01", "evening"],
+    ]);
+    await h.at(h.schedule().nextDueAt);
+    await h.at(h.schedule().nextDueAt);
+    assert.equal(h.runDoc("c1", "2026-09-30").state, "done");
+    assert.equal(h.runDoc("c1", "2026-09-30").runAt, WED7 + J1);
+    assert.equal(h.lessonOf(), "lesson11");
+    assert.equal(h.schedule().next.runKey, "2026-10-01");
+    assert.equal(h.schedule().next.runAt, vn(9, 1, 23, 30) + J1);
+  });
+
+  it("the preview agrees with the save, without writing", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    const before = h.db.clock;
+    const { next } = await h.s.preview({
+      viewer: TEACHER,
+      classId: "c1",
+      slots: [{ date: "2026-09-30", part: "afternoon" }],
+    });
+    assert.equal(next.runAt, vn(8, 30, 14) + J1);
+    assert.equal(next.remindAt, vn(8, 30, 14) + J1 - 30 * MIN);
+    assert.equal(h.db.clock, before);
+  });
+
+  it("an admin gives a class its own time for a part — to the minute — and a teacher's save keeps it", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await saveDays(h, [["2026-09-30", "morning"]]);
+    const set = (viewer, runTimes) =>
+      h.s.setClassRunTimes({ viewer, classId: "c1", runTimes });
+    await assert.rejects(
+      set(TEACHER, { morning: "05:15" }),
+      (e) => e.code === "admin_only",
+    );
+    await assert.rejects(
+      set(ADMIN, { morning: "13:00" }),
+      (e) => e.code === "invalid_run_time" && e.params.part === "morning",
+    );
+    const own = await set(ADMIN, { morning: "05:15" });
+    assert.deepEqual(own.customRunTimes, { morning: "05:15" });
+    assert.equal(own.runTimes.morning, "05:15");
+    assert.equal(own.runTimes.evening, DEFAULTS.runTimes.evening);
+    assert.equal(h.schedule().next.runAt, vn(8, 30, 5, 15));
+    assert.equal(h.schedule().nextDueAt, vn(8, 30, 4, 45));
+
+    await saveDays(h, [["2026-10-01", "morning"]]);
+    assert.equal(h.schedule().next.runAt, vn(9, 1, 5, 15));
+
+    await set(ADMIN, {});
+    assert.deepEqual(h.schedule().customRunTimes, {});
+    assert.equal(h.schedule().next.runAt, vn(9, 1, 7) + J1);
+  });
+
+  it("a new default moves every class on it — not a class on its own time, nor a week already announced", async () => {
+    const h = scheduleHarness({
+      tabs: { docA: pending(), docB: pending() },
+      c2Docs: ["docB"],
+    });
+    await saveDays(h, [["2026-09-30", "morning"]]);
+    await saveDays(h, [["2026-09-30", "morning"]], TEACHER, "c2");
+    await h.s.setClassRunTimes({
+      viewer: ADMIN,
+      classId: "c2",
+      runTimes: { morning: "05:00" },
+    });
+
+    const result = await h.s.setDefaultRunTimes({
+      viewer: ADMIN,
+      runTimes: { morning: "06:00" },
+    });
+    assert.deepEqual(result, {
+      runTimes: { ...DEFAULTS.runTimes, morning: "06:00" },
+      classes: 1,
+    });
+    assert.equal((await h.s.getSettings()).runTimes.morning, "06:00");
+    assert.equal(h.schedule("c1").next.runAt, vn(8, 30, 6) + J1);
+    assert.equal(h.schedule("c2").next.runAt, vn(8, 30, 5));
+
+    // c1 announced at 05:30 + jitter; a later change waits for next week.
+    await h.at(h.schedule("c1").nextDueAt);
+    assert.equal(h.runDoc("c1", "2026-09-30").state, "reminded");
+    await h.s.setDefaultRunTimes({
+      viewer: ADMIN,
+      runTimes: { morning: "06:30" },
+    });
+    assert.equal(h.schedule("c1").next.runAt, vn(8, 30, 6) + J1);
+    assert.equal(h.schedule("c1").nextStep, "run");
+    await h.at(h.schedule("c1").nextDueAt);
+    assert.equal(h.runDoc("c1", "2026-09-30").state, "done");
+    assert.equal(h.schedule("c1").next.runAt, vn(9, 7, 6, 30) + J1);
+
+    await assert.rejects(
+      h.s.setDefaultRunTimes({
+        viewer: TEACHER,
+        runTimes: { morning: "06:00" },
+      }),
+      (e) => e.code === "admin_only",
+    );
+    await assert.rejects(
+      h.s.setDefaultRunTimes({ viewer: ADMIN, runTimes: { evening: "02:00" } }),
+      (e) => e.code === "invalid_run_time",
+    );
+  });
+
+  it("an outage: graded up to two hours late, missed after that", async () => {
+    const late = scheduleHarness({ tabs: { docA: pending() } });
+    await saveDays(late, [["2026-09-30", "morning"]]);
+    await late.at(WED7 + J1 + 80 * MIN);
+    assert.equal(late.runDoc("c1", "2026-09-30").state, "reminded");
+    assert.equal(late.runDoc("c1", "2026-09-30").runAt, WED7 + J1 + 110 * MIN);
+
+    const missed = scheduleHarness({ tabs: { docA: pending() } });
+    await saveDays(missed, [["2026-09-30", "morning"]]);
+    await missed.at(WED7 + J1 + 100 * MIN);
+    assert.equal(missed.runDoc("c1", "2026-09-30").state, "missed");
+    assert.equal(missed.schedule().next.runKey, "2026-10-07");
+  });
+
+  it("a legacy schedule shows the day and part it grades in; saved as days after tonight's grading, it waits a week", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    const legacy = await h.save();
+    assert.equal(legacy.slots[0].kind, "deadlines");
+    assert.equal(legacy.slots[0].weekday, 2, "Tuesday 23:30, off-peak");
+    assert.equal(legacy.slots[0].part, "evening");
+    assert.equal(legacy.runTimes, null);
+    await assert.rejects(
+      h.s.setClassRunTimes({
+        viewer: ADMIN,
+        classId: "c1",
+        runTimes: { morning: "06:00" },
+      }),
+      (e) => e.code === "schedule_needs_days",
+    );
+    await reminded(h);
+    await h.at(h.schedule().nextDueAt);
+    assert.equal(h.runDoc().state, "done");
+
+    // Wednesday 07:00 is before Tuesday's grading deadline (Wed 12:00).
+    await saveDays(h, [["2026-09-30", "morning"]]);
+    assert.equal(h.schedule().next.runKey, "2026-10-07");
   });
 });
 

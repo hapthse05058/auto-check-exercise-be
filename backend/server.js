@@ -4307,14 +4307,20 @@ app.get("/grading-schedules", verifyGoogleToken, async (req, res) => {
  */
 app.get("/grading-schedules/preview", verifyGoogleToken, async (req, res) => {
   try {
-    // ?slots=s1-g1,s2-g2 (epoch ms), or the one pair of an older website.
+    // ?days=2026-10-06.morning,2026-10-08.evening (grading days); from an
+    // older website ?slots=s1-g1,s2-g2 (epoch ms) or the one pair.
     const slots =
-      typeof req.query.slots === "string"
-        ? req.query.slots.split(",").map((pair) => {
-            const [studentDeadlineAt, graderDeadlineAt] = pair.split("-");
-            return { studentDeadlineAt, graderDeadlineAt };
+      typeof req.query.days === "string"
+        ? req.query.days.split(",").map((day) => {
+            const [date, part] = day.split(".");
+            return { date, part };
           })
-        : undefined;
+        : typeof req.query.slots === "string"
+          ? req.query.slots.split(",").map((pair) => {
+              const [studentDeadlineAt, graderDeadlineAt] = pair.split("-");
+              return { studentDeadlineAt, graderDeadlineAt };
+            })
+          : undefined;
     const preview = await gradingSchedules.preview({
       viewer: viewerOf(req),
       classId: req.query.classId,
@@ -4347,6 +4353,78 @@ app.get("/grading-schedules/estimate", verifyGoogleToken, async (req, res) => {
   }
 });
 
+const weekdayVi = (weekday) =>
+  weekday === 0 ? "Chủ nhật" : `Thứ ${weekday + 1}`;
+const PART_VI = { morning: "sáng", afternoon: "chiều", evening: "tối" };
+const runTimesVi = (runTimes) =>
+  Object.entries(runTimes || {})
+    .map(([part, time]) => `${PART_VI[part] || part} ${time}`)
+    .join(", ");
+
+/**
+ * Admin: the default grading time of each part of the day ({runTimes,
+ * parts}).
+ */
+app.get(
+  "/grading-schedules/settings",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      return res.json(await gradingSchedules.getSettings());
+    } catch (err) {
+      return sendScheduleError(res, err, "settings");
+    }
+  },
+);
+
+/**
+ * Admin: new default times ({runTimes: {part: "HH:mm"}}); every class
+ * follows them for the parts it has no time of its own for.
+ */
+app.put(
+  "/grading-schedules/settings",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const result = await gradingSchedules.setDefaultRunTimes({
+        viewer: viewerOf(req),
+        runTimes: req.body?.runTimes,
+      });
+      res.locals.auditDetail =
+        `Giờ chấm tự động mặc định: ${runTimesVi(result.runTimes)} ` +
+        `(${result.classes} lớp đổi giờ)`;
+      return res.json(result);
+    } catch (err) {
+      return sendScheduleError(res, err, "settings");
+    }
+  },
+);
+
+/** Admin: one class's own times ({runTimes}; a part left out: the default). */
+app.put(
+  "/grading-schedules/:classId/run-time",
+  verifyGoogleToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const schedule = await gradingSchedules.setClassRunTimes({
+        viewer: viewerOf(req),
+        classId: req.params.classId,
+        runTimes: req.body?.runTimes ?? {},
+      });
+      const own = runTimesVi(schedule?.customRunTimes);
+      res.locals.auditDetail =
+        `Giờ chấm lớp ${schedule?.className || req.params.classId}: ` +
+        (own ? `riêng ${own}` : "theo giờ mặc định");
+      return res.json({ schedule });
+    } catch (err) {
+      return sendScheduleError(res, err, "run-time");
+    }
+  },
+);
+
 app.put("/grading-schedules/:classId", verifyGoogleToken, async (req, res) => {
   try {
     const schedule = await gradingSchedules.upsert({
@@ -4356,14 +4434,14 @@ app.put("/grading-schedules/:classId", verifyGoogleToken, async (req, res) => {
       studentDeadlineAt: req.body?.studentDeadlineAt,
       graderDeadlineAt: req.body?.graderDeadlineAt,
     });
-    const day = ({ weekday, time }) =>
-      `${weekday === 0 ? "Chủ nhật" : `Thứ ${weekday + 1}`} ${time}`;
+    const day = ({ weekday, time }) => `${weekdayVi(weekday)} ${time}`;
     res.locals.auditDetail =
-      `Hẹn giờ chấm lớp ${schedule.className || req.params.classId}: ` +
+      `Hẹn ngày chấm lớp ${schedule.className || req.params.classId}: ` +
       schedule.slots
-        .map(
-          (slot) =>
-            `hạn nộp ${day(slot.studentDeadline)} → hạn chấm ${day(slot.graderDeadline)}`,
+        .map((slot) =>
+          slot.kind === "day"
+            ? `${PART_VI[slot.part]} ${weekdayVi(slot.weekday)} (${schedule.runTimes?.[slot.part]})`
+            : `hạn nộp ${day(slot.studentDeadline)} → hạn chấm ${day(slot.graderDeadline)}`,
         )
         .join("; ");
     return res.json({ schedule });

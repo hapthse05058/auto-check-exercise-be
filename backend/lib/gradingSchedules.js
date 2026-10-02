@@ -1,11 +1,18 @@
 /**
- * Scheduled grading: every class may have one weekly schedule — the students'
- * hand-in deadline and the teacher's grading deadline — and the backend grades
- * the class's current lesson somewhere between the two, preferably during
- * DeepSeek's off-peak hours. The teacher hears about it twice: ~30 minutes
- * before ("N students did the homework, grading at HH:mm") and once it is done.
- * A week nobody handed anything in, or one the points cannot cover, is
- * cancelled at the reminder instead, with a notification saying why.
+ * Scheduled grading: every class may have one weekly schedule — the days of
+ * the week it is graded on, each in the morning, afternoon or evening — and
+ * the backend grades the class's current lesson then, at the time an admin
+ * sets for that part of the day: one default per part for every class
+ * (appSettings/gradingSchedule.runTimes) or the class's own. Teachers only
+ * pick days and parts; the admin keeps the actual hours out of peak time. The
+ * teacher hears about it twice: ~30 minutes before ("N students did the
+ * homework, grading at HH:mm") and once it is done. A week nobody handed
+ * anything in, or one the points cannot cover, is cancelled at the reminder
+ * instead, with a notification saying why.
+ *
+ * Schedules saved before grading days existed keep their two deadlines per
+ * slot (the students' and the teacher's) and are graded between them,
+ * preferably off-peak, until someone saves them again.
  *
  * HOW IT RUNS. Cloud Scheduler calls tick() every 5 minutes. tick() only looks
  * for schedules whose `nextDueAt` has passed and enqueues their step (remind or
@@ -63,6 +70,21 @@ const {
 
 const SCHEDULES = "gradingSchedules";
 const RESERVATIONS = "pointReservations";
+/** The admin's settings, {runTimes: {part: "HH:mm"}}: the default times. */
+const SETTINGS = { collection: "appSettings", doc: "gradingSchedule" };
+
+/**
+ * The parts of a day a teacher picks from, and the hours (Vietnam, minutes of
+ * the day, [from, to)) an admin may set each one's time within. Keeping each
+ * part inside its own stretch keeps the grading days of one schedule apart: an
+ * evening run with all its lateness still ends before the next morning's
+ * reminder.
+ */
+const PARTS = {
+  morning: { from: 4 * 60, to: 12 * 60 },
+  afternoon: { from: 12 * 60, to: 18 * 60 },
+  evening: { from: 18 * 60, to: 24 * 60 },
+};
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -80,12 +102,26 @@ const DEFAULTS = {
   remindMs: 30 * MINUTE,
   /** Grading must start this long before the teacher's deadline. */
   runMarginMs: 60 * MINUTE,
-  /** Shortest allowed gap between the two deadlines (UI says 2 hours). */
+  /**
+   * Grading time of each part of the day (Vietnam) until an admin sets
+   * another. Morning and evening sit in DeepSeek's off-peak hours.
+   */
+  runTimes: { morning: "07:00", afternoon: "14:00", evening: "23:30" },
+  /**
+   * How late a grading day's run may still start (an outage, a slow queue)
+   * before the week is missed instead of graded into peak hours.
+   */
+  lateStartMs: 2 * HOUR,
+  /** Shortest allowed gap between a legacy slot's two deadlines. */
   minGapMs: 2 * HOUR,
   maxGapMs: WEEK,
-  /** A class may meet this many times a week, each with its own deadlines. */
+  /** One grading day per weekday at most. */
   maxSlots: 7,
-  /** Classes are spread over this much of the off-peak window. */
+  /**
+   * Classes on the default time are spread over this much after it (legacy
+   * slots: over this much of the off-peak window). A class's own time is kept
+   * to the minute.
+   */
   jitterMs: 20 * MINUTE,
   /**
    * A reminder this late (tick lag, an outage) pushes grading back so the
@@ -199,14 +235,69 @@ function vnParts(ms) {
   };
 }
 
+/** Midnight (Vietnam) of the day `ms` falls on. */
+function vnDayStart(ms) {
+  return Math.floor((ms + VN_OFFSET_MS) / DAY) * DAY - VN_OFFSET_MS;
+}
+
+/** "2026-10-08" → that day's midnight in Vietnam (epoch ms), NaN if invalid. */
+function parseVnDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? "").trim());
+  if (!match) return NaN;
+  const [y, m, d] = match.slice(1).map(Number);
+  const ms = Date.UTC(y, m - 1, d);
+  const back = new Date(ms);
+  if (back.getUTCMonth() !== m - 1 || back.getUTCDate() !== d) return NaN;
+  return ms - VN_OFFSET_MS;
+}
+
+/** "HH:mm" (00:00–23:59) → minutes of the day, or null. */
+function parseRunTime(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value ?? "").trim());
+  if (!match) return null;
+  const [h, m] = [Number(match[1]), Number(match[2])];
+  return h < 24 && m < 60 ? h * 60 + m : null;
+}
+
+/** `value` if it is a time ("HH:mm") inside `part`'s hours, else null. */
+function partTime(part, value) {
+  const range = PARTS[part];
+  const minutes = parseRunTime(value);
+  return range &&
+    minutes !== null &&
+    minutes >= range.from &&
+    minutes < range.to
+    ? String(value).trim()
+    : null;
+}
+
+/** The valid entries of a {part: "HH:mm"} map. */
+function cleanRunTimes(map) {
+  const out = {};
+  for (const part of Object.keys(PARTS)) {
+    const value = partTime(part, map?.[part]);
+    if (value) out[part] = value;
+  }
+  return out;
+}
+
+function inOffPeak(ms, windows) {
+  return offPeakSegments(ms, ms, windows).some(
+    (seg) => seg.start <= ms && ms < seg.end,
+  );
+}
+
 /**
- * The weekly slots of a schedule — one per lesson the class has in a week —
- * in week order, each {anchorStudentAt, gapMs}: the first students' deadline
- * and how long after it the teacher's deadline falls. `define` keeps them
- * sorted within one week of the first and never overlapping (a slot's grading
- * deadline is at or before the next slot's students' deadline), so the
- * occurrences of all slots, taken in index order, are in time order and at
- * most one is ever open. A schedule saved before slots existed is one slot.
+ * The weekly slots of a schedule — one per grading day of the week — in week
+ * order, each {anchorDayAt, part}: the first grading day's midnight (Vietnam)
+ * and the part of the day (morning, afternoon, evening) it is graded in. A
+ * legacy slot is {anchorStudentAt, gapMs} instead: the first students'
+ * deadline and how long after it the teacher's deadline falls. Either way
+ * `define` keeps them sorted within one week of the first and never
+ * overlapping (a slot's grading deadline is at or before the next slot's
+ * students' deadline), so the occurrences of all slots, taken in index order,
+ * are in time order and at most one is ever open. A schedule saved before
+ * slots existed is one slot.
  */
 function slotsOf(schedule) {
   if (Array.isArray(schedule.slots) && schedule.slots.length) {
@@ -221,19 +312,39 @@ function runKeyOf(studentDeadlineAt) {
   return `${p.date}-${p.time.replace(":", "")}`;
 }
 
+/** A slot's part of the day (a slot from before parts: morning). */
+const partOf = (slot) => (PARTS[slot.part] ? slot.part : "morning");
+
 /**
- * Occurrence `index` of a schedule — slot `index mod n` of week
- * `floor(index / n)`: its two deadlines, run key and when grading happens.
- * Asserts the time invariant
- *   studentDeadline + grace ≤ runAt − remind < runAt ≤ graderDeadline − margin
- * which the minimum gap guarantees.
+ * One grading day: graded at the schedule's time for the slot's part of the
+ * day — a default time spread by the class's jitter, the class's own one to
+ * the minute. Its "deadlines" frame that time — the students' is when the
+ * reminder's count is taken, less the grace; the teacher's is the last moment
+ * a late run may still start, plus the margin. The run key is the day
+ * (2026-10-08), so moving the time keeps the week's identity, and a day is
+ * never graded twice by one schedule.
  */
-function occurrence(schedule, index, opts) {
-  const slots = slotsOf(schedule);
-  const n = slots.length;
-  const slot = slots[((index % n) + n) % n];
-  const studentDeadlineAt = slot.anchorStudentAt + Math.floor(index / n) * WEEK;
-  const graderDeadlineAt = studentDeadlineAt + slot.gapMs;
+function dayOccurrence(schedule, slot, dayAt, opts) {
+  const part = partOf(slot);
+  const minutes =
+    parseRunTime(schedule.runTimes?.[part]) ??
+    parseRunTime(opts.runTimes[part]);
+  const planned = dayAt + minutes * MINUTE;
+  const own = Boolean(cleanRunTimes(schedule.customRunTimes)[part]);
+  const runAt =
+    planned + (own ? 0 : jitterFor(schedule.classId, opts.jitterMs));
+  return {
+    runKey: vnParts(dayAt).date,
+    studentDeadlineAt: planned - opts.remindMs - opts.graceMs,
+    graderDeadlineAt: runAt + opts.lateStartMs + opts.runMarginMs,
+    runAt,
+    offPeak: inOffPeak(runAt, opts.windows),
+  };
+}
+
+/** A legacy slot's week: graded between its deadlines, preferably off-peak. */
+function deadlineOccurrence(schedule, studentDeadlineAt, gapMs, opts) {
+  const graderDeadlineAt = studentDeadlineAt + gapMs;
   const ws = studentDeadlineAt + opts.graceMs + opts.remindMs;
   const we = graderDeadlineAt - opts.runMarginMs;
   if (we < ws) throw new Error("schedule window is too short");
@@ -243,20 +354,47 @@ function occurrence(schedule, index, opts) {
     jitter: jitterFor(schedule.classId, opts.jitterMs),
     windows: opts.windows,
   });
-  if (
-    !(studentDeadlineAt + opts.graceMs <= runAt - opts.remindMs) ||
-    !(runAt <= we)
-  ) {
-    throw new Error("schedule time invariant violated");
-  }
   return {
-    index,
     runKey: runKeyOf(studentDeadlineAt),
     studentDeadlineAt,
     graderDeadlineAt,
     runAt,
     offPeak,
   };
+}
+
+/**
+ * Occurrence `index` of a schedule — slot `index mod n` of week
+ * `floor(index / n)`: its two deadlines, run key and when grading happens.
+ * Asserts the time invariant
+ *   studentDeadline + grace ≤ runAt − remind < runAt ≤ graderDeadline − margin
+ * which a grading day has by construction and a legacy slot by its minimum gap.
+ */
+function occurrence(schedule, index, opts) {
+  const slots = slotsOf(schedule);
+  const n = slots.length;
+  const slot = slots[((index % n) + n) % n];
+  const week = Math.floor(index / n) * WEEK;
+  const occ = Number.isFinite(slot.anchorDayAt)
+    ? dayOccurrence(schedule, slot, slot.anchorDayAt + week, opts)
+    : deadlineOccurrence(
+        schedule,
+        slot.anchorStudentAt + week,
+        slot.gapMs,
+        opts,
+      );
+  if (
+    !(occ.studentDeadlineAt + opts.graceMs <= occ.runAt - opts.remindMs) ||
+    !(occ.runAt <= occ.graderDeadlineAt - opts.runMarginMs)
+  ) {
+    throw new Error("schedule time invariant violated");
+  }
+  return { index, ...occ };
+}
+
+/** True when a schedule is made of grading days (not legacy deadlines). */
+function isDaySchedule(schedule) {
+  return slotsOf(schedule).every((slot) => Number.isFinite(slot.anchorDayAt));
 }
 
 /** Can this occurrence still be graded if its reminder went out at `nowMs`? */
@@ -512,6 +650,28 @@ function createGradingSchedules(deps) {
   const entryKey = (classId, runKey) => `${classId}|${runKey}`;
 
   const remindAtOf = (next) => next.runAt - opts.remindMs;
+
+  const settingsRef = () =>
+    db.collection(SETTINGS.collection).doc(SETTINGS.doc);
+  /** The admin's default time of every part, from the settings doc. */
+  const defaultRunTimesOf = (snap) => ({
+    ...opts.runTimes,
+    ...cleanRunTimes(snap?.exists ? snap.data().runTimes : null),
+  });
+  const readDefaultRunTimes = async () =>
+    defaultRunTimesOf(await settingsRef().get());
+
+  /**
+   * A schedule's time fields: `customRunTimes`, the class's own times (some
+   * parts or none), and `runTimes`, every part's effective time.
+   */
+  function runTimeFields(customRunTimes, defaultRunTimes) {
+    const own = cleanRunTimes(customRunTimes);
+    return {
+      runTimes: { ...defaultRunTimes, ...own },
+      customRunTimes: own,
+    };
+  }
 
   /** Fields that move the schedule on to its next reachable week. */
   function advanceFields(schedule, fromIndex) {
@@ -1127,8 +1287,9 @@ function createGradingSchedules(deps) {
   }
 
   /**
-   * The slots a request asks for: `slots` [{studentDeadlineAt,
-   * graderDeadlineAt}], or the single pair of a client from before slots.
+   * The slots a request asks for: `slots` [{date: "YYYY-MM-DD", part}]
+   * (grading days), [{studentDeadlineAt, graderDeadlineAt}] from a website
+   * before grading days, or the single pair of one from before slots.
    */
   function slotInput({ slots, studentDeadlineAt, graderDeadlineAt }) {
     if (Array.isArray(slots)) return slots;
@@ -1136,9 +1297,51 @@ function createGradingSchedules(deps) {
   }
 
   /**
-   * Validates the first deadlines of every weekly slot and derives the weekly
-   * definition: slots sorted within one week of the earliest, each one's
-   * grading deadline no later than the next one's students' deadline.
+   * Validates the first grading day (and its part of the day) of every weekly
+   * slot and derives the weekly definition: days sorted within one week of
+   * the earliest, one per weekday.
+   */
+  function defineDays(classId, input) {
+    const raw = input.map((slot, i) => {
+      const dayAt = parseVnDate(slot?.date);
+      if (!Number.isFinite(dayAt)) {
+        throw new JobError(400, "invalid_date", { slot: i + 1 });
+      }
+      if (!PARTS[slot?.part]) {
+        throw new JobError(400, "invalid_part", { slot: i + 1 });
+      }
+      return { dayAt, part: slot.part, input: i + 1 };
+    });
+    const first = Math.min(...raw.map((r) => r.dayAt));
+    const days = raw
+      .map((r) => ({
+        ...r,
+        dayAt: r.dayAt - Math.floor((r.dayAt - first) / WEEK) * WEEK,
+      }))
+      .sort((a, b) => a.dayAt - b.dayAt || a.input - b.input);
+    days.forEach((day, i) => {
+      if (i > 0 && days[i - 1].dayAt === day.dayAt) {
+        throw new JobError(400, "slots_same_day", {
+          slot: days[i - 1].input,
+          other: day.input,
+        });
+      }
+    });
+    return {
+      classId,
+      slots: days.map(({ dayAt, part }) => ({
+        anchorDayAt: dayAt,
+        part,
+        weekday: vnParts(dayAt).weekday,
+      })),
+    };
+  }
+
+  /**
+   * The weekly definition a request asks for — grading days, or (a website
+   * from before them) the deadlines of every weekly slot: slots sorted within
+   * one week of the earliest, each one's grading deadline no later than the
+   * next one's students' deadline.
    */
   function define(classId, input) {
     if (!Array.isArray(input) || input.length === 0) {
@@ -1146,6 +1349,9 @@ function createGradingSchedules(deps) {
     }
     if (input.length > opts.maxSlots) {
       throw new JobError(400, "too_many_slots", { max: opts.maxSlots });
+    }
+    if (input.some((slot) => slot?.date !== undefined)) {
+      return defineDays(classId, input);
     }
     const raw = input.map((slot, i) => {
       const s = Number(slot?.studentDeadlineAt);
@@ -1198,11 +1404,14 @@ function createGradingSchedules(deps) {
   /** Side-effect free: what saving these deadlines would schedule. */
   async function preview({ viewer, classId, ...deadlines }) {
     const cls = await loadManagedClass(viewer, classId);
-    const def = define(cls.id, slotInput(deadlines));
     // Reads only. Like upsert: after the last graded occurrence is over — a
     // reminded one that saving would forget does not count.
     const sSnap = await scheduleRef(cls.id).get();
     const old = sSnap.exists ? sSnap.data() : null;
+    const def = {
+      ...define(cls.id, slotInput(deadlines)),
+      ...runTimeFields(old?.customRunTimes, await readDefaultRunTimes()),
+    };
     let bound = -Infinity;
     if (old?.lastRunKey) {
       const last = (await runRef(cls.id, old.lastRunKey).get()).data();
@@ -1263,17 +1472,25 @@ function createGradingSchedules(deps) {
     const payer = await resolvePayer(email, cls.id);
     if (!payer) throw new JobError(403, "payer_not_found");
 
-    // Candidate first occurrences, in order (two weeks of slots and then
-    // some); the first free one wins — see below.
-    const first = firstReachable(def, 0, now(), opts);
-    const candidates = Array.from(
-      { length: 2 * def.slots.length + 2 },
-      (_, k) => occurrence(def, first.index + k, opts),
-    );
-
     const saved = await db.runTransaction(async (tx) => {
-      const sSnap = await tx.get(scheduleRef(cls.id));
+      const [sSnap, settingsSnap] = await tx.getAll(
+        scheduleRef(cls.id),
+        settingsRef(),
+      );
       const old = sSnap.exists ? sSnap.data() : null;
+      // The time is the admin's: the class's own, else the default — read in
+      // here so a new default cannot slip past this save (setDefaultRunTime).
+      const timed = {
+        ...def,
+        ...runTimeFields(old?.customRunTimes, defaultRunTimesOf(settingsSnap)),
+      };
+      // Candidate first occurrences, in order (two weeks of slots and then
+      // some); the first free one wins — see below.
+      const first = firstReachable(timed, 0, now(), opts);
+      const candidates = Array.from(
+        { length: 2 * timed.slots.length + 2 },
+        (_, k) => occurrence(timed, first.index + k, opts),
+      );
       const oldRunSnap = old?.next?.runKey
         ? await tx.get(runRef(cls.id, old.next.runKey))
         : null;
@@ -1327,7 +1544,7 @@ function createGradingSchedules(deps) {
         candidates[freeIndex >= 0 ? freeIndex : candidates.length - 1];
       const at = now();
       const doc = {
-        ...def,
+        ...timed,
         className: cls.name || "",
         ownerEmail: email,
         authKind,
@@ -1387,22 +1604,61 @@ function createGradingSchedules(deps) {
     return { ok: true };
   }
 
+  /**
+   * A slot as the website shows it: its grading day (`anchorDayAt`, the
+   * first one) — for a legacy slot the day its first week is graded on —
+   * plus a legacy slot's deadlines.
+   */
+  function clientSlot(s, slot, index) {
+    if (Number.isFinite(slot.anchorDayAt)) {
+      return {
+        kind: "day",
+        anchorDayAt: slot.anchorDayAt,
+        part: partOf(slot),
+        weekday: vnParts(slot.anchorDayAt).weekday,
+      };
+    }
+    // The part of the day its grading falls in; after midnight (before the
+    // morning's hours) counts as the evening before.
+    const runAt = occurrence(s, index, opts).runAt;
+    let dayAt = vnDayStart(runAt);
+    const minutes = (runAt - dayAt) / MINUTE;
+    let part = Object.keys(PARTS).find(
+      (p) => minutes >= PARTS[p].from && minutes < PARTS[p].to,
+    );
+    if (!part) {
+      part = "evening";
+      dayAt -= DAY;
+    }
+    const sp = vnParts(slot.anchorStudentAt);
+    const gp = vnParts(slot.anchorStudentAt + slot.gapMs);
+    return {
+      kind: "deadlines",
+      anchorDayAt: dayAt,
+      part,
+      weekday: vnParts(dayAt).weekday,
+      anchorStudentAt: slot.anchorStudentAt,
+      gapMs: slot.gapMs,
+      studentDeadline: { weekday: sp.weekday, time: sp.time },
+      graderDeadline: { weekday: gp.weekday, time: gp.time },
+    };
+  }
+
   function toClient(s, lastRun) {
     if (!s) return null;
+    const days = isDaySchedule(s);
     return {
       classId: s.classId,
       className: s.className,
       enabled: Boolean(s.enabled),
-      slots: slotsOf(s).map((slot) => {
-        const sp = vnParts(slot.anchorStudentAt);
-        const gp = vnParts(slot.anchorStudentAt + slot.gapMs);
-        return {
-          anchorStudentAt: slot.anchorStudentAt,
-          gapMs: slot.gapMs,
-          studentDeadline: { weekday: sp.weekday, time: sp.time },
-          graderDeadline: { weekday: gp.weekday, time: gp.time },
-        };
-      }),
+      slots: slotsOf(s).map((slot, i) => clientSlot(s, slot, i)),
+      // The grading times of a day schedule; a legacy one has none.
+      ...(days
+        ? runTimeFields(s.customRunTimes, {
+            ...opts.runTimes,
+            ...cleanRunTimes(s.runTimes),
+          })
+        : { runTimes: null, customRunTimes: {} }),
       next:
         s.enabled && s.next
           ? {
@@ -1446,6 +1702,150 @@ function createGradingSchedules(deps) {
     if (!ids.length) return [];
     const snaps = await db.getAll(...ids.map((id) => scheduleRef(id)));
     return snaps.filter((s) => s.exists).map((s) => toClient(s.data(), null));
+  }
+
+  // -------------------------------------------------------------------------
+  // admin: the grading times of the parts of the day
+  // -------------------------------------------------------------------------
+
+  const hhmm = (minutes) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+  /**
+   * {runTimes, parts}: the default time of each part of the day ("HH:mm",
+   * Vietnam), and the hours each part's time must stay within.
+   */
+  async function getSettings() {
+    return {
+      runTimes: await readDefaultRunTimes(),
+      parts: Object.fromEntries(
+        Object.entries(PARTS).map(([part, { from, to }]) => [
+          part,
+          { from: hhmm(from), to: hhmm(to) },
+        ]),
+      ),
+    };
+  }
+
+  /**
+   * Gives a day schedule new times — `ownFor(schedule)` is the class's own
+   * times to keep, null for no change — in one transaction. A week not
+   * reminded yet is planned again at the new time, from the same week on; one
+   * already reminded keeps its time, and the change applies from the next.
+   * Returns whether the schedule changed.
+   */
+  function retime(classId, ownFor) {
+    return db.runTransaction(async (tx) => {
+      const [sSnap, settingsSnap] = await tx.getAll(
+        scheduleRef(classId),
+        settingsRef(),
+      );
+      if (!sSnap.exists || !isDaySchedule(sSnap.data())) return false;
+      const s = sSnap.data();
+      const own = ownFor(s);
+      if (!own) return false;
+      const fields = runTimeFields(own, defaultRunTimesOf(settingsSnap));
+      const same = (a, b) =>
+        Object.keys(PARTS).every((part) => (a || {})[part] === (b || {})[part]);
+      if (
+        same(fields.runTimes, s.runTimes) &&
+        same(fields.customRunTimes, s.customRunTimes)
+      ) {
+        return false;
+      }
+      const runSnap = s.next?.runKey
+        ? await tx.get(runRef(classId, s.next.runKey))
+        : null;
+      // ---- no writes above this line ----
+      const patch = { ...fields, updatedAt: now() };
+      if (s.enabled && s.nextStep === "remind" && s.next && !runSnap?.exists) {
+        Object.assign(patch, advanceFields({ ...s, ...fields }, s.next.index));
+      }
+      tx.update(sSnap.ref, patch);
+      return true;
+    });
+  }
+
+  /**
+   * {part: "HH:mm" | null | ""} checked against each part's hours: the
+   * given times, and the parts given empty (null, "").
+   */
+  function checkRunTimes(input) {
+    if (!input || typeof input !== "object") {
+      throw new JobError(400, "invalid_run_time");
+    }
+    const times = {};
+    const cleared = [];
+    for (const [part, value] of Object.entries(input)) {
+      if (!PARTS[part]) throw new JobError(400, "invalid_part");
+      if (value === null || value === "") {
+        cleared.push(part);
+        continue;
+      }
+      const time = partTime(part, value);
+      if (!time) {
+        const { from, to } = PARTS[part];
+        throw new JobError(400, "invalid_run_time", {
+          part,
+          from: hhmm(from),
+          to: hhmm(to),
+        });
+      }
+      times[part] = time;
+    }
+    return { times, cleared };
+  }
+
+  /**
+   * An admin sets one class's own times: `runTimes` {part: "HH:mm"}, a part
+   * left out or empty runs on the default. Only for a schedule of grading
+   * days.
+   */
+  async function setClassRunTimes({ viewer, classId, runTimes }) {
+    if (!viewer.isAdmin) throw new JobError(403, "admin_only");
+    const cls = await loadManagedClass(viewer, classId);
+    const { times } = checkRunTimes(runTimes);
+    const snap = await scheduleRef(cls.id).get();
+    if (!snap.exists) throw new JobError(404, "schedule_not_found");
+    if (!isDaySchedule(snap.data())) {
+      throw new JobError(409, "schedule_needs_days");
+    }
+    await retime(cls.id, () => times);
+    return get({ viewer, classId: cls.id });
+  }
+
+  /**
+   * An admin sets the default time of some parts of the day; every day
+   * schedule follows it for the parts it has no time of its own for (see
+   * retime). `classes`: how many moved.
+   */
+  async function setDefaultRunTimes({ viewer, runTimes }) {
+    if (!viewer.isAdmin) throw new JobError(403, "admin_only");
+    const { times, cleared } = checkRunTimes(runTimes);
+    const stored = cleanRunTimes((await settingsRef().get()).data()?.runTimes);
+    for (const part of cleared) delete stored[part];
+    const next = { ...stored, ...times };
+    await settingsRef().set({
+      runTimes: next,
+      updatedAt: now(),
+      updatedByEmail: String(viewer.email || "").toLowerCase(),
+    });
+    const snap = await db
+      .collection(SCHEDULES)
+      .where("enabled", "==", true)
+      .get();
+    let classes = 0;
+    for (const doc of snap.docs) {
+      if (!isDaySchedule(doc.data())) continue;
+      if (await retime(doc.id, (s) => cleanRunTimes(s.customRunTimes))) {
+        classes += 1;
+      }
+    }
+    const runTimesNow = { ...opts.runTimes, ...next };
+    info(
+      `default grading times ${JSON.stringify(runTimesNow)}: ${classes} class(es) moved`,
+    );
+    return { runTimes: runTimesNow, classes };
   }
 
   /**
@@ -1503,6 +1903,7 @@ function createGradingSchedules(deps) {
 
   return {
     disable,
+    getSettings,
     estimate,
     get,
     handleTask,
@@ -1511,6 +1912,8 @@ function createGradingSchedules(deps) {
     preview,
     tick,
     upsert,
+    setClassRunTimes,
+    setDefaultRunTimes,
     // exposed for tests
     remind,
     run,
@@ -1549,8 +1952,11 @@ module.exports = {
   occurrence,
   offPeakSegments,
   parseOffPeak,
+  parseRunTime,
+  parseVnDate,
   pickRunAt,
   render,
   scheduledJobId,
+  vnDayStart,
   vnParts,
 };

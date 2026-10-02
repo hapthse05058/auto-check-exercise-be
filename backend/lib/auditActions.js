@@ -180,7 +180,22 @@ const AUDIT_ACTIONS = [
     severity: "INFO",
   },
   // Weekly auto-grading of a class (lib/gradingSchedules.js). Each week's
-  // outcome is a SYSTEM "grading.scheduleEvent" row.
+  // outcome is a SYSTEM "grading.scheduleEvent" row. The admin's grading
+  // times first: "settings" would match the class pattern below.
+  {
+    method: "PUT",
+    pattern: /^\/grading-schedules\/settings$/,
+    action: "grading.scheduleDefaultTime",
+    resourceType: "grading",
+    severity: "INFO",
+  },
+  {
+    method: "PUT",
+    pattern: /^\/grading-schedules\/[^/]+\/run-time$/,
+    action: "grading.scheduleClassTime",
+    resourceType: "grading",
+    severity: "INFO",
+  },
   {
     method: "PUT",
     pattern: /^\/grading-schedules\/[^/]+$/,
