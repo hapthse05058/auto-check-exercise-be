@@ -65,6 +65,14 @@ const FORMULA_HEADER = /th[aà]nh\s*l[aậ]p\s*c[oô]ng\s*th[uứ]c/i;
  * cho cả 24 học viên).
  */
 const OPTIONAL_HEADER = /b[aà]i\s*l[aà]m\s*c[uủ]a\s*h[oọ]c\s*vi[eê]n/i;
+/**
+ * Mốc mở đầu phần BÀI TẬP TỰ CHỌN: một bảng (hay đoạn) chỉ ghi đúng dòng đó,
+ * đứng ngay sau "Nhận xét chung của Giáo viên" ở mọi template. Mọi bảng SAU mốc
+ * là bài tự chọn. Cần mốc này vì không phải bảng tự chọn nào cũng có header
+ * "Bài làm của học viên": bảng sắp xếp từ của buổi 02/03 mở đầu luôn bằng câu
+ * 1, và bị cảnh báo nhầm "không nhận ra được là bảng bài tập".
+ */
+const OPTIONAL_SECTION = /^b[aà]i\s*t[aậ]p\s*t[uự]\s*ch[oọ]n:?$/i;
 
 /**
  * Bảng "Bài tập viết đoạn văn" (mọi buổi 02 → 23 cùng một bố cục 3×3):
@@ -261,6 +269,32 @@ function resolveParagraphTable(table) {
   return { studentRowIdx, qCell, fbCell, promptText };
 }
 
+/**
+ * Chỉ số của bảng đầu tiên thuộc phần BÀI TẬP TỰ CHỌN (bảng mốc, hoặc bảng
+ * ngay sau đoạn mốc), hoặc Infinity nếu tab không có phần đó.
+ */
+function optionalSectionStart(tab) {
+  let tableIdx = 0;
+  for (const block of tab?.documentTab?.body?.content || []) {
+    if (block.table) {
+      const cells = (block.table.tableRows || []).flatMap(
+        (row) => row.tableCells || [],
+      );
+      const text = normalizeText(cells.map(getCellText).join(" "));
+      if (OPTIONAL_SECTION.test(text)) return tableIdx;
+      tableIdx += 1;
+    } else if (block.paragraph) {
+      const text = normalizeText(
+        (block.paragraph.elements || [])
+          .map((el) => el.textRun?.content || "")
+          .join(""),
+      );
+      if (OPTIONAL_SECTION.test(text)) return tableIdx;
+    }
+  }
+  return Infinity;
+}
+
 /** Chỉ số bảng do TABLE_OVERRIDES ép cho tab này, hoặc null. */
 function overrideFor(tabName, classType) {
   const found = (TABLE_OVERRIDES || []).find(
@@ -331,6 +365,7 @@ export function detectTables(tab, classType) {
 
   const tables = [];
   const unclassifiedWithQuestions = [];
+  const optionalFrom = optionalSectionStart(tab);
   let previousKind = null;
   let previousColumns = 0;
 
@@ -357,9 +392,9 @@ export function detectTables(tab, classType) {
     // tập sẽ rơi mất mà không ai biết.
     // Bảng TỰ CHỌN có header riêng nên không thể là mảnh bị ngắt trang, và
     // tuyệt đối không được chấm — kể cả khi nó cùng số cột với bảng trước.
-    const optional = headerCellTexts(table).some((text) =>
-      OPTIONAL_HEADER.test(text),
-    );
+    const optional =
+      tableIdx >= optionalFrom ||
+      headerCellTexts(table).some((text) => OPTIONAL_HEADER.test(text));
     const questions = countQuestionRows(table);
     if (
       questions &&

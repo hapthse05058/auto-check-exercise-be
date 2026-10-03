@@ -33,12 +33,13 @@
  *       id, so a retry overwrites it; the push is claimed before it is sent, so
  *       it goes out at most once.
  *
- * POINTS. At the reminder the week's need (the students who did the homework)
- * is reserved in `pointReservations/{payerTeacherId}` — one document per payer,
+ * BALANCE. At the reminder the week's need (the students who did the homework,
+ * at the auto price — lib/billing.js PRICE_AUTO_VND) is reserved in
+ * `pointReservations/{payerTeacherId}` — one document per payer,
  * read and written by every reminder of that payer's classes, which makes it
  * the point where they serialise. Invariant (P): at the moment a reminder
- * commits, point ≥ Σ max(0, reserved_i − charged_i) over the live
- * reservations, the new one included. The transaction reads TeacherPoint, the
+ * commits, balanceVnd ≥ Σ max(0, reserved_i − charged_i) × price_i over the
+ * live reservations (reserved/charged count docs), the new one included. The transaction reads TeacherPoint, the
  * reservation doc and every reserved job, so a concurrent charge (which
  * decrements TeacherPoint first and bumps job.charged after) forces a retry;
  * the only state it can observe in between is "debited, not yet counted",
@@ -59,6 +60,7 @@
  */
 const crypto = require("crypto");
 
+const { PRICE_AUTO_VND, balanceVndOf, formatVnd } = require("./billing.js");
 const { createCourses } = require("./courses.js");
 const { ReauthRequiredError } = require("./googleUserToken.js");
 const {
@@ -104,9 +106,11 @@ const DEFAULTS = {
   runMarginMs: 60 * MINUTE,
   /**
    * Grading time of each part of the day (Vietnam) until an admin sets
-   * another. Morning and evening sit in DeepSeek's off-peak hours.
+   * another — all off-peak. DeepSeek's peak (double price) is Monday to
+   * Friday 8:00–11:00 and 13:00–17:00 Vietnam time; the afternoon waits until
+   * 17:00, after which nothing is peak until the next morning.
    */
-  runTimes: { morning: "07:00", afternoon: "14:00", evening: "23:30" },
+  runTimes: { morning: "07:00", afternoon: "17:00", evening: "23:30" },
   /**
    * How late a grading day's run may still start (an outage, a slow queue)
    * before the week is missed instead of graded into peak hours.
@@ -129,7 +133,12 @@ const DEFAULTS = {
    * stays under it, so the planned — off-peak — time is kept.
    */
   lateToleranceMs: 10 * MINUTE,
-  /** DeepSeek off-peak, UTC. 16:30–00:30 UTC = 23:30–07:30 in Vietnam. */
+  /**
+   * Off-peak window for legacy (deadline) slots, UTC. 16:30–00:30 UTC =
+   * 23:30–07:30 in Vietnam: DeepSeek's old discount window, and still inside
+   * its current off-peak hours (everything but weekdays 8:00–11:00 and
+   * 13:00–17:00 Vietnam time).
+   */
   offPeakUtc: "16:30-00:30",
 };
 
@@ -231,7 +240,8 @@ function vnParts(ms) {
     weekday: d.getUTCDay(), // 0 = Sunday
     time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
     date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
-    display: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} ${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}`,
+    // dd/mm/yyyy HH:mm — the website's formatDateTimeVn.
+    display: `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
   };
 }
 
@@ -467,7 +477,7 @@ const START_REASON_TEXT = {
   class_not_found: "không tìm thấy lớp",
   lesson_not_found: "không tìm thấy buổi học",
   too_many_docs: "lớp có quá nhiều học sinh để chấm một lần",
-  payer_not_found: "không tìm thấy giáo viên trả point",
+  payer_not_found: "không tìm thấy giáo viên trả tiền chấm",
 };
 
 function render(event, run, nowMs) {
@@ -515,18 +525,22 @@ function render(event, run, nowMs) {
       return {
         type: "grading.autoCancelledNoPoints",
         severity: "WARN",
-        title: "Huỷ chấm tự động: không đủ point",
+        title: "Huỷ chấm tự động: không đủ số dư",
         body:
-          `${where}: ${base.submitted} học sinh làm bài, cần ${run.pointsNeeded} ` +
-          `point nhưng chỉ còn dùng được ${run.available}` +
-          (run.reserved ? ` (đang giữ ${run.reserved} cho lớp khác)` : "") +
-          ". Hãy nạp thêm point rồi chấm tay.",
+          `${where}: ${base.submitted} học sinh làm bài, cần ` +
+          `${formatVnd(run.needVnd)} nhưng chỉ còn dùng được ` +
+          formatVnd(run.available) +
+          (run.reserved
+            ? ` (đang giữ ${formatVnd(run.reserved)} cho lớp khác)`
+            : "") +
+          ". Hãy nạp thêm tiền rồi chấm tay.",
         data: {
           ...base,
           need: run.pointsNeeded,
-          have: run.have,
-          reserved: run.reserved || 0,
-          available: run.available,
+          needVnd: run.needVnd,
+          haveVnd: run.have,
+          reservedVnd: run.reserved || 0,
+          availableVnd: run.available,
         },
       };
     case "missed":
@@ -559,7 +573,7 @@ function render(event, run, nowMs) {
       const r = run.result || {};
       const advance = run.lessonAdvance || {};
       let note = "";
-      if (r.stopped) note += " Dừng giữa chừng vì hết point.";
+      if (r.stopped) note += " Dừng giữa chừng vì hết số dư.";
       if (r.reauthRequired)
         note += " Dừng giữa chừng: cần đăng nhập lại Google.";
       if (advance.advanced) {
@@ -576,12 +590,14 @@ function render(event, run, nowMs) {
         title: `Đã chấm xong ${run.lessonName || ""}`.trim(),
         body:
           `${where}: ${base.submitted} học sinh làm bài, đã ghi ` +
-          `${r.written ?? 0}/${r.total ?? base.total} bài, trừ ${r.charged ?? 0} point.` +
+          `${r.written ?? 0}/${r.total ?? base.total} bài, trừ ` +
+          `${formatVnd(r.chargedVnd ?? 0)}.` +
           note,
         data: {
           ...base,
           written: r.written ?? 0,
           charged: r.charged ?? 0,
+          chargedVnd: r.chargedVnd ?? 0,
           advanced: Boolean(advance.advanced),
           nextLessonName: advance.lessonName || null,
         },
@@ -591,7 +607,8 @@ function render(event, run, nowMs) {
       const r = run.result || {};
       const why =
         r.error === "not_enough_points"
-          ? `không đủ point (cần ${r.errorParams?.need}, còn ${r.errorParams?.have})`
+          ? `không đủ số dư (cần ${formatVnd(r.errorParams?.needVnd)}, ` +
+            `còn ${formatVnd(r.errorParams?.haveVnd)})`
           : r.error === "google_reauth_required"
             ? "cần đăng nhập lại bằng Google"
             : r.error || "lỗi không xác định";
@@ -720,7 +737,10 @@ function createGradingSchedules(deps) {
         (entry.expiresAt || 0) < now();
       if (dead) continue;
       entries[key] = entry;
-      outstanding += Math.max(0, (entry.points || 0) - (job?.charged || 0));
+      // In VND: docs still to charge × that reservation's price per doc.
+      outstanding +=
+        Math.max(0, (entry.points || 0) - (job?.charged || 0)) *
+        (entry.priceVnd ?? PRICE_AUTO_VND);
     }
     return {
       ref,
@@ -965,6 +985,7 @@ function createGradingSchedules(deps) {
         submitted: found.count?.pending ?? 0,
         alreadyGraded: found.count?.alreadyGraded ?? 0,
         pointsNeeded: found.count?.pending ?? 0,
+        needVnd: (found.count?.pending ?? 0) * PRICE_AUTO_VND,
         payerTeacherId: s.payerTeacherId,
         ownerEmail: s.ownerEmail,
         authKind: s.authKind,
@@ -1001,9 +1022,10 @@ function createGradingSchedules(deps) {
         run.state = "cancelled_no_submissions";
         run.remindEvent = "noSubmissions";
       } else {
-        const have = pointSnap.exists ? (pointSnap.data().point ?? 0) : 0;
+        // All in VND: the balance, what other reminders hold, what is free.
+        const have = pointSnap.exists ? balanceVndOf(pointSnap.data()) : 0;
         const available = have - reservations.outstanding;
-        if (available < run.pointsNeeded) {
+        if (available < run.needVnd) {
           run.state = "cancelled_no_points";
           run.remindEvent = "noPoints";
           run.have = have;
@@ -1015,6 +1037,7 @@ function createGradingSchedules(deps) {
           run.remindEvent = "upcoming";
           reservations.entries[entryKey(classId, runKey)] = {
             points: run.pointsNeeded,
+            priceVnd: PRICE_AUTO_VND,
             jobId: run.jobId,
             expiresAt: next.graderDeadlineAt + JOB_STALE_MS,
           };
@@ -1222,6 +1245,8 @@ function createGradingSchedules(deps) {
             written: job.written ?? 0,
             total: job.total ?? 0,
             charged: job.charged ?? 0,
+            chargedVnd:
+              (job.charged ?? 0) * (job.unitPriceVnd ?? PRICE_AUTO_VND),
             skipped: job.skipped ?? 0,
             failed: job.failed ?? 0,
             stopped: Boolean(job.stopped),
@@ -1895,8 +1920,11 @@ function createGradingSchedules(deps) {
       }
     }
     return {
-      point: pointSnap.exists ? (pointSnap.data().point ?? 0) : 0,
+      balanceVnd: pointSnap.exists ? balanceVndOf(pointSnap.data()) : 0,
+      priceVnd: PRICE_AUTO_VND,
       needMax: classes.reduce((sum, c) => sum + c.students, 0),
+      needMaxVnd:
+        classes.reduce((sum, c) => sum + c.students, 0) * PRICE_AUTO_VND,
       classes,
     };
   }

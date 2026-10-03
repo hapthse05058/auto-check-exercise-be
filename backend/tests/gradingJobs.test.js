@@ -296,13 +296,18 @@ describe("prepare step", () => {
     assert.equal(h.counters.notify, 1);
   });
 
-  it("refuses to start writing when the points cannot cover the docs", async () => {
+  it("refuses to start writing when the balance cannot cover the docs", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 1 });
     const jobId = await runJob(h);
     const job = h.job(jobId);
     assert.equal(job.status, "failed");
     assert.equal(job.error, "not_enough_points");
-    assert.deepEqual(job.errorParams, { need: 2, have: 1, teacher: "Cô Hà" });
+    assert.deepEqual(job.errorParams, {
+      need: 2,
+      needVnd: 1600,
+      haveVnd: 800,
+      teacher: "Cô Hà",
+    });
     assert.equal(h.docsApi.calls.batchUpdate, 0);
     assert.equal(h.points(), 1);
   });
@@ -377,6 +382,7 @@ describe("write step: crash windows", () => {
       classId: "c1",
       lessonId: "l10",
       chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 800,
       jobId: "an-older-job",
     });
     const jobId = await runJob(h);
@@ -487,11 +493,11 @@ describe("points and identity running out mid-job", () => {
   it("stops before writing what it cannot charge for", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 2 });
     const jobId = await prepared(h);
-    // Something else spends a point after the gate passed.
+    // Something else spends one doc's worth after the gate passed.
     h.db._apply({
       type: "update",
       path: "TeacherPoint/t1",
-      data: { point: 1 },
+      data: { balanceVnd: 800 },
     });
     await h.drain();
     const docs = h.docRecords(jobId);
@@ -579,6 +585,7 @@ describe("charging", () => {
       classId: "c1",
       lessonId: "l10",
       chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 800,
     };
     const [a, b] = await Promise.all([
       consumePointsForDocs(h.db, h.admin, charge),

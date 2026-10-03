@@ -44,7 +44,12 @@ const {
   validateRequest: validateIeltsRequest,
 } = require("./ieltsWriting.js");
 const { hsItemIdentity } = require("./hsGrading.js");
-const { pointLedgerId } = require("./teacherPoints.js");
+const { pointLedgerId, readBalanceVnd } = require("./teacherPoints.js");
+const {
+  PRICE_AUTO_VND,
+  PRICE_MANUAL_VND,
+  unitPriceOfJob,
+} = require("./billing.js");
 
 const JOBS = "gradingJobs";
 const LOCKS = "gradingJobLocks";
@@ -128,7 +133,8 @@ const info = (...args) => console.log("[GRADING-JOB]", ...args);
  * @param deps.loadDocLib      () => Promise<lib/doc exports>
  * @param deps.gradeItems      (items, {useCache, requestId}) => results
  * @param deps.consumePoints   ({payer, docIds, classId, lessonId,
- *                             chargedByEmail, jobId}) => {point, charged, need?}
+ *                             chargedByEmail, unitPriceVnd, jobId}) =>
+ *                             {balanceVnd, charged, need?}
  *                             (lib/teacherPoints.js)
  * @param deps.resolvePayer    (email, classId) => teacher|null
  * @param deps.enqueue         (name, payload, opts) => Promise
@@ -199,9 +205,22 @@ function createGradingJobs(deps) {
 
   const isStale = (job) => now() - (job.progressAt || 0) > JOB_STALE_MS;
 
-  async function readPoint(teacherId) {
-    const snap = await db.collection("TeacherPoint").doc(teacherId).get();
-    return snap.exists ? (snap.data().point ?? 0) : 0;
+  /**
+   * The gate before anything is written: the payer's balance must cover every
+   * doc still to write at this job's price. Fails the job and returns false
+   * when it does not.
+   */
+  async function canAfford(jobId, job, epoch, docCount) {
+    const haveVnd = await readBalanceVnd(db, job.payerTeacherId);
+    const needVnd = docCount * unitPriceOfJob(job);
+    if (needVnd <= haveVnd) return true;
+    await failPrepare(jobId, epoch, "not_enough_points", {
+      need: docCount,
+      needVnd,
+      haveVnd,
+      teacher: job.payerName,
+    });
+    return false;
   }
 
   // -------------------------------------------------------------------------
@@ -322,6 +341,9 @@ function createGradingJobs(deps) {
       classType: classSnap.data().classType || "",
       courseId: classSnap.data().courseId || null,
       gradingProfile,
+      // Fixed at creation, like the profile: what one doc of this job costs.
+      unitPriceVnd:
+        origin?.type === "schedule" ? PRICE_AUTO_VND : PRICE_MANUAL_VND,
       lessonName: lessonSnap.data().name || "",
       docIds: ids,
       // Only admins may skip the cache — same rule as /grade-cached.
@@ -876,40 +898,13 @@ function createGradingJobs(deps) {
     const pending = docs.filter((d) => d.status === "pending");
 
     if (pending.length && isHs(job)) {
-      // Same gate as Basic below: 1 point per doc to write.
-      const have = await readPoint(job.payerTeacherId);
-      if (pending.length > have) {
-        await failPrepare(jobId, epoch, "not_enough_points", {
-          need: pending.length,
-          have,
-          teacher: job.payerName,
-        });
-        return;
-      }
+      if (!(await canAfford(jobId, job, epoch, pending.length))) return;
       await gradeHsDocs(jobId, job, pending);
     } else if (pending.length && isIelts(job)) {
-      // Same gate as Basic below: 1 point per doc to write.
-      const have = await readPoint(job.payerTeacherId);
-      if (pending.length > have) {
-        await failPrepare(jobId, epoch, "not_enough_points", {
-          need: pending.length,
-          have,
-          teacher: job.payerName,
-        });
-        return;
-      }
+      if (!(await canAfford(jobId, job, epoch, pending.length))) return;
       await gradeIeltsDocs(jobId, job, pending, access.token);
     } else if (pending.length) {
-      // Point gate before anything is written: 1 point per doc to write.
-      const have = await readPoint(job.payerTeacherId);
-      if (pending.length > have) {
-        await failPrepare(jobId, epoch, "not_enough_points", {
-          need: pending.length,
-          have,
-          teacher: job.payerName,
-        });
-        return;
-      }
+      if (!(await canAfford(jobId, job, epoch, pending.length))) return;
 
       // Dedupe across the class — identical answers are graded once.
       const unique = new Map();
@@ -1205,6 +1200,7 @@ function createGradingJobs(deps) {
       classId: job.classId,
       lessonId: job.lessonId,
       chargedByEmail: job.createdByEmail,
+      unitPriceVnd: unitPriceOfJob(job),
       jobId,
     });
     let charged = result.charged;
@@ -1357,7 +1353,9 @@ function createGradingJobs(deps) {
       }
 
       // Never write what cannot be paid for.
-      if ((await readPoint(job.payerTeacherId)) < 1) {
+      if (
+        (await readBalanceVnd(db, job.payerTeacherId)) < unitPriceOfJob(job)
+      ) {
         await jobRef(jobId).update({ stopped: true });
         return finishDoc(jobId, docId, { status: "insufficient_points" });
       }
@@ -1494,6 +1492,8 @@ function createGradingJobs(deps) {
       skipped: job.skipped,
       failed: job.failed,
       charged: job.charged,
+      unitPriceVnd: unitPriceOfJob(job),
+      chargedVnd: (job.charged || 0) * unitPriceOfJob(job),
       stopped: job.stopped,
       reauthRequired: job.reauthRequired,
       createdAt: job.createdAt,

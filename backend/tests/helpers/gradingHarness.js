@@ -9,6 +9,7 @@ const { DocsApiError } = require("../../lib/googleDocsApi.js");
 const { createGradingJobs } = require("../../lib/gradingJobs.js");
 const { scheduleAwareOnFinished } = require("../../lib/gradingSchedules.js");
 const { consumePointsForDocs } = require("../../lib/teacherPoints.js");
+const { balanceVndOf } = require("../../lib/billing.js");
 const { applyHsRequests } = require("./hsDocs.js");
 
 const LESSON = "BUỔI 10 - Lesson";
@@ -377,11 +378,14 @@ function createManualQueue() {
 
 /**
  * Builds a job service over fresh fakes. Seeds a class, a lesson, a teacher
- * with `points`, and one student per entry of `tabs`.
+ * whose balance pays for `points` docs at `priceVnd` each (the balance is in
+ * VND; `h.points()` reads it back in docs), and one student per entry of
+ * `tabs`.
  */
 function createHarness({
   tabs,
   points = 100,
+  priceVnd = 800,
   isAdminTeacher = false,
   startAt = 1_000_000,
   gradingProfile = "basic",
@@ -403,7 +407,7 @@ function createHarness({
   });
   seed("lesson", lesson.id, { name: lesson.name });
   seed("teachers", "t1", { gmail: "teacher@x.com", name: "Cô Hà" });
-  seed("TeacherPoint", "t1", { point: points });
+  seed("TeacherPoint", "t1", { balanceVnd: points * priceVnd });
   Object.keys(tabs).forEach((docId, i) =>
     seed("students", `s${i}`, {
       classId: "c1",
@@ -598,7 +602,8 @@ function createHarness({
     },
     job: (jobId) => db.dump("gradingJobs")[jobId],
     docRecords: (jobId) => db.dump(`gradingJobs/${jobId}/docs`),
-    points: () => db.dump("TeacherPoint").t1.point,
+    points: () => balanceVndOf(db.dump("TeacherPoint").t1) / priceVnd,
+    balanceVnd: () => balanceVndOf(db.dump("TeacherPoint").t1),
     ledger: () => Object.values(db.dump("TeacherPointLedger")),
   };
 }

@@ -9,6 +9,7 @@ const {
   validateRequest,
 } = require("../lib/ieltsWriting.js");
 const { consumePointsForDocs } = require("../lib/teacherPoints.js");
+const { PRICE_MANUAL_VND, balanceVndOf } = require("../lib/billing.js");
 const {
   FakeFirestore,
   createFakeAdmin,
@@ -32,10 +33,16 @@ const VALID = JSON.stringify({
 const TEACHER_A = { id: "tA", gmail: "a@x.com", name: "A" };
 const TEACHER_B = { id: "tB", gmail: "b@x.com", name: "B" };
 
+// Seeded in submissions' worth at the manual price, so the assertions below
+// count submissions.
 function setup({ answers = [], points = { tA: 5, tB: 5 } } = {}) {
   const db = new FakeFirestore();
   for (const [id, point] of Object.entries(points)) {
-    db._apply({ type: "set", path: `TeacherPoint/${id}`, data: { point } });
+    db._apply({
+      type: "set",
+      path: `TeacherPoint/${id}`,
+      data: { balanceVnd: point * PRICE_MANUAL_VND },
+    });
   }
   let modelCalls = 0;
   const grader = createIeltsGrader({
@@ -67,17 +74,20 @@ function setup({ answers = [], points = { tA: 5, tB: 5 } } = {}) {
         ...overrides,
       }),
     });
+  /** The balance, in submissions at the manual price. */
   const balance = async (id) =>
-    (await db.collection("TeacherPoint").doc(id).get()).data().point;
+    balanceVndOf((await db.collection("TeacherPoint").doc(id).get()).data()) /
+    PRICE_MANUAL_VND;
   return { db, run, balance, modelCalls: () => modelCalls };
 }
 
 describe("IELTS paste grading: points", () => {
-  it("charges 1 point for a new submission", async () => {
+  it("charges 800đ (the manual price) for a new submission", async () => {
     const { run, balance } = setup();
     const out = await run(TEACHER_A);
     assert.equal(out.charged, 1);
-    assert.equal(out.point, 4);
+    assert.equal(out.chargedVnd, 800);
+    assert.equal(out.balanceVnd, 3200, "4000đ minus 800đ");
     assert.equal(await balance("tA"), 4);
     assert.equal(out.result.overall, 6);
   });
@@ -134,9 +144,9 @@ describe("IELTS paste grading: points", () => {
 
   it("with no points, a submission already paid for is still served", async () => {
     const { db, run } = setup({ points: { tA: 1 } });
-    await run(TEACHER_A); // balance 1 → 0
+    await run(TEACHER_A); // balance 800đ → 0
     assert.equal(
-      (await db.collection("TeacherPoint").doc("tA").get()).data().point,
+      (await db.collection("TeacherPoint").doc("tA").get()).data().balanceVnd,
       0,
     );
     const again = await run(TEACHER_A);

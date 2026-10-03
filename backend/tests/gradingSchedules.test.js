@@ -50,7 +50,8 @@ function scheduleHarness({
   c2Docs = [],
   startAt = T0 - DAY,
 } = {}) {
-  const h = createHarness({ tabs, points, startAt });
+  // A scheduled run pays the auto price: `points` = docs it can pay for.
+  const h = createHarness({ tabs, points, priceVnd: 700, startAt });
   const seed = (path, data) =>
     h.db._apply({ type: "set", path, data, options: { merge: true } });
   seed("lesson/lesson10", { name: LESSON, classType: [CLASS_TYPE] });
@@ -561,8 +562,8 @@ describe("grading days", () => {
       classId: "c1",
       slots: [{ date: "2026-09-30", part: "afternoon" }],
     });
-    assert.equal(next.runAt, vn(8, 30, 14) + J1);
-    assert.equal(next.remindAt, vn(8, 30, 14) + J1 - 30 * MIN);
+    assert.equal(next.runAt, vn(8, 30, 17) + J1);
+    assert.equal(next.remindAt, vn(8, 30, 17) + J1 - 30 * MIN);
     assert.equal(h.db.clock, before);
   });
 
@@ -810,7 +811,8 @@ describe("reminder", () => {
     const [n] = h.notifications;
     assert.equal(n.type, "grading.autoCancelledNoPoints");
     assert.equal(n.data.need, 2);
-    assert.equal(n.data.available, 1);
+    assert.equal(n.data.needVnd, 1400, "2 docs at the auto price");
+    assert.equal(n.data.availableVnd, 700);
     assert.equal(h.schedule().next.runKey, "2026-10-06-2000");
   });
 
@@ -929,7 +931,7 @@ describe("a scheduled week, end to end", () => {
     assert.deepEqual(h.types(), ["grading.autoUpcoming", "grading.autoDone"]);
     assert.match(
       h.notifications[1].body,
-      /2 học sinh làm bài, đã ghi 2\/2 bài, trừ 2 point/,
+      /2 học sinh làm bài, đã ghi 2\/2 bài, trừ 1\.400đ/,
     );
     assert.match(h.notifications[1].body, /chuyển sang BUỔI 11/);
     assert.equal(h.pushes.length, 2);
@@ -1026,7 +1028,7 @@ describe("points reserved across classes", () => {
 
     const b = h.runDoc("c2");
     assert.equal(b.state, "cancelled_no_points");
-    assert.equal(b.available, 1, "3 points minus A's still-uncounted 2");
+    assert.equal(b.available, 700, "3 docs' worth minus A's uncounted 2");
     assert.equal(h.points(), 2);
   });
 
@@ -1060,7 +1062,7 @@ describe("points reserved across classes", () => {
     const b = h.runDoc("c2");
     assert.equal(b.state, "cancelled_no_points");
     assert.equal(b.reserved, 0, "max(0, 1 − 2), not −1");
-    assert.equal(b.available, 2);
+    assert.equal(b.available, 1400);
   });
 
   it("E1: the overspend eats another class's reservation — that job stops, the balance never goes negative", async () => {
