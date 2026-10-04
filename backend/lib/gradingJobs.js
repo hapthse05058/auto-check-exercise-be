@@ -368,6 +368,8 @@ function createGradingJobs(deps) {
       skipped: 0,
       failed: 0,
       charged: 0,
+      // Written but not charged: already paid for this lesson before.
+      alreadyPaid: 0,
       createdAt: at,
       progressAt: at,
       finishedAt: null,
@@ -1124,7 +1126,7 @@ function createGradingJobs(deps) {
   async function finishDoc(
     jobId,
     docId,
-    { status, reason, warnings, charged },
+    { status, reason, warnings, charged, alreadyPaid },
   ) {
     const last = await db.runTransaction(async (tx) => {
       const [jobSnap, dSnap] = await tx.getAll(
@@ -1160,6 +1162,9 @@ function createGradingJobs(deps) {
       tx.update(jobSnap.ref, {
         [bucket]: counts[bucket],
         charged: job.charged + (charged || 0),
+        ...(alreadyPaid
+          ? { alreadyPaid: (job.alreadyPaid || 0) + alreadyPaid }
+          : {}),
         progressAt: now(),
         ...(isLast ? { finalizeRequested: true } : {}),
       });
@@ -1214,6 +1219,9 @@ function createGradingJobs(deps) {
         .get();
       if (receipt.exists && receipt.data().jobId === jobId) charged = 1;
     }
+    // Paid for earlier, so free this time: counted so the summary and the
+    // teacher can tell "nothing charged" from "charging failed".
+    const alreadyPaid = !charged && !result.need ? 1 : 0;
     if (result.need) {
       // The balance was checked just before writing, so only a concurrent
       // spend lands here. The feedback is already in the doc — say it is
@@ -1226,7 +1234,11 @@ function createGradingJobs(deps) {
         charged: 0,
       });
     }
-    return finishDoc(jobId, docId, { status: "written", charged });
+    return finishDoc(jobId, docId, {
+      status: "written",
+      charged,
+      alreadyPaid,
+    });
   }
 
   /** Classifies a failed read of the doc inside write. */
@@ -1430,7 +1442,9 @@ function createGradingJobs(deps) {
     if (!job || job.error === "abandoned") return;
 
     // At least once, but idempotent: fixed ids, so a retry overwrites.
-    if (!job.summaryRecordedAt && job.charged > 0) {
+    // A run that wrote docs is logged even when it charged nothing, so the
+    // audit log shows why (already paid) instead of showing nothing.
+    if (!job.summaryRecordedAt && (job.charged > 0 || job.written > 0)) {
       await onFinished.recordSummary({ ...job, id: jobId });
       await jobRef(jobId).update({ summaryRecordedAt: now() });
     }
@@ -1492,6 +1506,7 @@ function createGradingJobs(deps) {
       skipped: job.skipped,
       failed: job.failed,
       charged: job.charged,
+      alreadyPaid: job.alreadyPaid || 0,
       unitPriceVnd: unitPriceOfJob(job),
       chargedVnd: (job.charged || 0) * unitPriceOfJob(job),
       stopped: job.stopped,

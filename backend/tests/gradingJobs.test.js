@@ -388,7 +388,31 @@ describe("write step: crash windows", () => {
     const jobId = await runJob(h);
     assert.equal(h.job(jobId).written, 2);
     assert.equal(h.job(jobId).charged, 1, "only docB is this job's spend");
+    assert.equal(h.job(jobId).alreadyPaid, 1, "docA is counted as prepaid");
     assert.equal(h.points(), 8);
+  });
+
+  it("a run whose docs were all paid for before still logs its summary", async () => {
+    const h = createHarness({ tabs: classOfFour(), points: 10 });
+    await consumePointsForDocs(h.db, h.admin, {
+      payer: { id: "t1", gmail: "teacher@x.com", name: "Cô Hà" },
+      docIds: ["docA", "docB"],
+      classId: "c1",
+      lessonId: "l10",
+      chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 800,
+      jobId: "an-older-job",
+    });
+    const jobId = await runJob(h);
+    const job = h.job(jobId);
+    assert.equal(job.written, 2);
+    assert.equal(job.charged, 0);
+    assert.equal(job.alreadyPaid, 2);
+    assert.equal(h.points(), 8, "nothing charged twice");
+    // The audit log says why nothing was charged instead of saying nothing.
+    assert.equal(h.counters.summary, 1);
+    const view = await h.jobs.getJob(jobId, { email: "teacher@x.com" });
+    assert.equal(view.alreadyPaid, 2);
   });
 });
 

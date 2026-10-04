@@ -3980,11 +3980,17 @@ const gradingJobs = createGradingJobs({
           detail:
             `Tổng tiền bị trừ: ${billing.formatVnd(
               job.charged * billing.unitPriceOfJob(job),
-            )} (${job.charged} bài) · Lớp: ${job.className || "?"} · ` +
+            )} (${job.charged} bài)` +
+            (job.alreadyPaid
+              ? ` · Không trừ lại ${job.alreadyPaid} bài đã trả tiền trước đó`
+              : "") +
+            ` · Lớp: ${job.className || "?"} · ` +
             `Buổi: ${job.lessonName || "?"} · GV: ${job.payerName || "?"}`,
         });
         // A scheduled job tells the payer itself (gradingSchedules owns its end).
         if (job.origin?.type === "schedule") return;
+        // "N bài đã được chấm" counts charged docs: nothing to tell at 0.
+        if (!(job.charged > 0)) return;
         const [payerSnap, classSnap, lessonSnap] = await Promise.all([
           db.collection("teachers").doc(job.payerTeacherId).get(),
           db.collection("classes").doc(job.classId).get(),

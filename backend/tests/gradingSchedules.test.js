@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { describe, it } = require("node:test");
 
 const { JobError, RetryLater } = require("../lib/gradingJobs.js");
+const { consumePointsForDocs } = require("../lib/teacherPoints.js");
 const {
   DEFAULTS,
   WEEK,
@@ -909,6 +910,37 @@ describe("reminder", () => {
 // ---------------------------------------------------------------------------
 
 describe("a scheduled week, end to end", () => {
+  it("says so when every doc was paid for before and nothing is charged", async () => {
+    const h = scheduleHarness({
+      tabs: { docA: pending(), docB: pending() },
+      points: 10,
+    });
+    // Graded by hand earlier, then cleared: the receipts are still there.
+    await consumePointsForDocs(h.db, h.admin, {
+      payer: { id: "t1", gmail: "teacher@x.com", name: "Cô Hà" },
+      docIds: ["docA", "docB"],
+      classId: "c1",
+      lessonId: "lesson10",
+      chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 700,
+      jobId: "a-manual-run",
+    });
+    await reminded(h);
+    await h.at(h.schedule().nextDueAt);
+
+    const run = h.runDoc();
+    assert.equal(run.state, "done");
+    assert.equal(run.result.written, 2);
+    assert.equal(run.result.chargedVnd, 0);
+    assert.equal(run.result.alreadyPaid, 2);
+    assert.equal(h.points(), 8, "the earlier charge only");
+    assert.match(
+      h.notifications[1].body,
+      /trừ 0đ \(2 bài đã trả tiền trước đó nên không trừ lại\)\./,
+    );
+    assert.equal(h.counters.summary, 1, "the audit log still gets its line");
+  });
+
   it("reminds, grades, charges, moves the class on and announces it — once", async () => {
     const h = scheduleHarness({
       tabs: { docA: pending(), docB: pending() },

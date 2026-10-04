@@ -591,13 +591,18 @@ function render(event, run, nowMs) {
         body:
           `${where}: ${base.submitted} học sinh làm bài, đã ghi ` +
           `${r.written ?? 0}/${r.total ?? base.total} bài, trừ ` +
-          `${formatVnd(r.chargedVnd ?? 0)}.` +
+          `${formatVnd(r.chargedVnd ?? 0)}` +
+          (r.alreadyPaid
+            ? ` (${r.alreadyPaid} bài đã trả tiền trước đó nên không trừ lại)`
+            : "") +
+          "." +
           note,
         data: {
           ...base,
           written: r.written ?? 0,
           charged: r.charged ?? 0,
           chargedVnd: r.chargedVnd ?? 0,
+          alreadyPaid: r.alreadyPaid ?? 0,
           advanced: Boolean(advance.advanced),
           nextLessonName: advance.lessonName || null,
         },
@@ -1245,6 +1250,7 @@ function createGradingSchedules(deps) {
             written: job.written ?? 0,
             total: job.total ?? 0,
             charged: job.charged ?? 0,
+            alreadyPaid: job.alreadyPaid ?? 0,
             chargedVnd:
               (job.charged ?? 0) * (job.unitPriceVnd ?? PRICE_AUTO_VND),
             skipped: job.skipped ?? 0,
