@@ -426,6 +426,26 @@ function reachable(occ, nowMs, opts) {
   );
 }
 
+/**
+ * True when occurrence `c` would come too soon after the schedule's last run.
+ * The day that run graded, picked again once the run is over (a re-grade:
+ * "tonight again at 23:35" after 23:15), only has to start after that run
+ * finished. Anything else keeps the old bound — the candidate's students'
+ * deadline after the last run's grader deadline: moving tonight's deadline
+ * after tonight's grading, or a legacy schedule saved as days, waits a week.
+ */
+function tooSoonAfter(c, lastRun, daySchedule) {
+  if (!lastRun) return false;
+  const sameDay =
+    lastRun.runKey === c.runKey ||
+    String(lastRun.runKey || "").startsWith(`${c.runKey}-r`);
+  if (daySchedule && sameDay && !RUN_ACTIVE.has(lastRun.state)) {
+    const end = lastRun.finishedAt ?? lastRun.updatedAt ?? 0;
+    return c.runAt <= end;
+  }
+  return c.studentDeadlineAt < lastRun.graderDeadlineAt;
+}
+
 /** The first occurrence from `fromIndex` on that can still be graded. */
 function firstReachable(schedule, fromIndex, nowMs, opts) {
   let index = Math.max(0, fromIndex);
@@ -1482,13 +1502,14 @@ function createGradingSchedules(deps) {
       ...define(cls.id, slotInput(deadlines)),
       ...runTimeFields(old?.customRunTimes, await readDefaultRunTimes()),
     };
-    let bound = -Infinity;
+    let lastRun = null;
     if (old?.lastRunKey) {
       const last = (await runRef(cls.id, old.lastRunKey).get()).data();
       const forgotten =
         last?.state === "reminded" && old.next?.runKey === old.lastRunKey;
-      if (last && !forgotten) bound = last.graderDeadlineAt;
+      if (last && !forgotten) lastRun = last;
     }
+    const daySchedule = isDaySchedule(def);
     // The week saving would forget (see upsert's oldRunForgotten).
     let forgottenKey = null;
     if (old?.next?.runKey) {
@@ -1513,7 +1534,7 @@ function createGradingSchedules(deps) {
     let takenRunKey = null;
     for (let i = 0; i < candidates.length && !occ; i++) {
       const c = candidates[i];
-      if (c.studentDeadlineAt < bound) continue;
+      if (tooSoonAfter(c, lastRun, daySchedule)) continue;
       const place = await placeCandidate(
         (ref) => ref.get(),
         cls.id,
@@ -1642,9 +1663,7 @@ function createGradingSchedules(deps) {
       let occ = null;
       for (let i = 0; i < candidates.length && !occ; i++) {
         const c = candidates[i];
-        if (lastRun && c.studentDeadlineAt < lastRun.graderDeadlineAt) {
-          continue;
-        }
+        if (tooSoonAfter(c, lastRun, isDaySchedule(timed))) continue;
         const place = await placeCandidate(
           (ref) => tx.get(ref),
           cls.id,

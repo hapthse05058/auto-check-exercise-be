@@ -718,6 +718,47 @@ describe("grading days", () => {
     assert.ok(noon.next.runAt < vn(9, 1, 12), "still the morning");
   });
 
+  it("the same evening again after its grading: tonight, not next week", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    await saveDays(h, [["2026-09-30", "evening"]]);
+    await h.s.setClassRunTimes({
+      viewer: ADMIN,
+      classId: "c1",
+      runTimes: { evening: "23:10" },
+    });
+    await h.at(h.schedule().nextDueAt);
+    await h.at(h.schedule().nextDueAt);
+    const first = h.runDoc("c1", "2026-09-30");
+    assert.equal(first.state, "done");
+
+    // 23:20: the class's time becomes 23:35 and the teacher saves Wednesday
+    // evening again — a re-grade tonight, though tonight's run would still
+    // be within its 2 h late-start window.
+    h.setClock(vn(8, 30, 23, 20));
+    await h.s.setClassRunTimes({
+      viewer: ADMIN,
+      classId: "c1",
+      runTimes: { evening: "23:35" },
+    });
+    const slots = [{ date: "2026-09-30", part: "evening" }];
+    const { next } = await h.s.preview({
+      viewer: TEACHER,
+      classId: "c1",
+      slots,
+    });
+    assert.equal(next.runKey, "2026-09-30-r2", "the popup shows tonight");
+    assert.equal(next.runAt, vn(8, 30, 23, 35));
+    await h.s.upsert({ viewer: TEACHER, classId: "c1", slots });
+    assert.equal(h.schedule().next.runKey, "2026-09-30-r2");
+    assert.equal(h.schedule().next.runAt, vn(8, 30, 23, 35));
+
+    // Reminded at once (late): graded at 23:35, not 30 minutes after.
+    await h.at(h.schedule().nextDueAt);
+    const again = h.runDoc("c1", "2026-09-30-r2");
+    assert.equal(again.runAt, vn(8, 30, 23, 35));
+    assert.deepEqual(h.runDoc("c1", "2026-09-30"), first);
+  });
+
   it("re-grading the same lesson later that day writes and charges again", async () => {
     const h = scheduleHarness({
       tabs: { docA: pending(), docB: pending() },
