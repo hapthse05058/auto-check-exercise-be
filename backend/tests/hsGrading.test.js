@@ -210,30 +210,54 @@ describe("model answers: complete and valid, or not used at all", () => {
     }
   });
 
-  it("an item to translate needs its translation, right or wrong", () => {
-    const answer = (extra) =>
-      JSON.stringify({
-        items: [
-          { id: "1", correct: true, ...extra },
-          { id: "2", correct: true },
-        ],
-      });
-    assert.equal(
-      parseBatchAnswer(answer({}), ["1", "2"], new Set(["1"])),
-      null,
-    );
+  it("an item to translate needs its translation only when wrong", () => {
+    const wrong = { correct: false, corrected: "He runs **fast**." };
+    const answer = (first) =>
+      JSON.stringify({ items: [{ id: "1", ...first }, { id: "2", correct: true }] });
+    const translate = new Set(["1"]);
+    assert.equal(parseBatchAnswer(answer(wrong), ["1", "2"], translate), null);
     assert.deepEqual(
       parseBatchAnswer(
-        answer({ translation: "Anh ấy chạy nhanh." }),
+        answer({ ...wrong, translation: "Anh ấy chạy nhanh." }),
         ["1", "2"],
-        new Set(["1"]),
+        translate,
       ).get("1"),
-      { correct: true, translation: "Anh ấy chạy nhanh." },
+      { ...wrong, translation: "Anh ấy chạy nhanh." },
     );
+    // Right → no translation needed, and one sent anyway is not kept.
+    for (const right of [
+      { correct: true },
+      { correct: true, translation: "Anh ấy chạy nhanh." },
+    ]) {
+      assert.deepEqual(
+        parseBatchAnswer(answer(right), ["1", "2"], translate).get("1"),
+        { correct: true },
+      );
+    }
     // Not asked for → not kept.
     assert.deepEqual(
-      parseBatchAnswer(answer({ translation: "x" }), ["1", "2"]).get("1"),
-      { correct: true },
+      parseBatchAnswer(
+        answer({ ...wrong, translation: "x" }),
+        ["1", "2"],
+      ).get("1"),
+      wrong,
+    );
+  });
+
+  it("an explanation never names the payload's fields", () => {
+    const raw = JSON.stringify({
+      items: [
+        {
+          id: "1",
+          correct: false,
+          corrected: "He is also a hard-working **boy**.",
+          explanation: "Prompt có “một chàng trai” nên cần N “boy”; theo hint nhé",
+        },
+      ],
+    });
+    assert.equal(
+      parseBatchAnswer(raw, ["1"]).get("1").explanation,
+      "Đề bài có “một chàng trai” nên cần N “boy”; theo gợi ý nhé",
     );
   });
 

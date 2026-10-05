@@ -554,7 +554,9 @@ const HS_AI_THINKING = String(process.env.HS_AI_THINKING || "")
   .toLowerCase();
 // v2 (2026-10-01): teachers' feedback — "V nguyên thể", no NTNS before Buổi 14,
 // Vietnamese meaning for the rearrange exercises.
-const HS_PROMPT_VERSION = process.env.HS_PROMPT_VERSION || "v2";
+// v3 (2026-10-05): the meaning only for a wrong sentence; no field names
+// ("prompt") in explanations; "It is wrong to" → mustn't (B21 Ex3).
+const HS_PROMPT_VERSION = process.env.HS_PROMPT_VERSION || "v3";
 const hsConfigured = Boolean(HS_AI_API_KEY && HS_AI_MODEL);
 if (!hsConfigured) {
   console.warn("WARNING: HS_AI_* / AI_* not set. HS grading is off.");

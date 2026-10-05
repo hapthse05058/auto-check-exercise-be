@@ -105,7 +105,8 @@ function cacheKey({ promptVersion, model, item, entry }) {
 
 /**
  * The rearrange-the-words exercises (Buổi 05–08, 17, 18, 20): the teachers
- * want the Vietnamese meaning of the sentence written with the correction.
+ * want the Vietnamese meaning of the sentence written with the correction
+ * (only with a correction — a right sentence gets the tick alone).
  * Not the "Sắp xếp từ vào âm" sound sorting — that is kind "sort".
  */
 const REARRANGE =
@@ -190,9 +191,28 @@ const text = (value) => {
 };
 
 /**
+ * The payload's field names are the model's words, not the pupil's: an
+ * explanation that says "Prompt có “một chàng trai”" reads as "Đề bài có …".
+ */
+const FIELD_WORDS = [
+  [/\b(the )?prompts?\b/gi, "đề bài"],
+  [/\b(the )?hints?\b/gi, "gợi ý"],
+];
+function plainExplanation(value) {
+  let out = text(value);
+  for (const [re, word] of FIELD_WORDS) {
+    out = out.replace(re, (m, _the, offset) =>
+      offset === 0 ? word[0].toUpperCase() + word.slice(1) : word,
+    );
+  }
+  return out;
+}
+
+/**
  * The verdicts of a batch answer, keyed by id — or null when the answer is
- * not complete and valid (then NONE of it is used). An id in `translate`
- * must come with its Vietnamese "translation", right or wrong.
+ * not complete and valid (then NONE of it is used). A WRONG answer to an id
+ * in `translate` must come with its Vietnamese "translation"; a right one is
+ * not translated (the teachers translate only the sentences to fix).
  */
 function parseBatchAnswer(raw, ids, translate = new Set()) {
   const parsed = extractJson(raw);
@@ -211,10 +231,10 @@ function parseBatchAnswer(raw, ids, translate = new Set()) {
       if (!corrected && !expected) return null;
       if (corrected) verdict.corrected = corrected;
       if (expected) verdict.expected = expected;
-      const explanation = text(entry.explanation);
+      const explanation = plainExplanation(entry.explanation);
       if (explanation) verdict.explanation = explanation;
     }
-    if (translate.has(id)) {
+    if (!entry.correct && translate.has(id)) {
       const translation = text(entry.translation);
       if (!translation) return null;
       verdict.translation = translation;

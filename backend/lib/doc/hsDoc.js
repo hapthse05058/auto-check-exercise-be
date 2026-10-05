@@ -1090,8 +1090,9 @@ const stripParens = (text) =>
  *   cell   (the "Chữa bài" column) "✅" | "Câu đúng: … (…)"
  *   append (end of the answer)     " ✅" | ⏎ "Câu đúng: … (…)"
  *
- * `translation` (the rearrange-the-words exercises) follows either one:
- * " ✅ Dịch: …" | ⏎ "Câu đúng: … (…) Dịch: …".
+ * `translation` (the rearrange-the-words exercises) follows a correction
+ * only: ⏎ "Câu đúng: … (…) Dịch: …". A right sentence keeps the tick alone —
+ * the teachers translate only what the pupil got wrong.
  */
 export function formatHsFeedback(item, result) {
   const mode = item.target?.mode;
@@ -1107,9 +1108,9 @@ export function formatHsFeedback(item, result) {
     const expected = oneLine(result.expected || result.corrected);
     return expected ? ` ❌ → **${expected}**` : " ❌";
   }
+  if (result.correct) return mode === "cell" ? "✅" : " ✅";
   const translation = oneLine(result.translation);
   const meaning = translation ? ` Dịch: ${translation}` : "";
-  if (result.correct) return mode === "cell" ? `✅${meaning}` : ` ✅${meaning}`;
   const corrected = oneLine(result.corrected);
   const body = corrected ? `Câu đúng: ${corrected}${why}` : explanation;
   if (!body) return mode === "cell" ? `❌${meaning}` : ` ❌${meaning}`;

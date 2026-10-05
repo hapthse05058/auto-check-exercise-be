@@ -2093,10 +2093,11 @@
     },
     "hsLesson21|ex3|it is wrong to talk loudly in the cinema. →": {
       "answers": [
-        "You shouldn't talk loudly in the cinema.",
-        "You should not talk loudly in the cinema."
+        "You mustn't talk loudly in the cinema.",
+        "You must not talk loudly in the cinema."
       ],
-      "source": "ai_draft"
+      "source": "teacher_verified",
+      "note": "Theo GV: \"It is wrong to\" → điều cấm → mustn't. \"You shouldn't …\" là SAI ở bài này."
     },
     "hsLesson21|ex3|it is necessary for you to finish this task. →": {
       "answers": ["You must finish this task."],
