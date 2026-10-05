@@ -762,11 +762,12 @@ describe("grading days", () => {
     await saveDays(late, [["2026-09-30", "morning"]]);
     await late.at(WED7 + J1 + 80 * MIN);
     assert.equal(late.runDoc("c1", "2026-09-30").state, "reminded");
-    assert.equal(late.runDoc("c1", "2026-09-30").runAt, WED7 + J1 + 110 * MIN);
+    // Only the short late notice, not the full 30 minutes.
+    assert.equal(late.runDoc("c1", "2026-09-30").runAt, WED7 + J1 + 85 * MIN);
 
     const missed = scheduleHarness({ tabs: { docA: pending() } });
     await saveDays(missed, [["2026-09-30", "morning"]]);
-    await missed.at(WED7 + J1 + 100 * MIN);
+    await missed.at(WED7 + J1 + 118 * MIN);
     assert.equal(missed.runDoc("c1", "2026-09-30").state, "missed");
     assert.equal(missed.schedule().next.runKey, "2026-10-07");
   });
@@ -953,16 +954,29 @@ describe("reminder", () => {
     assert.equal(reserved, 2);
   });
 
-  it("a late reminder moves the run back, keeping schedule, run and due time equal", async () => {
+  it("a late reminder keeps the set time while 5 minutes' notice still fit", async () => {
+    // A time set at 23:05 for 23:10 is graded at 23:10, not 23:35.
     const h = scheduleHarness({ tabs: { docA: pending() } });
     await h.save();
     const planned = h.schedule().next.runAt;
     await h.at(planned - 5 * MIN);
-    const run = h.runDoc();
-    assert.equal(run.state, "reminded");
-    assert.equal(run.runAt, planned + 25 * MIN);
-    assert.equal(h.schedule().next.runAt, run.runAt);
-    assert.equal(h.schedule().nextDueAt, run.runAt);
+    assert.equal(h.runDoc().state, "reminded");
+    assert.equal(h.runDoc().runAt, planned);
+    assert.equal(h.notifications[0].data.minutes, 5);
+  });
+
+  it("a later reminder waits only 5 minutes, keeping schedule, run and due time equal", async () => {
+    for (const lateBy of [-2 * MIN, 3 * MIN]) {
+      const h = scheduleHarness({ tabs: { docA: pending() } });
+      await h.save();
+      const planned = h.schedule().next.runAt;
+      await h.at(planned + lateBy);
+      const run = h.runDoc();
+      assert.equal(run.state, "reminded");
+      assert.equal(run.runAt, planned + lateBy + 5 * MIN);
+      assert.equal(h.schedule().next.runAt, run.runAt);
+      assert.equal(h.schedule().nextDueAt, run.runAt);
+    }
   });
 
   it("normal tick lag keeps the planned (off-peak) time", async () => {
@@ -977,7 +991,7 @@ describe("reminder", () => {
   it("too late to fit before the teacher's deadline: missed", async () => {
     const h = scheduleHarness({ tabs: { docA: pending() } });
     await h.save();
-    await h.at(G0 - 80 * MIN);
+    await h.at(G0 - 62 * MIN); // + 5 min notice = past G0 − 60 min
     assert.equal(h.runDoc().state, "missed");
     assert.deepEqual(h.types(), ["grading.autoMissed"]);
     assert.equal(h.schedule().next.runKey, "2026-10-06-2000");

@@ -128,11 +128,13 @@ const DEFAULTS = {
    */
   jitterMs: 20 * MINUTE,
   /**
-   * A reminder this late (tick lag, an outage) pushes grading back so the
-   * teacher still gets roughly the promised notice. Normal tick lag (≤ 5 min)
-   * stays under it, so the planned — off-peak — time is kept.
+   * The least notice a late reminder (a time set less than remindMs ahead,
+   * tick lag, an outage) still gives: grading stays at the time the teacher
+   * or admin set, and only a run that would start sooner than this — or is
+   * already past — waits this long after the reminder. Never the full
+   * remindMs: a class set to 23:10 at 23:05 is graded around 23:10, not 23:35.
    */
-  lateToleranceMs: 10 * MINUTE,
+  lateNoticeMs: 5 * MINUTE,
   /**
    * Off-peak window for legacy (deadline) slots, UTC. 16:30–00:30 UTC =
    * 23:30–07:30 in Vietnam: DeepSeek's old discount window, and still inside
@@ -1042,10 +1044,11 @@ function createGradingSchedules(deps) {
         updatedAt: at,
       };
 
-      // A reminder this late moves grading back so the notice still holds;
-      // past the point where it would still fit, the week is missed.
-      if (next.runAt - at < opts.remindMs - opts.lateToleranceMs) {
-        run.runAt = Math.max(next.runAt, at + opts.remindMs);
+      // A late reminder keeps the set time, with only a short notice when
+      // that time is (almost) here; past the point where it would still fit,
+      // the week is missed.
+      if (next.runAt - at < opts.lateNoticeMs) {
+        run.runAt = at + opts.lateNoticeMs;
       }
 
       let cancelled = true;
