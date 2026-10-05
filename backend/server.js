@@ -2805,13 +2805,25 @@ app.post(
 /**
  * 1. Endpoint đổi 'code' lấy Access Token & Refresh Token (Lúc mới Login)
  */
+/**
+ * When a Google refresh token stops working, or null when Google does not say.
+ * Google sends refresh_token_expires_in only for time-limited grants, so it is
+ * usually absent: "now + undefined × 1000" was NaN, sent as null, which the
+ * website read as "already expired" and logged everyone out within the hour.
+ */
+function refreshExpiryOf(tokens) {
+  const seconds = Number(tokens?.refresh_token_expires_in);
+  return Number.isFinite(seconds) && seconds > 0
+    ? Date.now() + seconds * 1000
+    : null;
+}
+
 app.post("/auth/google", async (req, res) => {
   const { code } = req.body;
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     // tokens sẽ chứa: access_token, refresh_token, expiry_date...
-    tokens.refresh_token_expires_date =
-      Date.now() + tokens.refresh_token_expires_in * 1000;
+    tokens.refresh_token_expires_date = refreshExpiryOf(tokens);
 
     // Attach the signed-in user's email + full name so the website's teacher
     // signup screen can pre-fill them (Gmail read-only, name editable). They
@@ -3060,9 +3072,8 @@ app.post("/auth/refresh", async (req, res) => {
     res.json({
       access_token: credentials.access_token,
       expiry_date: credentials.expiry_date || 3600 * 1000 + Date.now(),
-      refresh_token: credentials.refresh_token,
-      refresh_token_expires_date:
-        Date.now() + credentials.refresh_token_expires_in * 1000,
+      refresh_token: credentials.refresh_token || refreshToken,
+      refresh_token_expires_date: refreshExpiryOf(credentials),
     });
   } catch (error) {
     // Only the description: the error object carries the refresh token.
