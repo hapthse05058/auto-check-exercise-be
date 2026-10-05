@@ -1,7 +1,8 @@
 /**
  * Charging for graded docs. Moved out of server.js so the rule that matters
- * most here — a doc is never billed twice, however often the charge is retried
- * or raced — can be tested against the real code.
+ * most here — a doc is never billed twice for ONE grading, however often the
+ * charge is retried or raced (a new grading of it is billed again) — can be
+ * tested against the real code.
  *
  * The collections keep their old names (TeacherPoint, TeacherPointLedger), but
  * the balance is money now: `balanceVnd`, see lib/billing.js.
@@ -13,11 +14,16 @@ const { normalizeForKey } = require("./gradingKey.js");
 
 /**
  * Deterministic TeacherPointLedger document id — the receipt for one student
- * doc. Keyed on payer + doc + lesson so charging the same doc twice (a retry,
- * a re-run) is a no-op instead of a double charge.
+ * doc, in one grading. Keyed on payer + doc + lesson + `scope`, the grading
+ * that charges (a job id, a request id): a retry inside that grading is a
+ * no-op instead of a double charge, while every NEW grading — a re-grade, an
+ * admin grading on the teacher's behalf — is charged again. Without a scope
+ * (an old receipt, an old client) a doc is charged once per lesson.
  */
-function pointLedgerId(payerTeacherId, docId, lessonId) {
-  const raw = `${payerTeacherId}|${normalizeForKey(docId)}|${normalizeForKey(lessonId)}`;
+function pointLedgerId(payerTeacherId, docId, lessonId, scope = null) {
+  const raw =
+    `${payerTeacherId}|${normalizeForKey(docId)}|${normalizeForKey(lessonId)}` +
+    (scope ? `|${scope}` : "");
   return crypto.createHash("sha1").update(raw).digest("hex");
 }
 
@@ -66,6 +72,8 @@ async function consumePointsForDocs(
     chargedByEmail,
     unitPriceVnd,
     jobId = null,
+    // The grading being charged; a job charges per job (see pointLedgerId).
+    chargeScope = jobId,
   },
 ) {
   if (!Number.isFinite(unitPriceVnd) || unitPriceVnd <= 0) {
@@ -73,10 +81,10 @@ async function consumePointsForDocs(
   }
   lessonId = lessonId || null;
   const pointRef = db.collection("TeacherPoint").doc(payer.id);
+  const ledgerIdOf = (docId) =>
+    pointLedgerId(payer.id, docId, lessonId, chargeScope);
   const ledgerRefs = docIds.map((docId) =>
-    db
-      .collection("TeacherPointLedger")
-      .doc(pointLedgerId(payer.id, docId, lessonId)),
+    db.collection("TeacherPointLedger").doc(ledgerIdOf(docId)),
   );
 
   return db.runTransaction(async (tx) => {
@@ -113,21 +121,17 @@ async function consumePointsForDocs(
       { merge: true },
     );
     billable.forEach((docId) => {
-      tx.set(
-        db
-          .collection("TeacherPointLedger")
-          .doc(pointLedgerId(payer.id, docId, lessonId)),
-        {
-          payerTeacherId: payer.id,
-          classId: classId || null,
-          docId,
-          lessonId,
-          chargedByEmail,
-          jobId,
-          amountVnd: unitPriceVnd,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-      );
+      tx.set(db.collection("TeacherPointLedger").doc(ledgerIdOf(docId)), {
+        payerTeacherId: payer.id,
+        classId: classId || null,
+        docId,
+        lessonId,
+        chargedByEmail,
+        jobId,
+        chargeScope: chargeScope || null,
+        amountVnd: unitPriceVnd,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
     return {
       balanceVnd: current - costVnd,

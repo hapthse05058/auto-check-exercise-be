@@ -373,7 +373,7 @@ describe("write step: crash windows", () => {
     assert.equal(h.job(jobId).charged, 2);
   });
 
-  it("a doc already paid for by an earlier run is written without a new charge", async () => {
+  it("a doc paid for by an earlier run is charged again by a new one (every grading is paid)", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 10 });
     // e.g. graded before, then cleared by an admin: its receipt still exists.
     await consumePointsForDocs(h.db, h.admin, {
@@ -387,12 +387,12 @@ describe("write step: crash windows", () => {
     });
     const jobId = await runJob(h);
     assert.equal(h.job(jobId).written, 2);
-    assert.equal(h.job(jobId).charged, 1, "only docB is this job's spend");
-    assert.equal(h.job(jobId).alreadyPaid, 1, "docA is counted as prepaid");
-    assert.equal(h.points(), 8);
+    assert.equal(h.job(jobId).charged, 2, "docA again, and docB");
+    assert.equal(h.job(jobId).alreadyPaid, 0);
+    assert.equal(h.points(), 7, "1 earlier + 2 now");
   });
 
-  it("a run whose docs were all paid for before still logs its summary", async () => {
+  it("an admin grading on the teacher's behalf charges the class's teacher, re-grades included", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 10 });
     await consumePointsForDocs(h.db, h.admin, {
       payer: { id: "t1", gmail: "teacher@x.com", name: "Cô Hà" },
@@ -403,16 +403,14 @@ describe("write step: crash windows", () => {
       unitPriceVnd: 800,
       jobId: "an-older-job",
     });
-    const jobId = await runJob(h);
+    const jobId = await runJob(h, { email: "admin@x.com", isAdmin: true });
     const job = h.job(jobId);
+    assert.equal(job.payerTeacherId, "t1", "the teacher pays, not the admin");
     assert.equal(job.written, 2);
-    assert.equal(job.charged, 0);
-    assert.equal(job.alreadyPaid, 2);
-    assert.equal(h.points(), 8, "nothing charged twice");
-    // The audit log says why nothing was charged instead of saying nothing.
+    assert.equal(job.charged, 2);
+    assert.equal(h.points(), 6, "2 earlier + 2 by the admin");
     assert.equal(h.counters.summary, 1);
-    const view = await h.jobs.getJob(jobId, { email: "teacher@x.com" });
-    assert.equal(view.alreadyPaid, 2);
+    assert.ok(h.ledger().filter((r) => r.jobId === jobId).length === 2);
   });
 });
 

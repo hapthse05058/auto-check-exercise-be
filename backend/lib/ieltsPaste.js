@@ -4,11 +4,12 @@
  * against the real code.
  *
  * Billing is Basic's, reused as is (lib/teacherPoints.js): one receipt per
- * payer + "doc", where the doc is the submission itself (pasteReceiptDocId =
- * task + prompt + essay + charts). So:
- *   - the same teacher grading the same submission again pays nothing more;
- *   - another teacher pays once, even when the result comes from the cache —
- *     like Basic, a delivered result is what is paid for, not the AI call;
+ * payer + "doc" + request, where the doc is the submission itself
+ * (pasteReceiptDocId = task + prompt + essay + charts). So:
+ *   - every grading is paid for, the same submission graded again included,
+ *     even when the result comes from the cache — like Basic, a delivered
+ *     result is what is paid for, not the AI call;
+ *   - a retry of the same request (same requestId) is not charged twice;
  *   - the balance is checked BEFORE the model is called, and the price (the
  *     manual one, 800đ) is taken only AFTER a valid result exists: a failed
  *     grading costs nothing.
@@ -43,7 +44,7 @@ async function gradePasted(
   const receiptDocId = pasteReceiptDocId(input);
   const receipt = await db
     .collection("TeacherPointLedger")
-    .doc(pointLedgerId(payer.id, receiptDocId, null))
+    .doc(pointLedgerId(payer.id, receiptDocId, null, requestId || null))
     .get();
   if (!receipt.exists) {
     const balanceVnd = await readBalanceVnd(db, payer.id);
@@ -64,6 +65,7 @@ async function gradePasted(
     lessonId: null,
     chargedByEmail: email,
     unitPriceVnd: PRICE_MANUAL_VND,
+    chargeScope: requestId || null,
   });
   if (charge.need) {
     // Only a concurrent spend lands here: the balance was checked above.

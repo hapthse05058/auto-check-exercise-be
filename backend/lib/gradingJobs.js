@@ -1210,12 +1210,12 @@ function createGradingJobs(deps) {
     });
     let charged = result.charged;
     if (!charged && !result.need) {
-      // Nothing billable: either this job charged the doc on an attempt that
-      // died before recording it, or it was paid for earlier (e.g. graded,
-      // cleared by an admin, graded again). Only the first counts as ours.
+      // Nothing billable: receipts are per job (pointLedgerId's scope), so
+      // this job charged the doc on an attempt that died before recording it.
+      // A receipt from another run never blocks a charge any more.
       const receipt = await db
         .collection("TeacherPointLedger")
-        .doc(pointLedgerId(job.payerTeacherId, docId, job.lessonId))
+        .doc(pointLedgerId(job.payerTeacherId, docId, job.lessonId, jobId))
         .get();
       if (receipt.exists && receipt.data().jobId === jobId) charged = 1;
     }

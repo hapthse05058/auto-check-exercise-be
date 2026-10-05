@@ -144,6 +144,9 @@ const DEFAULTS = {
 
 const RUN_ACTIVE = new Set(["reminded", "starting", "running"]);
 
+/** Most runs one class can have on one day (re-grades: base, -r2 … -r20). */
+const MAX_RETAKES = 20;
+
 /** createJob refusals that retrying cannot fix: the week is cancelled. */
 const PERMANENT_START_ERRORS = new Set([
   "job_in_progress",
@@ -341,8 +344,14 @@ function dayOccurrence(schedule, slot, dayAt, opts) {
     parseRunTime(opts.runTimes[part]);
   const planned = dayAt + minutes * MINUTE;
   const own = Boolean(cleanRunTimes(schedule.customRunTimes)[part]);
+  // The spread never carries a run out of its part of the day: a morning set
+  // to 11:55 stays a morning (not 12:07), an evening at 23:55 stays on the
+  // day the teacher picked (not "00:07 tomorrow").
+  const partEnd = dayAt + (PARTS[part]?.to ?? 24 * 60) * MINUTE;
+  const room = Math.max(0, partEnd - MINUTE - planned);
   const runAt =
-    planned + (own ? 0 : jitterFor(schedule.classId, opts.jitterMs));
+    planned +
+    (own ? 0 : jitterFor(schedule.classId, Math.min(opts.jitterMs, room)));
   return {
     runKey: vnParts(dayAt).date,
     studentDeadlineAt: planned - opts.remindMs - opts.graceMs,
@@ -693,6 +702,33 @@ function createGradingSchedules(deps) {
       runTimes: { ...defaultRunTimes, ...own },
       customRunTimes: own,
     };
+  }
+
+  /**
+   * Where candidate week `c` can go. A day's runs chain base, base-r2,
+   * base-r3…: a day whose last run is over (done, failed, cancelled, missed)
+   * can be graded again under the next key — a re-grade — so the earlier run,
+   * its job, notices and audit rows stay exactly as they were. A day whose
+   * last run is still under way is taken, unless it is the run this save is
+   * about to forget (`forgottenKey`). `get(ref)` reads in or out of a
+   * transaction. Returns {runKey, replaces} or {takenKey}.
+   */
+  async function placeCandidate(get, classId, c, baseSnap, forgottenKey) {
+    if (!baseSnap.exists) return { runKey: c.runKey, replaces: null };
+    let key = c.runKey;
+    let snap = baseSnap;
+    for (let k = 2; k <= MAX_RETAKES; k++) {
+      const nextKey = `${c.runKey}-r${k}`;
+      const nextSnap = await get(runRef(classId, nextKey));
+      if (!nextSnap.exists) {
+        if (key === forgottenKey) return { runKey: key, replaces: null };
+        if (RUN_ACTIVE.has(snap.data().state)) return { takenKey: key };
+        return { runKey: nextKey, replaces: key };
+      }
+      key = nextKey;
+      snap = nextSnap;
+    }
+    return { takenKey: key };
   }
 
   /** Fields that move the schedule on to its next reachable week. */
@@ -1450,13 +1486,57 @@ function createGradingSchedules(deps) {
         last?.state === "reminded" && old.next?.runKey === old.lastRunKey;
       if (last && !forgotten) bound = last.graderDeadlineAt;
     }
-    let occ = firstReachable(def, 0, now(), opts);
-    for (let i = 0; occ.studentDeadlineAt < bound && i < 1000; i++) {
-      occ = occurrence(def, occ.index + 1, opts);
+    // The week saving would forget (see upsert's oldRunForgotten).
+    let forgottenKey = null;
+    if (old?.next?.runKey) {
+      const run = (await runRef(cls.id, old.next.runKey).get()).data();
+      const jobGone = !run?.jobId || !(await jobDocRef(run.jobId).get()).exists;
+      if (run?.state === "reminded" || (run?.state === "starting" && jobGone)) {
+        forgottenKey = old.next.runKey;
+      }
     }
+    // Same candidates and the same placement as upsert, so the preview never
+    // promises a day that saving then moves.
+    const first = firstReachable(def, 0, now(), opts);
+    const candidates = Array.from(
+      { length: 2 * def.slots.length + 2 },
+      (_, k) => occurrence(def, first.index + k, opts),
+    );
+    const runSnaps = await db.getAll(
+      ...candidates.map((c) => runRef(cls.id, c.runKey)),
+    );
+    let occ = null;
+    let replaces = null;
+    let takenRunKey = null;
+    for (let i = 0; i < candidates.length && !occ; i++) {
+      const c = candidates[i];
+      if (c.studentDeadlineAt < bound) continue;
+      const place = await placeCandidate(
+        (ref) => ref.get(),
+        cls.id,
+        c,
+        runSnaps[i],
+        forgottenKey,
+      );
+      if (place.runKey) {
+        occ = { ...c, runKey: place.runKey };
+        replaces = place.replaces;
+      } else {
+        takenRunKey = takenRunKey || place.takenKey;
+      }
+    }
+    occ = occ || candidates[candidates.length - 1];
     return {
       ...def,
-      next: { ...occ, remindAt: remindAtOf(occ) },
+      next: {
+        ...occ,
+        remindAt: remindAtOf(occ),
+        // The day's earlier, finished run this one grades again after — the
+        // screen says it is a re-grade, not a first grading.
+        replacesRunKey: replaces,
+        // A day skipped because the class is being graded that day right now.
+        skippedRunKey: takenRunKey,
+      },
     };
   }
 
@@ -1550,6 +1630,28 @@ function createGradingSchedules(deps) {
       for (const id of payerIds) {
         reservationsByPayer[id] = await readReservations(tx, id);
       }
+      // The first candidate that can take the week (placeCandidate: a new
+      // day, the week we are about to forget, or a re-grade of a day whose
+      // run is over), and not before the last graded occurrence was over —
+      // moving tonight's deadline by an hour after tonight's grading must
+      // not grade the class again tonight, on the lesson it has just moved
+      // on to. Reads, so before any write.
+      let occ = null;
+      for (let i = 0; i < candidates.length && !occ; i++) {
+        const c = candidates[i];
+        if (lastRun && c.studentDeadlineAt < lastRun.graderDeadlineAt) {
+          continue;
+        }
+        const place = await placeCandidate(
+          (ref) => tx.get(ref),
+          cls.id,
+          c,
+          candidateSnaps[i],
+          oldRunForgotten ? oldRun.runKey : null,
+        );
+        if (place.runKey) occ = { ...c, runKey: place.runKey };
+      }
+      occ = occ || candidates[candidates.length - 1];
       // ---- no writes above this line ----
       if (oldRun) {
         settleOpenRun(
@@ -1560,19 +1662,6 @@ function createGradingSchedules(deps) {
           "edit",
         );
       }
-      // Free: no run of its own (the old one we are about to delete counts
-      // as none), and not before the last graded occurrence was over — moving
-      // tonight's deadline by an hour after tonight's grading must not grade
-      // the class again tonight, on the lesson it has just moved on to.
-      const freeIndex = candidates.findIndex((c, i) => {
-        if (lastRun && c.studentDeadlineAt < lastRun.graderDeadlineAt) {
-          return false;
-        }
-        if (!candidateSnaps[i].exists) return true;
-        return oldRunForgotten && c.runKey === oldRun.runKey;
-      });
-      const occ =
-        candidates[freeIndex >= 0 ? freeIndex : candidates.length - 1];
       const at = now();
       const doc = {
         ...timed,
