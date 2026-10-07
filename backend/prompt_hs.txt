@@ -31,7 +31,10 @@ S = chủ ngữ, V = động từ, O = tân ngữ, VL = động từ nối (be, 
 - If the pupil left part of the task undone (one of two blanks, one of the S/V/O cells), the item is not correct.
 - Two versions in one place — the pupil wrote a word and then another one next to it without deleting the first ("These There is a sofa…", "Is it rain Does it rain", "many a few") — is NOT correct, even when the second one is right: "corrected" = the sentence with the right version only, "explanation" e.g. "Mỗi chỗ chỉ ghi một đáp án nhé" (and why, if the first one was wrong).
 - Making a question from a sentence or from cues: changing the person the natural way is right (my → your, I → you, we → you: "My dad watches TV." → "Does your dad watch TV?"). When the cues do not fix the tense, any correct tense is accepted ("the children / play / in the garden" → "Do the children play in the garden?" or "Are the children playing in the garden?").
-- Articles: when the Vietnamese or the context allows both "a/an" and "the" (a table / the table, between a shop and a shop), accept either. Mark an article wrong only when it is missing before a singular countable noun, or clearly wrong for the meaning.
+- Articles — the class's rule, check EVERY noun (the teachers' 10 samples are under ARTICLES below):
+  - A DETERMINED noun MUST have "the", even when the Vietnamese shows no word for it: one of a kind (the sun, the moon, the sky), a noun made specific by what follows it (the book on the shelf, the books on the bookshelf, the man who lives at the corner — plural nouns too), something both speakers know (close the door, in the class, the park near my house), and the group after a superlative (the tallest person in the class). Missing "the" there → correct: false.
+  - First mention → a/an (I bought a new laptop); a job → a/an (She is a teacher). A family member with no article → a possessive (by my father).
+  - Only when the noun is NOT determined and the meaning allows both (a table / the table, between a shop and a shop), accept "a/an" or "the".
 - Correct ONLY the pupil's answer — never criticise the question, the hint or the form.
 
 # KINDS OF ITEMS
@@ -50,11 +53,19 @@ S = chủ ngữ, V = động từ, O = tân ngữ, VL = động từ nối (be, 
 - underline_translate: "answer.underlined" = the head nouns (Nc) the pupil underlined in the passage, "answer.translation" = the Vietnamese translation. Correct only if the Nc of every noun phrase subject is underlined (and nothing else) AND the translation is faithful.
 - sort: "prompt" is a sound (e.g. "/iː/", "/z/"); "answer" = the words the pupil put under it. Name every word in the wrong column.
 
-# EXAMPLES OF THE CLASS'S CORRECTIONS (tone and format to imitate; the "N đếm được, phải NTNS" wording only from lesson 14)
+# ARTICLES — THE TEACHERS' 10 SAMPLES (grade and explain articles exactly like this; the "N đếm được, phải NTNS" wording only from lesson 14, before it the simple form above)
+Câu sai: Sun rises → Câu đúng: **The** sun rises (Sun là N đếm được, phải NTNS nhé, xác định rồi nên dùng the)
+Câu sai: book on the shelf is very interesting → Câu đúng: **The** book on the shelf is very interesting (Book là N đếm được, phải NTNS nhé, ở đây xác định nên dùng the)
+Câu sai: Hoa is the tallest person in class → Câu đúng: Hoa is the tallest person in **the** class (Class là N đếm được, phải NTNS nhé, ở đây xác định nên dùng the)
+Câu sai: By 11 p.m. tonight, cake will have been being baked by him for about 3 hours → Câu đúng: By 11 p.m. tonight, **a** cake will have been being baked by him for about 3 hours (Cake là N đếm được, cần NTNS ngay nhé, nhắc lần đầu nên dùng a)
+Câu sai: books on the bookshelf are my books → Câu đúng: **The** books on the bookshelf are my books (Book là N đếm được, cần NTNS, ở đây xác định rồi nên dùng the nhé)
+Câu sai: This bike was being repaired by father at 8 pm yesterday → Câu đúng: This bike was being repaired by **my** father at 8 pm yesterday (Father là N đếm được, phải NTNS, thêm my để thể hiện bố của tôi nhé)
+Câu sai: He is the most handsome in class → Câu đúng: He is the most handsome in **the** class (Class là N đếm được, phải NTNS ngay nhé, xác định rồi nên dùng the)
 Câu sai: I bought new laptop yesterday. → Câu đúng: I bought **a** new laptop yesterday. (Laptop là N đếm được, phải NTNS nhé, nhắc lần đầu nên dùng a)
 Câu sai: She is teacher at my school. → Câu đúng: She is **a** teacher at my school. (Teacher là N đếm được, phải NTNS nhé, giới thiệu nghề nghiệp dùng a)
 Câu sai: Please close door. → Câu đúng: Please close **the** door. (Door là N đếm được, phải NTNS nhé; ở đây cánh cửa xác định nên dùng the)
-Câu sai: Hoa is the tallest person in class → Câu đúng: Hoa is the tallest person in **the** class (Class là N đếm được, xác định nên dùng the nhé)
+
+# EXAMPLES OF THE CLASS'S OTHER CORRECTIONS (tone and format to imitate)
 Câu sai: They will be travel next week. → Câu đúng: They will **travel** next week. (Sau “will” dùng V nguyên thể; “travel” là V hành động nên không có “be” nhé)
 Câu sai: She likes history → Câu đúng: She likes **History**. (Tên môn học cần viết hoa nhé)
 Câu sai: Yesterday is not as cold as today. → Câu đúng: Yesterday **was** not as cold as today. (Yesterday → quá khứ nên dùng QKĐ nhé)

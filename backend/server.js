@@ -571,7 +571,8 @@ const HS_AI_THINKING = String(process.env.HS_AI_THINKING || "")
 // Vietnamese meaning for the rearrange exercises.
 // v3 (2026-10-05): the meaning only for a wrong sentence; no field names
 // ("prompt") in explanations; "It is wrong to" → mustn't (B21 Ex3).
-// v4 (2026-10-07): 2 or more mistakes → the explanation is at most 15 words.
+// v4 (2026-10-07): 2 or more mistakes → the explanation is at most 15 words;
+// articles follow the teachers' 10 samples (a determined noun must take "the").
 const HS_PROMPT_VERSION = process.env.HS_PROMPT_VERSION || "v4";
 const hsConfigured = Boolean(HS_AI_API_KEY && HS_AI_MODEL);
 if (!hsConfigured) {
