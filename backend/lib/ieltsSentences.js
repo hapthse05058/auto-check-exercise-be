@@ -212,6 +212,33 @@ function sentenceSilentEdits(rows, results) {
   return out;
 }
 
+const plainSentence = (text) =>
+  String(text ?? "")
+    .toLowerCase()
+    .replace(/[\s.!?…]+$/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * A "fix" that only copies the student's sentence back — no "→", no note —
+ * changes nothing, so the row is shown as right (✅) rather than as the
+ * student's own words with no comment. Mutates `results`.
+ */
+function settleUnchangedFixes(rows, results) {
+  for (const { row, cells } of rows) {
+    const result = results.get(row);
+    if (!result || result.verdict !== "fix") continue;
+    if (/→|\*\*|\[/u.test(result.feedback)) continue;
+    const said = plainSentence(withoutLabel(result.feedback));
+    if (
+      cells.some((cell) => said && plainSentence(withoutLabel(cell)) === said)
+    ) {
+      results.set(row, { verdict: "correct", feedback: CORRECT_MARK });
+    }
+  }
+  return results;
+}
+
 /** The note added to a retry after silent edits. */
 function sentenceReminder(edits) {
   const list = edits
@@ -324,7 +351,7 @@ function createIeltsSentenceGrader({
       reminder = sentenceReminder(edits);
     }
     if (!best) throw new IeltsError(502, "ielts_ai_invalid");
-    const { results } = best;
+    const results = settleUnchangedFixes(input.rows, best.results);
 
     await ref.set({
       prompt: input.prompt,

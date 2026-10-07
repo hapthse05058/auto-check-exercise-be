@@ -272,6 +272,23 @@ describe("grader", () => {
     assert.match(results.get(1).feedback, /The production in Spain/);
   });
 
+  it("a fix that only copies the sentence back is shown as right", async () => {
+    const copied = answer([
+      {
+        row: 1,
+        verdict: "fix",
+        feedback: "The output in Spain **decrease** → decreased steadily.",
+      },
+      { row: 2, verdict: "fix", feedback: "There was a steady fall" },
+      { row: 3, verdict: "blank", feedback: "" },
+    ]);
+    // The first answer's silent edit makes it ask again; same answer wins.
+    const { grader } = make([copied, copied, copied]);
+    const { results } = await grader.grade(validateSentenceRequest(table()));
+    assert.deepEqual(results.get(2), { verdict: "correct", feedback: "✅" });
+    assert.equal(results.get(1).verdict, "fix");
+  });
+
   it("the chart is read into text first and is part of the cache key", async () => {
     const reads = [];
     const { calls, grader } = make([GOOD], {
