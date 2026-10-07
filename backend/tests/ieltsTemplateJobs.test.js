@@ -22,7 +22,7 @@ const loadLib = () => import("../lib/doc/ieltsDoc.js");
  * indexed like the Docs API: a table takes 1, each row 1, each cell 1 + its
  * text, and 1 for its end.
  */
-function renderTab(spec) {
+function renderTab(spec, { title = "Writing buổi 10", tabId = "t.w" } = {}) {
   let at = 1;
   const para = (text) => {
     const start = at;
@@ -82,7 +82,7 @@ function renderTab(spec) {
     };
   });
   return {
-    tabProperties: { title: "Writing buổi 10", tabId: "t.w" },
+    tabProperties: { title, tabId },
     documentTab: {
       body: { content },
       namedRanges: {},
@@ -175,6 +175,7 @@ const updateTemplates = (h, overrides = {}) =>
   });
 
 const SUMMARY = {
+  lessons: 1,
   total: 1,
   updated: 0,
   unchanged: 0,
@@ -295,6 +296,101 @@ describe("IELTS template update (its own button)", () => {
     await assert.rejects(updateTemplates(basic), {
       code: "not_ielts_class",
       status: 400,
+    });
+  });
+
+  it("updates a range of lessons: one read per doc, one write per lesson that needs it", async () => {
+    // Buổi 10 and 12 on the older template, Buổi 11 already updated, no
+    // Buổi 13 tab; docB has only Buổi 10.
+    const tab = (n, spec) =>
+      renderTab(spec, { title: `Writing buổi ${n}`, tabId: `t.${n}` });
+    const multiTabDoc = (lessons) => {
+      const doc = {
+        tabs: lessons.map(([n, spec]) => tab(n, spec)),
+        batches: [],
+        apply(target, requests) {
+          const n = target.tabs.findIndex((t) =>
+            requests.some((r) =>
+              JSON.stringify(r).includes(`"tabId":"${t.tabProperties.tabId}"`),
+            ),
+          );
+          doc.batches.push(target.tabs[n].tabProperties.title);
+          const title = target.tabs[n].tabProperties.title;
+          target.tabs[n] = renderTab(newSpec(), {
+            title,
+            tabId: target.tabs[n].tabProperties.tabId,
+          });
+        },
+      };
+      return doc;
+    };
+    const docA = multiTabDoc([
+      [10, oldSpec()],
+      [11, newSpec()],
+      [12, oldSpec()],
+    ]);
+    const docB = multiTabDoc([[10, oldSpec()]]);
+    const h = createHarness({
+      tabs: { docA, docB },
+      points: 10,
+      gradingProfile: "ielts",
+    });
+    for (const n of [11, 12, 13]) {
+      h.db._apply({
+        type: "set",
+        path: `lesson/l${n}`,
+        data: { name: `BUỔI ${n} - Lesson` },
+      });
+    }
+
+    const summary = await updateTemplates(h, {
+      lessonId: undefined,
+      lessonIds: ["l10", "l11", "l12", "l13"],
+    });
+    assert.deepEqual(summary, {
+      ...SUMMARY,
+      lessons: 4,
+      total: 2,
+      updated: 2,
+      tables: 6,
+    });
+    assert.deepEqual(docA.batches, ["Writing buổi 10", "Writing buổi 12"]);
+    assert.deepEqual(docB.batches, ["Writing buổi 10"]);
+    assert.equal(h.points(), 10); // free
+
+    // Again: everything is on the template, nothing is written.
+    const again = await updateTemplates(h, {
+      lessonIds: ["l10", "l11", "l12", "l13"],
+    });
+    assert.deepEqual(again, {
+      ...SUMMARY,
+      lessons: 4,
+      total: 2,
+      unchanged: 2,
+    });
+    assert.equal(docA.batches.length, 2);
+
+    await assert.rejects(updateTemplates(h, { lessonIds: ["l10", "nope"] }), {
+      code: "lesson_not_found",
+      status: 404,
+    });
+  });
+
+  it("is refused while one lesson of the range is being graded", async () => {
+    const h = createHarness({
+      tabs: { docA: lessonDoc(newSpec(), newSpec()).value },
+      gradingProfile: "ielts",
+    });
+    h.db._apply({
+      type: "set",
+      path: "lesson/l9",
+      data: { name: "BUỔI 09 - Lesson" },
+    });
+    const { jobId } = await h.start(); // grading Buổi 10
+    await assert.rejects(updateTemplates(h, { lessonIds: ["l9", "l10"] }), {
+      code: "job_in_progress",
+      status: 409,
+      params: { jobId },
     });
   });
 

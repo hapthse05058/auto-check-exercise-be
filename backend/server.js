@@ -4099,9 +4099,10 @@ app.post("/grading-jobs", verifyGoogleToken, async (req, res) => {
 });
 
 /**
- * IELTS classes: brings the lesson of every student's doc to the current
- * feedback template (lib/gradingJobs.js updateTemplates). Nothing is graded
- * or charged; answers when every doc is done.
+ * IELTS classes: brings the lessons (`lessonIds`, or the one `lessonId`) of
+ * every student's doc to the current feedback template (lib/gradingJobs.js
+ * updateTemplates). Nothing is graded or charged; answers when every doc is
+ * done.
  */
 app.post("/ielts-template-updates", verifyGoogleToken, async (req, res) => {
   try {
@@ -4110,10 +4111,14 @@ app.post("/ielts-template-updates", verifyGoogleToken, async (req, res) => {
       authKind: req.authKind,
       classId: req.body.classId,
       lessonId: req.body.lessonId,
+      lessonIds: req.body.lessonIds,
       docIds: req.body.docIds,
     });
+    const lessons = Array.isArray(req.body.lessonIds)
+      ? req.body.lessonIds.join(", ")
+      : req.body.lessonId;
     res.locals.auditDetail =
-      `Mẫu IELTS · lớp ${req.body.classId} · buổi ${req.body.lessonId} · ` +
+      `Mẫu IELTS · lớp ${req.body.classId} · buổi ${lessons} · ` +
       `${summary.updated}/${summary.total} doc`;
     return res.json(summary);
   } catch (err) {

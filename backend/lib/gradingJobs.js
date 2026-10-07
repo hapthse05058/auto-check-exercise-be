@@ -70,6 +70,12 @@ const MAX_DOCS = 200;
 const READ_CONCURRENCY = 5;
 /** Plan-and-write rounds of an IELTS template update (a doc may move). */
 const MAX_TEMPLATE_ROUNDS = 3;
+/**
+ * One template update runs within the request (Cloud Run allows 30 min):
+ * at most this many lessons, and docs × lessons kept to what fits.
+ */
+const MAX_TEMPLATE_LESSONS = 40;
+const MAX_TEMPLATE_DOC_LESSONS = 1000;
 /** IELTS essays graded at once — each is one long vision-model call. */
 const IELTS_CONCURRENCY = 3;
 /** Re-read + retry rounds for a write refused because the doc moved. */
@@ -741,9 +747,10 @@ function createGradingJobs(deps) {
    * table that already holds feedback is left as it is, so running it twice
    * changes nothing.
    *
-   * @returns {Promise<{changed: number, noTable: number, failed: boolean}>}
-   *   changed: tables brought to the template; noTable: writing exercises
-   *   with no table to grade in; failed: the update was refused.
+   * @returns {Promise<{changed: number, noTable: number, failed: boolean,
+   *   data: object}>} changed: tables brought to the template; noTable:
+   *   writing exercises with no table to grade in; failed: the update was
+   *   refused; data: the doc as last read (the next lesson plans on it).
    */
   async function updateIeltsTemplate(lib, job, docId, access, data) {
     let changed = 0;
@@ -751,7 +758,9 @@ function createGradingJobs(deps) {
       const tab = findLessonTab(lib, job, data);
       const plan = lib.planIeltsTemplateUpdate(tab);
       const noTable = plan.skipped.filter((s) => s.reason === "noTable").length;
-      if (!plan.requests.length) return { changed, noTable, failed: false };
+      if (!plan.requests.length) {
+        return { changed, noTable, failed: false, data };
+      }
       try {
         await docsApi.batchUpdate(docId, plan.requests, access.token, {
           requiredRevisionId: data.revisionId,
@@ -768,12 +777,12 @@ function createGradingJobs(deps) {
           console.error(
             `[GRADING-JOB] ${docId} template update rejected: ${err.message}`,
           );
-          return { changed, noTable, failed: true };
+          return { changed, noTable, failed: true, data };
         }
       }
       data = await docsApi.getDocument(docId, access.token);
     }
-    return { changed, noTable: 0, failed: false };
+    return { changed, noTable: 0, failed: false, data };
   }
 
   /**
@@ -1194,44 +1203,63 @@ function createGradingJobs(deps) {
   }
 
   /**
-   * The "update template" button of an IELTS class: brings the lesson of
-   * every doc (or of the pasted docs) to the current template, without
-   * grading or charging anything. Tables that already hold feedback are left
-   * as they are. Runs within the request — one read and one write per doc.
+   * The "update template" button of an IELTS class: brings the lessons
+   * (`lessonIds`, e.g. Buổi 3 to Buổi 8 — or the one `lessonId`) of every
+   * doc (or of the pasted docs) to the current template, without grading or
+   * charging anything. Tables that already hold feedback are left as they
+   * are. Runs within the request — one read per doc, then one write per
+   * lesson that needs it.
    *
    * Throws a JobError for a request that cannot run (409 job_in_progress
-   * while the lesson is being graded), ReauthRequiredError when the
+   * while one of the lessons is being graded), ReauthRequiredError when the
    * teacher's Google grant is gone.
    *
-   * @returns {Promise<{total: number, updated: number, unchanged: number,
-   *   skipped: number, failed: number, tables: number, noTable: number}>}
+   * @returns {Promise<{lessons: number, total: number, updated: number,
+   *   unchanged: number, skipped: number, failed: number, tables: number,
+   *   noTable: number}>} counted per doc: updated = some lesson changed,
+   *   skipped = none of the lessons has a tab, failed = some update refused.
    */
   async function updateTemplates({
     email,
     authKind,
     classId,
     lessonId,
+    lessonIds,
     docIds,
   }) {
     classId = String(classId || "");
-    lessonId = String(lessonId || "");
-    if (!classId || !lessonId) {
+    const wanted = [
+      ...new Set(
+        (Array.isArray(lessonIds) ? lessonIds : [lessonId])
+          .map((id) => String(id || ""))
+          .filter(Boolean),
+      ),
+    ];
+    if (!classId || !wanted.length) {
       throw new JobError(400, "classId_and_lessonId_required");
     }
-    const [classSnap, lessonSnap, lockSnap] = await Promise.all([
+    if (wanted.length > MAX_TEMPLATE_LESSONS) {
+      throw new JobError(400, "too_many_lessons", {
+        max: MAX_TEMPLATE_LESSONS,
+      });
+    }
+    const [classSnap, ...lessonSnaps] = await Promise.all([
       db.collection("classes").doc(classId).get(),
-      db.collection("lesson").doc(lessonId).get(),
-      lockRef(classId, lessonId).get(),
+      ...wanted.map((id) => db.collection("lesson").doc(id).get()),
     ]);
     if (!classSnap.exists) throw new JobError(404, "class_not_found");
-    if (!lessonSnap.exists) throw new JobError(404, "lesson_not_found");
+    if (lessonSnaps.some((snap) => !snap.exists)) {
+      throw new JobError(404, "lesson_not_found");
+    }
     const profile = await gradingProfileOfClass(classSnap.data());
     if (profile !== GRADING_PROFILE_IELTS) {
       throw new JobError(400, "not_ielts_class");
     }
     // The grading job reads and writes these tables; changing them under it
     // would only make its writes retry or skip.
-    if (lockSnap.exists && lockSnap.data().jobId) {
+    for (const id of wanted) {
+      const lockSnap = await lockRef(classId, id).get();
+      if (!lockSnap.exists || !lockSnap.data().jobId) continue;
       const running = await jobRef(lockSnap.data().jobId).get();
       if (
         running.exists &&
@@ -1246,6 +1274,11 @@ function createGradingJobs(deps) {
     if (ids.length > MAX_DOCS) {
       throw new JobError(400, "too_many_docs", { max: MAX_DOCS });
     }
+    if (ids.length * wanted.length > MAX_TEMPLATE_DOC_LESSONS) {
+      throw new JobError(400, "too_many_lessons", {
+        max: Math.max(1, Math.floor(MAX_TEMPLATE_DOC_LESSONS / ids.length)),
+      });
+    }
     if (authKind === "google" && !(await tokens.hasRefreshToken(email))) {
       throw new JobError(409, "google_reauth_required");
     }
@@ -1255,31 +1288,46 @@ function createGradingJobs(deps) {
     }
 
     const lib = await loadDocLib();
-    const job = {
-      lessonName: lessonSnap.data().name || "",
+    const base = {
       classType: classSnap.data().classType || "",
       gradingProfile: profile,
       createdByEmail: String(email).toLowerCase(),
     };
+    const jobs = lessonSnaps.map((snap) => ({
+      ...base,
+      lessonName: snap.data().name || "",
+    }));
     const access = await tokens.getDocsAccessToken(
-      job.createdByEmail,
+      base.createdByEmail,
       authKind === "google" ? "google" : "jwt",
     );
     const results = await mapLimit(ids, READ_CONCURRENCY, async (docId) => {
       try {
-        const data = await docsApi.getDocument(docId, access.token);
-        const tab = findLessonTab(lib, job, data);
-        if (!tab?.documentTab) return { status: "skipped" };
-        const done = await updateIeltsTemplate(lib, job, docId, access, data);
-        if (done.failed) return { status: "failed" };
-        return {
-          status: done.changed ? "updated" : "unchanged",
-          tables: done.changed,
-          noTable: done.noTable,
-        };
+        let data = await docsApi.getDocument(docId, access.token);
+        let found = 0;
+        let tables = 0;
+        let failed = false;
+        const noTable = jobs.map(() => 0);
+        for (const [i, job] of jobs.entries()) {
+          if (!findLessonTab(lib, job, data)?.documentTab) continue;
+          found += 1;
+          const done = await updateIeltsTemplate(lib, job, docId, access, data);
+          data = done.data;
+          tables += done.changed;
+          noTable[i] = done.noTable;
+          if (done.failed) failed = true;
+        }
+        const status = failed
+          ? "failed"
+          : tables
+            ? "updated"
+            : found
+              ? "unchanged"
+              : "skipped";
+        return { status, tables, noTable };
       } catch (err) {
         if (err instanceof ReauthRequiredError) throw err;
-        if (err.kind === "auth") tokens.invalidate?.(job.createdByEmail);
+        if (err.kind === "auth") tokens.invalidate?.(base.createdByEmail);
         console.error(
           `[GRADING-JOB] template update of ${docId} failed:`,
           err.message,
@@ -1288,16 +1336,21 @@ function createGradingJobs(deps) {
       }
     });
     const count = (status) => results.filter((r) => r.status === status).length;
-    const sum = (key) => results.reduce((n, r) => n + (r[key] || 0), 0);
     return {
+      lessons: jobs.length,
       total: ids.length,
       updated: count("updated"),
       unchanged: count("unchanged"),
       skipped: count("skipped"),
       failed: count("failed"),
-      tables: sum("tables"),
-      // Exercises of the lesson with no table to write in (same in every doc).
-      noTable: Math.max(0, ...results.map((r) => r.noTable || 0)),
+      tables: results.reduce((n, r) => n + (r.tables || 0), 0),
+      // Exercises with no table to write in — the same in every doc, so
+      // counted once per lesson.
+      noTable: jobs.reduce(
+        (n, _job, i) =>
+          n + Math.max(0, ...results.map((r) => r.noTable?.[i] || 0)),
+        0,
+      ),
     };
   }
 

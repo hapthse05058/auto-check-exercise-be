@@ -226,8 +226,9 @@ function applyInserts(tab, requests) {
 /**
  * `tabsByDocId` maps a doc id to ONE lesson tab (Basic, IELTS) — or to a
  * whole document ({tabs: [...]}, the HS form), whose writes are applied by
- * the HS simulator (helpers/hsDocs.js) — or to {tab, apply}, a tab whose
- * writes the test applies itself (apply(tab, requests)).
+ * the HS simulator (helpers/hsDocs.js) unless it has its own apply(doc,
+ * requests) — or to {tab, apply}, a tab whose writes the test applies itself
+ * (apply(tab, requests)).
  */
 function createFakeDocs(tabsByDocId) {
   const docs = new Map(
@@ -304,7 +305,8 @@ function createFakeDocs(tabsByDocId) {
       if (requiredRevisionId && requiredRevisionId !== `r${doc.rev}`) {
         throw new DocsApiError(400, "The document was modified");
       }
-      if (doc.doc) applyHsRequests(doc.doc, requests);
+      if (doc.doc?.apply) doc.doc.apply(doc.doc, requests);
+      else if (doc.doc) applyHsRequests(doc.doc, requests);
       else if (doc.apply) doc.apply(doc.tab, requests);
       else applyInserts(doc.tab, requests);
       doc.rev += 1;
