@@ -8,6 +8,7 @@ const {
   countWords,
   createIeltsGrader,
   formatIeltsFeedback,
+  ieltsFeedbackParts,
   describeResult,
   ieltsCacheKey,
   overallBand,
@@ -607,17 +608,32 @@ describe("grader: retry and cache", () => {
 });
 
 describe("formatIeltsFeedback", () => {
-  it("writes the three parts, the bands and the overall", () => {
+  it("writes the three parts without numbers, bands or overall", () => {
     const described = describeResult(
       parseIeltsResponse(JSON.stringify(task2Json()), "task2"),
       "essay words",
     );
     const text = formatIeltsFeedback(described);
-    assert.match(text, /^\*\*1\. BẢN CHỮA\*\*/);
-    assert.match(text, /\*\*2\. BẢN CẢI THIỆN\*\*/);
-    assert.match(text, /- \*\*Task Response \(6\):\*\* Quan điểm rõ nha\./);
-    assert.match(text, /\*\*Overall: 6\.5\*\*/);
+    assert.match(text, /^\*\*BẢN CHỮA\*\*/);
+    assert.match(text, /\n\*\*BẢN CẢI THIỆN\*\*\n/);
+    assert.match(text, /\n\*\*NHẬN XÉT\*\*\n/);
+    assert.match(text, /- \*\*Task Response:\*\* Quan điểm rõ nha\./);
     assert.match(text, /\*\*Lời khuyên cải thiện:\*\*/);
+    assert.doesNotMatch(text, /Overall|\d\.\s*B|\(\d\)/);
+  });
+
+  it("splits into corrected / improved / review for the doc's table", () => {
+    const described = describeResult(
+      parseIeltsResponse(JSON.stringify(task2Json()), "task2"),
+      "essay words",
+    );
+    const parts = ieltsFeedbackParts(described);
+    assert.equal(parts.corrected, described.corrected);
+    assert.equal(parts.improved, described.improved);
+    assert.match(parts.review, /^- \*\*Task Response:\*\* /);
+    assert.match(parts.review, /\n\*\*Nhận xét chung:\*\* /);
+    assert.match(parts.review, /\n\*\*Lời khuyên cải thiện:\*\* [^\n]+$/);
+    assert.doesNotMatch(parts.review, /NHẬN XÉT|Overall|\(\d\)/);
   });
 
   it("never leaves an unpaired ** or single-* italics on a line", () => {

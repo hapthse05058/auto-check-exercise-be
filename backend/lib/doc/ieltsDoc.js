@@ -30,8 +30,30 @@
  *   | Overview: <student>                  |
  *   | GV chữa/nhận xét (Đoạn văn)          |  <empty: AI writes below it>
  *
- * In both, the prompt and chart are the paragraphs right ABOVE the table (after the
- * "Exercise N" line). The task is the heading's "(Task 1)", "(Task 2)" or
+ * The current template ("pair", asked for by the teachers on 2026-10-07): the
+ * lesson's writing table as it is, then a table of its own right below it,
+ * then a "NHẬN XÉT" line —
+ *
+ *   | Intro: <student>                                   |
+ *   | Overview: <student>                                |
+ *
+ *   | GV chữa/nhận xét          | BẢN CẢI THIỆN          |
+ *   | <AI: corrected writing>   | <AI: improved version> |
+ *   NHẬN XÉT
+ *   <AI: comments per criterion, general comment, advice>
+ *
+ * And short sentences ("sentences"): the exercise's own table with a last
+ * column headed "GV chữa/nhận xét" in its first row; the AI writes into that
+ * column, one row at a time ("✅" when the sentence is right).
+ *
+ *   | Loại chủ ngữ   | Câu mô tả       | GV chữa/nhận xét     |
+ *   | Chủ ngữ đơn vị | <student>       | <AI>                 |
+ *
+ * planIeltsTemplateUpdate turns a lesson of the older layouts (or of the
+ * course's original doc, which has none) into these two.
+ *
+ * In all but the old one, the prompt and chart are the paragraphs right ABOVE
+ * the table (after the "Exercise N" line). The task is the heading's "(Task 1)", "(Task 2)" or
  * "(Đoạn văn)" (on either heading); without one it is guessed from the
  * exercise line. The AI writes just below the "GV chữa/nhận xét" heading, wrapped in a named range
  * (IELTS_NAMED_RANGE_PREFIX) so "Xóa feedback" removes exactly what it wrote
@@ -50,6 +72,10 @@ import {
 } from "./docWriter.js";
 
 export const KIND_IELTS_WRITING = "ielts_writing";
+/** One row of a short-sentence table (a row entry). */
+export const KIND_IELTS_SENTENCE = "ielts_sentence";
+/** A short-sentence table to grade: all its rows in one item. */
+export const KIND_IELTS_SENTENCES = "ielts_sentences";
 
 const TITLE = /ielts\s*writing/i;
 const TASK_1 = /task\s*1\b/i;
@@ -69,9 +95,29 @@ const FEEDBACK_LABEL = /^\s*(gv\s*(ch[uữ]a|s[uử]a)|ch[uữ]a\s*b[aà]i)\s*:?
 export const LAYOUT_ROWS = "rows";
 export const LAYOUT_COLUMNS = "columns";
 export const LAYOUT_BELOW = "below";
-/** Layouts whose feedback goes below a heading, in a named range. */
-const headedLayout = (entry) =>
-  entry?.layout === LAYOUT_COLUMNS || entry?.layout === LAYOUT_BELOW;
+export const LAYOUT_PAIR = "pair";
+export const LAYOUT_SENTENCES = "sentences";
+/** Layouts whose feedback this module writes itself, in named ranges. */
+const HEADED_LAYOUTS = [
+  LAYOUT_COLUMNS,
+  LAYOUT_BELOW,
+  LAYOUT_PAIR,
+  LAYOUT_SENTENCES,
+];
+const headedLayout = (entry) => HEADED_LAYOUTS.includes(entry?.layout);
+
+/** The template's headings, as the converter writes them. */
+export const FEEDBACK_HEADING = "GV chữa/nhận xét";
+export const IMPROVED_HEADING = "BẢN CẢI THIỆN";
+export const REVIEW_HEADING = "NHẬN XÉT";
+export const SENTENCE_HEADING = "Câu của học viên";
+/** Heading of the improved-version cell: "BẢN CẢI THIỆN", "Bài cải thiện". */
+const IMPROVED_HEAD = /^\s*(b[aả]n|b[aà]i)\s*c[aả]i\s*thi[eệ]n\s*:?\s*$/iu;
+/** A heading naming the teacher, or a comment: "GV …", "Cô …", "… nhận xét". */
+const TEACHER_COLUMN =
+  /(^|[^\p{L}])(gv|gi[aá]o\s*vi[eê]n|c[oô])(?![\p{L}])|nh[aậ]n\s*x[eé]t/iu;
+/** The line below the pair table that the comments go under. */
+const REVIEW_HEAD = /^\s*nh[aậ]n\s*x[eé]t\s*:?\s*$/iu;
 
 /**
  * Heading of the student's cell in the 2-column layout, and whatever follows
@@ -311,11 +357,218 @@ function resolveBelowTable(table) {
   return null;
 }
 
-/** A table the student writes in: any IELTS layout. */
+/** The Docs index just before a heading paragraph's newline, or null. */
+function endOfHeading(head) {
+  const last = head?.block?.paragraph?.elements?.at(-1);
+  if (last?.endIndex === undefined || !last.textRun?.content?.endsWith("\n")) {
+    return null;
+  }
+  return last.endIndex - 1;
+}
+
+/**
+ * Reads a table as the feedback table of the "pair" layout: one row of two
+ * cells headed "GV chữa/nhận xét" and "BẢN CẢI THIỆN".
+ *
+ * @returns {{leftCell, rightCell, taskLabel, leftAt, rightAt,
+ *   feedbackText}|null} leftAt / rightAt: where the corrected writing and
+ *   the improved version go (just before each heading's newline).
+ */
+function resolvePairTable(table) {
+  const rows = table?.tableRows || [];
+  if (rows.length !== 1) return null;
+  const cells = rows[0].tableCells || [];
+  if (cells.length !== 2) return null;
+  const left = headingOf(cells[0]);
+  const right = headingOf(cells[1]);
+  if (!left || !right) return null;
+  const heading = feedbackHeading(left.text);
+  if (!heading || !IMPROVED_HEAD.test(right.text.normalize("NFC"))) {
+    return null;
+  }
+  const leftAt = endOfHeading(left);
+  const rightAt = endOfHeading(right);
+  if (leftAt === null || rightAt === null) return null;
+  return {
+    leftCell: cells[0],
+    rightCell: cells[1],
+    taskLabel: heading.taskLabel,
+    leftAt,
+    rightAt,
+    feedbackText: [
+      ...getCellLines(cells[0]).slice(1),
+      ...getCellLines(cells[1]).slice(1),
+    ].join("\n"),
+  };
+}
+
+/**
+ * The writing in the table above a pair table: every cell's lines, except a
+ * cell headed "GV chữa/nhận xét" (an older template's feedback, kept when the
+ * lesson was converted after grading) and the "Bài viết của học viên (Task 1)"
+ * heading of the teachers' 2-column table, whose task it reports.
+ */
+function essayOfTable(table) {
+  const lines = [];
+  let taskLabel = null;
+  for (const row of table?.tableRows || []) {
+    for (const cell of row.tableCells || []) {
+      const head = headingOf(cell);
+      if (!head || feedbackHeading(head.text)) continue;
+      let cellLines = getCellLines(cell);
+      const essayHead = COLUMN_ESSAY_HEAD.exec(cellLines[0].normalize("NFC"));
+      if (essayHead) {
+        const rest = essayHead.groups.rest || "";
+        const wrapped = COLUMN_ESSAY_REST.exec(rest);
+        const task = wrapped ? taskOf(wrapped.groups.task) : null;
+        taskLabel ||= task;
+        const first =
+          task || !rest.trim() ? "" : rest.replace(/^[\s:–—-]+/u, "");
+        cellLines = [first, ...cellLines.slice(1)].filter(Boolean);
+      }
+      lines.push(...cellLines);
+    }
+  }
+  return { essayText: lines.join("\n"), taskLabel };
+}
+
+/** True when a block is a paragraph with neither text nor an image. */
+function isBlankParagraph(block) {
+  if (!block?.paragraph) return false;
+  const text = getCellLines({ content: [block] }).join("");
+  return !text.trim() && !imageIdsInBlocks([block]).length;
+}
+
+/** Index in `body` of the next block after `at` that is not a blank line. */
+function nextBlockAt(body, at) {
+  let i = at + 1;
+  while (i < body.length && isBlankParagraph(body[i])) i++;
+  return i < body.length ? i : -1;
+}
+
+/** Index in `body` of the block before `at` that is not a blank line. */
+function previousBlockAt(body, at) {
+  let i = at - 1;
+  while (i >= 0 && isBlankParagraph(body[i])) i--;
+  return i;
+}
+
+/** The "NHẬN XÉT" paragraph right below the pair table at `at`, or null. */
+function reviewHeadingAfter(body, at) {
+  const i = nextBlockAt(body, at);
+  const block = body[i];
+  if (!block?.paragraph) return null;
+  const text = getCellLines({ content: [block] })
+    .join(" ")
+    .trim();
+  if (!REVIEW_HEAD.test(text.normalize("NFC"))) return null;
+  const insertAt = endOfHeading({ block });
+  return insertAt === null ? null : { at: i, insertAt };
+}
+
+/** "Sđơn vị… + V + adv: <sentence>" → "<sentence>"; a short label only. */
+const withoutLabel = (text) =>
+  String(text ?? "")
+    .replace(/^[^:\n]{1,80}:/u, "")
+    .trim();
+
+/**
+ * True when a sentence row holds the student's writing: a cell past the first
+ * holds text, or the first holds more than its label — "Mô tả bước 1:" or
+ * "Chủ ngữ đơn vị" alone is not written yet. With one column, anything past
+ * its label is. `headers` (the first row's titles, when it has them) mark the
+ * teacher's columns — hints, questions, the given problems — whose text is
+ * never the student's.
+ */
+function sentenceWritten(texts, headers = []) {
+  // A hint cell ("Gợi ý: • …", buổi 18's last row) is the teacher's too.
+  // So is a structure to follow: "The figure for + N + in A was …".
+  const own = texts.map((t, i) =>
+    HINT_CELL.test(t) ||
+    FORMULA.test(withoutLabel(t)) ||
+    GIVEN_COLUMN.test(headers[i] || "")
+      ? ""
+      : t,
+  );
+  if (own.length === 1) return withoutLabel(own[0]) !== "";
+  return own.some(
+    (t, i) => (i === 0 ? /:/.test(t) : true) && withoutLabel(t) !== "",
+  );
+}
+const HINT_CELL = /^\s*g[oợ]i\s*ý(?![\p{L}])/iu;
+/** A sentence pattern with slots joined by "+", never a student's sentence. */
+const FORMULA = /\S\s\+\s\S/u;
+/** "Gợi ý", "Câu hỏi gợi ý", "Problems", "Đề bài": filled in by the teacher. */
+const GIVEN_COLUMN =
+  /g[oợ]i\s*ý|c[aâ]u\s*h[oỏ]i|question|hint|problems?(?![\p{L}])|đ[eề]\s*b[aà]i/iu;
+
+/**
+ * Reads a table as a short-sentence table: its first row's LAST cell holds
+ * only a "GV chữa/nhận xét" heading, and every row below gets the AI's
+ * comment in that column. Rows whose cells do not line up with the first row
+ * (merged cells) are left out.
+ *
+ * @returns {{columns: string[], rows: Array<{rowIdx, row, cells: string[],
+ *   fbCell, insertAt, feedbackText, answered: boolean}>}|null}
+ */
+function resolveSentenceTable(table) {
+  const rows = table?.tableRows || [];
+  if (rows.length < 2) return null;
+  const header = rows[0].tableCells || [];
+  if (header.length < 2) return null;
+  // A row of titles, one per column — a merged title cell (Basic's
+  // "Bài tập viết đoạn văn" header) is not one.
+  const titled = header.every(
+    (c) => getCellText(c).trim() && (c.tableCellStyle?.columnSpan || 1) === 1,
+  );
+  if (!titled) return null;
+  const last = header.at(-1);
+  const head = headingOf(last);
+  if (!head || getCellLines(last).length !== 1) return null;
+  // The teacher's column ("GV chữa/nhận xét", "Cô nhận xét") — not Basic's
+  // own "Chữa bài" column, which a Basic table has in the same place.
+  if (!feedbackHeading(head.text) || !TEACHER_COLUMN.test(head.text)) {
+    return null;
+  }
+  const fbCol = header.length - 1;
+  const titles = header.slice(0, fbCol).map((c) => getCellText(c));
+  const out = [];
+  // A comment cell merged down over the rows below hides theirs: Docs still
+  // lists the hidden cells, but text put there would not be seen with its
+  // row — those rows get no comment rather than a misplaced one.
+  let fbHiddenUntil = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r].tableCells || [];
+    const fbCell = cells[fbCol];
+    const insertAt = fbCell?.content?.[0]?.startIndex;
+    if (r <= fbHiddenUntil) continue;
+    fbHiddenUntil = r + (fbCell?.tableCellStyle?.rowSpan || 1) - 1;
+    if (cells.length !== header.length || insertAt === undefined) continue;
+    const texts = cells.slice(0, fbCol).map((c) => getCellText(c));
+    const answered = sentenceWritten(texts, titles);
+    out.push({
+      rowIdx: r,
+      row: rows[r],
+      cells: texts,
+      fbCell,
+      insertAt,
+      feedbackText: getCellText(fbCell),
+      answered,
+    });
+  }
+  return {
+    columns: header.slice(0, fbCol).map((c) => getCellText(c)),
+    rows: out,
+  };
+}
+
+/** A table the student writes in, or its feedback table: any IELTS layout. */
 const isWritingTable = (table) =>
   resolveIeltsTable(table) !== null ||
   (table?.tableRows || []).some((row) => resolveColumnRow(row)) ||
-  resolveBelowTable(table) !== null;
+  resolveBelowTable(table) !== null ||
+  resolvePairTable(table) !== null ||
+  resolveSentenceTable(table) !== null;
 
 /** Vietnamese letters: a hint or an instruction, never an IELTS prompt. */
 const VIETNAMESE =
@@ -329,7 +582,7 @@ const VIETNAMESE =
  * exercise has several prompts: then the hints of the prompt before ("Gợi
  * ý: …", in Vietnamese) are dropped, the prompt itself being English.
  */
-function promptAbove(body, tableAt) {
+function promptAbove(body, tableAt, skip = new Set()) {
   let start = 0;
   let exercise = null;
   let afterWriting = false;
@@ -369,7 +622,9 @@ function promptAbove(body, tableAt) {
       }
     }
   }
-  let blocks = body.slice(start, tableAt).filter((b) => b?.paragraph);
+  let blocks = body
+    .slice(start, tableAt)
+    .filter((b, k) => b?.paragraph && !skip.has(start + k));
   if (afterWriting) {
     // Only the run of hint lines right after that table: anything Vietnamese
     // further down (a hint above this table) stays, with its prompt.
@@ -388,6 +643,57 @@ function promptAbove(body, tableAt) {
     exercise: exercise || "",
     promptText: [exercise, text].filter(Boolean).join("\n"),
     imageIds: imageIdsInBlocks(blocks),
+  };
+}
+
+/**
+ * The prompt of a short-sentence table: the exercise line, the exercise's own
+ * lines (up to its first table), the lines right above this table (its own
+ * item: "1, Mô tả số liệu của Spain (1980 - 2010) - Giảm đều") and every
+ * image from the exercise line down to the table — the chart is usually shown
+ * once, under the exercise line.
+ */
+function sentencePromptAbove(body, tableAt, skip = new Set()) {
+  let exerciseAt = -1;
+  for (let i = tableAt - 1; i >= 0; i--) {
+    const block = body[i];
+    if (!block?.paragraph) continue;
+    const text = getCellLines({ content: [block] })
+      .join(" ")
+      .trim();
+    if (EXERCISE_LINE.test(text)) {
+      exerciseAt = i;
+      break;
+    }
+  }
+  const linesOf = (from, to) =>
+    getCellLines({
+      content: body
+        .slice(from, to)
+        .filter((b, k) => b?.paragraph && !skip.has(from + k)),
+    });
+  let firstTable = tableAt;
+  let previousTable = exerciseAt;
+  for (let i = exerciseAt + 1; i < tableAt; i++) {
+    if (!body[i]?.table) continue;
+    if (firstTable === tableAt) firstTable = i;
+    previousTable = i;
+  }
+  const exercise =
+    exerciseAt >= 0 ? linesOf(exerciseAt, exerciseAt + 1).join(" ") : "";
+  const intro = linesOf(exerciseAt + 1, firstTable);
+  const own =
+    previousTable > exerciseAt ? linesOf(previousTable + 1, tableAt) : [];
+  let text = [...intro, ...own].join("\n");
+  if (text.length > MAX_COLUMN_PROMPT) text = text.slice(-MAX_COLUMN_PROMPT);
+  const imageIds = imageIdsInBlocks(
+    body
+      .slice(exerciseAt + 1, tableAt)
+      .filter((b, k) => !skip.has(exerciseAt + 1 + k)),
+  );
+  return {
+    promptText: [exercise, text].filter(Boolean).join("\n"),
+    imageIds,
   };
 }
 
@@ -485,6 +791,34 @@ export function findIeltsTab(tabs, lessonName) {
 }
 
 /**
+ * Indexes in `body` of the paragraphs that are not part of any prompt: the
+ * "NHẬN XÉT" line under a pair table and what the AI wrote outside tables
+ * (its named ranges) — the comments of one exercise must never be read as
+ * the prompt of the next.
+ */
+function aiWrittenBlocks(tab, body) {
+  const ranges = Object.entries(tab?.documentTab?.namedRanges || {})
+    .filter(([name]) => name.startsWith(IELTS_NAMED_RANGE_PREFIX))
+    .flatMap(([, group]) => group.namedRanges || [])
+    .flatMap((nr) => nr.ranges || []);
+  const skip = new Set();
+  body.forEach((block, at) => {
+    if (!block?.paragraph) {
+      if (block?.table && resolvePairTable(block.table)) {
+        const review = reviewHeadingAfter(body, at);
+        if (review) skip.add(review.at);
+      }
+      return;
+    }
+    const start = block.startIndex;
+    if (ranges.some((r) => start >= r.startIndex && start < r.endIndex)) {
+      skip.add(at);
+    }
+  });
+  return skip;
+}
+
+/**
  * Every IELTS Writing table of a tab, as row entries (see the file header).
  *
  * @returns {{rows: object[], invalidTables: number[]}}
@@ -493,11 +827,81 @@ export function collectIeltsRows(tab) {
   const rows = [];
   const invalidTables = [];
   const body = tab?.documentTab?.body?.content || [];
+  const skip = aiWrittenBlocks(tab, body);
+  // The table above a pair table is its writing: read with the pair table,
+  // never on its own (it may still hold an older "GV chữa/nhận xét" row).
+  const essayOfPair = new Map();
+  body.forEach((block, at) => {
+    if (!block?.table || !resolvePairTable(block.table)) return;
+    const essayAt = previousBlockAt(body, at);
+    if (body[essayAt]?.table && !resolvePairTable(body[essayAt].table)) {
+      essayOfPair.set(at, essayAt);
+    }
+  });
+  const essayTables = new Set(essayOfPair.values());
   let tableIdx = -1;
   body.forEach((block, at) => {
     const table = block?.table;
     if (!table) return;
     tableIdx++;
+    if (essayTables.has(at)) return;
+    const pair = resolvePairTable(table);
+    if (pair) {
+      const essayAt = essayOfPair.get(at);
+      if (essayAt === undefined) return; // no writing above it
+      const essay = essayOfTable(body[essayAt].table);
+      const above = promptAbove(body, essayAt, skip);
+      const taskLabel = pair.taskLabel || essay.taskLabel;
+      const review = reviewHeadingAfter(body, at);
+      rows.push({
+        tableIdx,
+        rowIdx: 0,
+        kind: KIND_IELTS_WRITING,
+        layout: LAYOUT_PAIR,
+        row: table.tableRows[0],
+        qCell: body[essayAt].table.tableRows?.[0]?.tableCells?.[0] || null,
+        fbCell: pair.leftCell,
+        numberCell: null,
+        isOverall: false,
+        overallCell: null,
+        task: taskLabel || guessColumnTask(above.exercise, above.imageIds),
+        taskFromLabel: Boolean(taskLabel),
+        promptText: above.promptText,
+        imageIds: above.imageIds,
+        essayText: essay.essayText,
+        feedbackText: pair.feedbackText,
+        insertAt: pair.leftAt,
+        improvedAt: pair.rightAt,
+        reviewAt: review ? review.insertAt : null,
+      });
+      return;
+    }
+    const sentences = resolveSentenceTable(table);
+    if (sentences) {
+      const above = sentencePromptAbove(body, at, skip);
+      for (const line of sentences.rows) {
+        rows.push({
+          tableIdx,
+          rowIdx: line.rowIdx,
+          kind: KIND_IELTS_SENTENCE,
+          layout: LAYOUT_SENTENCES,
+          row: line.row,
+          qCell: line.row.tableCells[0],
+          fbCell: line.fbCell,
+          numberCell: null,
+          isOverall: false,
+          overallCell: null,
+          columns: sentences.columns,
+          cells: line.cells,
+          answered: line.answered,
+          promptText: above.promptText,
+          imageIds: above.imageIds,
+          feedbackText: line.feedbackText,
+          insertAt: line.insertAt,
+        });
+      }
+      return;
+    }
     const resolved = resolveIeltsTable(table);
     if (resolved?.invalid) {
       invalidTables.push(tableIdx);
@@ -526,7 +930,7 @@ export function collectIeltsRows(tab) {
       const column = resolveColumnRow(row);
       if (!column) return;
       columns++;
-      const above = promptAbove(body, at);
+      const above = promptAbove(body, at, skip);
       rows.push({
         tableIdx,
         rowIdx,
@@ -551,7 +955,7 @@ export function collectIeltsRows(tab) {
     if (columns) return;
     const below = resolveBelowTable(table);
     if (!below) return;
-    const above = promptAbove(body, at);
+    const above = promptAbove(body, at, skip);
     rows.push({
       tableIdx,
       rowIdx: below.rowIdx,
@@ -580,13 +984,45 @@ export function collectIeltsRows(tab) {
  * with anything in it — an earlier grading, the teacher's own notes — is
  * never written over.
  *
+ * A short-sentence table is ONE item (type KIND_IELTS_SENTENCES) holding its
+ * written rows whose comment cell is still empty; rows a teacher already
+ * commented on are left alone, the others still graded.
+ *
  * @returns {{items: Array<{question, answer, type, task, imageIds,
- *   tableIdx, rowIdx}>, graded: number}}
+ *   tableIdx, rowIdx} | {question, type, columns, sentences: Array<{rowIdx,
+ *   cells}>, imageIds, tableIdx, rowIdx}>, graded: number}}
  */
 export function selectIeltsItemsToGrade(rows) {
   const items = [];
   let graded = 0;
+  const sentenceTables = new Map();
   for (const entry of rows || []) {
+    if (entry.kind === KIND_IELTS_SENTENCE) {
+      if (!entry.answered) continue;
+      let table = sentenceTables.get(entry.tableIdx);
+      if (!table) {
+        table = { graded: 0, item: null };
+        sentenceTables.set(entry.tableIdx, table);
+      }
+      if (entry.feedbackText.trim()) {
+        table.graded++;
+        continue;
+      }
+      if (!table.item) {
+        table.item = {
+          question: entry.promptText,
+          type: KIND_IELTS_SENTENCES,
+          columns: entry.columns,
+          sentences: [],
+          imageIds: entry.imageIds,
+          tableIdx: entry.tableIdx,
+          rowIdx: entry.rowIdx,
+        };
+        items.push(table.item);
+      }
+      table.item.sentences.push({ rowIdx: entry.rowIdx, cells: entry.cells });
+      continue;
+    }
     if (entry.kind !== KIND_IELTS_WRITING) continue;
     // The 2-column layout: its cells start with a heading, which is neither
     // the student's writing nor anyone's feedback.
@@ -613,6 +1049,9 @@ export function selectIeltsItemsToGrade(rows) {
       tableIdx: entry.tableIdx,
       rowIdx: entry.rowIdx,
     });
+  }
+  for (const table of sentenceTables.values()) {
+    if (!table.item && table.graded) graded++;
   }
   return { items, graded };
 }
@@ -643,10 +1082,11 @@ const rowKeyOf = (entry) => `${entry.tableIdx}:${entry.rowIdx}`;
 /**
  * The feedback as inserted below the heading: a newline (so it starts its
  * own paragraph) and the text with its "**" markers turned into bold spans.
+ * Into an empty cell (a sentence's comment) it goes without the newline.
  */
-function columnText(feedback) {
+function columnText(feedback, lead = "\n") {
   const bold = [];
-  let plain = "\n";
+  let plain = lead;
   const re = /\*\*(.+?)\*\*/gs;
   let last = 0;
   let m;
@@ -661,7 +1101,53 @@ function columnText(feedback) {
   return { plain, bold };
 }
 
-/** The headed entries `gradingResults` target, with what goes into each. */
+/**
+ * Where one result's text goes: [{key, at, text, lead}] — `key` names its
+ * range. A pair table takes the corrected writing, the improved version and
+ * the review in three places (each its own range); without a "NHẬN XÉT" line
+ * below the table the review follows the corrected writing in the left cell.
+ * A result without parts (graded before parts existed) goes whole into the
+ * left cell.
+ */
+function piecesOf(entry, result) {
+  const key = result.rowKey;
+  if (entry.layout === LAYOUT_SENTENCES) {
+    return [{ key, at: entry.insertAt, text: result.aiFeedback, lead: "" }];
+  }
+  const parts = result.parts;
+  if (entry.layout !== LAYOUT_PAIR || !parts?.corrected || !parts?.improved) {
+    return [{ key, at: entry.insertAt, text: result.aiFeedback, lead: "\n" }];
+  }
+  const review = String(parts.review ?? "").trim();
+  const pieces = [
+    { key: `${key}:i`, at: entry.improvedAt, text: parts.improved, lead: "\n" },
+  ];
+  if (review && entry.reviewAt !== null && entry.reviewAt !== undefined) {
+    pieces.push({
+      key: `${key}:r`,
+      at: entry.reviewAt,
+      text: review,
+      lead: "\n",
+    });
+    pieces.push({
+      key: `${key}:c`,
+      at: entry.insertAt,
+      text: parts.corrected,
+      lead: "\n",
+    });
+  } else {
+    const text = review
+      ? `${parts.corrected}\n\n**${REVIEW_HEADING}**\n${review}`
+      : parts.corrected;
+    pieces.push({ key: `${key}:c`, at: entry.insertAt, text, lead: "\n" });
+  }
+  return pieces;
+}
+
+/**
+ * The headed entries `gradingResults` target, with what goes where: one
+ * write per range ({entry, rowKey: the range's key, at, plain, bold}).
+ */
 function planColumnWrites(gradingResults, rows) {
   const byKey = new Map(
     (rows || []).filter(headedLayout).map((entry) => [rowKeyOf(entry), entry]),
@@ -670,11 +1156,14 @@ function planColumnWrites(gradingResults, rows) {
   for (const result of gradingResults || []) {
     const entry = byKey.get(result.rowKey);
     if (!entry || !String(result.aiFeedback ?? "").trim()) continue;
-    writes.push({
-      entry,
-      rowKey: result.rowKey,
-      ...columnText(result.aiFeedback),
-    });
+    for (const piece of piecesOf(entry, result)) {
+      writes.push({
+        entry,
+        rowKey: piece.key,
+        at: piece.at,
+        ...columnText(piece.text, piece.lead),
+      });
+    }
   }
   return writes;
 }
@@ -685,10 +1174,11 @@ const oldLayout = (rows) =>
 
 /**
  * batchUpdate requests writing `gradingResults` into an IELTS tab. A tab of
- * old-layout tables only gets docWriter's requests, unchanged. A headed (2-column,
- * row-below) entry gets its feedback below the "GV chữa/nhận xét" heading, un-bolded
- * (the heading is bold) except its "**" spans, inside a named range. Groups
- * run from the end of the tab backwards, so no insert moves another.
+ * old-layout tables only gets docWriter's requests, unchanged. Every other
+ * entry gets its text below its heading(s) — a pair table in three places
+ * (piecesOf), a sentence in its empty comment cell — un-bolded (headings are
+ * bold) except its "**" spans, each piece inside a named range. Groups run
+ * from the end of the tab backwards, so no insert moves another.
  */
 export function buildIeltsFeedbackRequests(gradingResults, rows, tabId) {
   if (!hasColumns(rows)) {
@@ -705,11 +1195,10 @@ export function buildIeltsFeedbackRequests(gradingResults, rows, tabId) {
       requests: buildFeedbackRequests([result], old, tabId),
     });
   }
-  for (const { entry, rowKey, plain, bold } of planColumnWrites(
+  for (const { at: index, rowKey, plain, bold } of planColumnWrites(
     gradingResults,
     rows,
   )) {
-    const index = entry.insertAt;
     const range = (from, to) => ({
       startIndex: index + from,
       endIndex: index + to,
@@ -879,4 +1368,500 @@ export function buildIeltsClearRequests(tab) {
     count: oldRequests.length + removed.length,
     rows: rows.length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// "Cập nhật mẫu": turning a lesson into the current template
+// ---------------------------------------------------------------------------
+
+/** An exercise the student writes in: "Viết …", "Kết hợp các câu …". */
+const WRITING_EXERCISE =
+  /vi[eế]t|k[eế]t\s*h[oợ]p|g[oợ]i\s*ý\s*(m[oộ]t\s*)?solutions?/iu;
+/** …whose writing is an essay or a part of one, not short sentences. */
+const ESSAY_EXERCISE =
+  /ho[aà]n\s*ch[iỉ]nh|full\s*essay|complete\s*essay|intro|overview|m[ởo]\s*b[aà]i|k[ếe]t\s*b[aà]i|conclusion|đo[aạ]n\s*v[aă]n|paragraph/iu;
+/** A cell starting with a part label: "Intro:", "Body 1: …", "Introduction". */
+const PART_LABEL_START =
+  /^\s*(intro(duction)?|overview|body\s*\d*|conclusion|m[ởo]\s*b[aà]i|k[ếe]t\s*b[aà]i|th[âa]n\s*b[aà]i\s*\d*)(?![\p{L}])/iu;
+/**
+ * A line introducing something the teacher filled in, not the student: a
+ * worked example ("VD: …", "Ví dụ …"), reference vocabulary ("Gợi ý từ
+ * vựng", "Từ vựng tham khảo"), a model answer ("Bài mẫu", "Câu mẫu").
+ */
+const EXAMPLE_LINE =
+  /^\s*(vd|v[ií]\s*d[uụ]|example|g[oợ]i\s*ý|tham\s*kh[aả]o|t[uừ]\s*v[uự]ng|vocabulary|(b[aà]i|c[aâ]u)\s*m[aẫ]u)(?![\p{L}])/iu;
+
+/**
+ * True when the table at `at` is the teacher's: one of the lines between it
+ * and the table or exercise line above introduces an example ("VD: Kết hợp
+ * mô tả Spain …", then the example sentence, then its table).
+ */
+function isExampleTable(body, at) {
+  for (let i = at - 1; i >= 0; i--) {
+    const block = body[i];
+    if (!block?.paragraph) return false;
+    const text = blockText(block);
+    if (EXERCISE_LINE.test(text)) return false;
+    if (EXAMPLE_LINE.test(text)) return true;
+  }
+  return false;
+}
+
+/** A matching exercise ("Hãy nối các problems này với reasons"). */
+const MATCHING_EXERCISE = /(?<![\p{L}])n[oố]i(?![\p{L}])/iu;
+/** "trong bài viết sau": the text to study, not something to write. */
+const ARTICLE = /b[aà]i\s*vi[eế]t/giu;
+
+/** "essay" | "sentences" | null for an exercise line. */
+export function exerciseKind(text) {
+  const t = String(text ?? "")
+    .normalize("NFC")
+    .replace(ARTICLE, "");
+  if (!WRITING_EXERCISE.test(t)) return null;
+  if (ESSAY_EXERCISE.test(t)) return "essay";
+  return MATCHING_EXERCISE.test(t) ? null : "sentences";
+}
+
+const blockText = (block) =>
+  block?.paragraph
+    ? getCellLines({ content: [block] })
+        .join(" ")
+        .trim()
+    : "";
+
+/** The lesson's own writing table: every row starts with a part label. */
+function isEssayShaped(table) {
+  const rows = table?.tableRows || [];
+  if (!rows.length) return false;
+  return rows.every((row) => {
+    const label = rowLabel(row);
+    return label !== null && PART_LABEL_START.test(label.text.normalize("NFC"));
+  });
+}
+
+/**
+ * Cells merged across columns, or rows short of cells: a new last column
+ * would not get one plain cell per row. Cells merged down a column (buổi 13's
+ * "Gợi ý" beside "Tiếng Việt:" and "Tiếng Anh:") are fine — Docs still lists
+ * every cell of every row.
+ */
+function hasMergedCells(table) {
+  return (table?.tableRows || []).some(
+    (row) =>
+      (row.tableCells || []).length !== table.columns ||
+      (row.tableCells || []).some(
+        (c) => (c.tableCellStyle?.columnSpan || 1) > 1,
+      ),
+  );
+}
+
+/** A first row of short titles ("Loại chủ ngữ | Câu mô tả"), not labels. */
+function hasHeaderRow(table) {
+  const cells = table?.tableRows?.[0]?.tableCells || [];
+  if (cells.length < 2) return false;
+  return cells.every((c) => {
+    const text = getCellText(c).trim();
+    return text !== "" && !/:\s*$/.test(text);
+  });
+}
+
+/**
+ * The look of the table's text — font, size, colour of its first run — so
+ * the headings the converter adds match the lesson rather than whatever
+ * paragraph they were typed next to.
+ */
+function textLookOf(table) {
+  for (const row of table?.tableRows || []) {
+    for (const cell of row.tableCells || []) {
+      for (const block of cell.content || []) {
+        for (const el of block.paragraph?.elements || []) {
+          const style = el.textRun?.textStyle;
+          if (!style || !el.textRun.content.trim()) continue;
+          const look = {};
+          for (const key of [
+            "weightedFontFamily",
+            "fontSize",
+            "foregroundColor",
+          ]) {
+            if (style[key]) look[key] = style[key];
+          }
+          return look;
+        }
+      }
+    }
+  }
+  return {};
+}
+
+/** A bold heading's style request over [start, end). */
+function headingStyle(start, end, tabId, look) {
+  const textStyle = { ...look, bold: true, italic: false, underline: false };
+  return {
+    updateTextStyle: {
+      range: { startIndex: start, endIndex: end, tabId },
+      textStyle,
+      fields: Object.keys(textStyle).join(","),
+    },
+  };
+}
+
+/** A plain left-aligned, unbulleted paragraph over [start, end). */
+function plainParagraph(start, end, tabId) {
+  const range = { startIndex: start, endIndex: end, tabId };
+  return [
+    { deleteParagraphBullets: { range } },
+    {
+      updateParagraphStyle: {
+        range,
+        paragraphStyle: {
+          namedStyleType: "NORMAL_TEXT",
+          alignment: "START",
+          indentStart: { magnitude: 0, unit: "PT" },
+          indentFirstLine: { magnitude: 0, unit: "PT" },
+        },
+        fields: "namedStyleType,alignment,indentStart,indentFirstLine",
+      },
+    },
+  ];
+}
+
+/**
+ * Requests adding the pair table and the "NHẬN XÉT" line right below the
+ * essay table that ends at `at` (the start of the paragraph after it).
+ * Docs puts a new table after an empty paragraph it inserts at `at`; a fresh
+ * 1×2 table spans 7 indexes: table, row, then cell + empty paragraph twice,
+ * then its end — so its cells' paragraphs are at at+4 and at+6.
+ */
+function pairTableRequests(at, tabId, look) {
+  const h1 = FEEDBACK_HEADING;
+  const h2 = IMPROVED_HEADING;
+  const r = REVIEW_HEADING;
+  const leftAt = at + 4;
+  const rightAt = at + 6 + h1.length;
+  const reviewAt = at + 8 + h1.length + h2.length;
+  return [
+    { insertText: { location: { index: at, tabId }, text: `${r}\n` } },
+    { insertTable: { rows: 1, columns: 2, location: { index: at, tabId } } },
+    { insertText: { location: { index: at + 6, tabId }, text: h2 } },
+    { insertText: { location: { index: at + 4, tabId }, text: h1 } },
+    ...plainParagraph(at, at + 1, tabId),
+    ...plainParagraph(reviewAt, reviewAt + r.length + 1, tabId),
+    headingStyle(leftAt, leftAt + h1.length, tabId, look),
+    headingStyle(rightAt, rightAt + h2.length, tabId, look),
+    headingStyle(reviewAt, reviewAt + r.length, tabId, look),
+  ];
+}
+
+/** Fixed widths of every column, or null when any is not fixed. */
+function fixedWidths(table) {
+  const props = table?.tableStyle?.tableColumnProperties || [];
+  if (props.length !== table.columns) return null;
+  const widths = props.map((p) =>
+    p.widthType === "FIXED_WIDTH" && p.width?.unit === "PT"
+      ? p.width.magnitude
+      : null,
+  );
+  return widths.every((w) => typeof w === "number" && w > 0) ? widths : null;
+}
+
+const columnWidth = (tableStart, tabId, columnIndex, width) => ({
+  updateTableColumnProperties: {
+    tableStartLocation: { index: tableStart, tabId },
+    columnIndices: [columnIndex],
+    tableColumnProperties: {
+      widthType: "FIXED_WIDTH",
+      width: { magnitude: Math.round(width * 100) / 100, unit: "PT" },
+    },
+    fields: "widthType,width",
+  },
+});
+
+/**
+ * Requests adding the "GV chữa/nhận xét" column at the right of a sentence
+ * table, and a first row of titles when it has none. A new column gives each
+ * row one more cell (cell + empty paragraph: 2 indexes), placed where the
+ * row ended; a new first row of n cells sits right after the table's start.
+ * A column copies its neighbour's width, so fixed widths are shared out
+ * again: the comment column gets about 40% of the table.
+ */
+function sentenceColumnRequests(block, tabId, look) {
+  const { table, startIndex: s, endIndex: e } = block;
+  const rows = table.tableRows;
+  const n = table.columns;
+  const loc = { index: s, tabId };
+  const requests = [
+    {
+      insertTableColumn: {
+        tableCellLocation: {
+          tableStartLocation: loc,
+          rowIndex: 0,
+          columnIndex: n - 1,
+        },
+        insertRight: true,
+      },
+    },
+  ];
+  // Next to a cell merged down a column ("Gợi ý" beside "Tiếng Việt:" and
+  // "Tiếng Anh:"), Docs merges the new cell the same way, leaving the rows
+  // below without a comment cell of their own (seen on buổi 13). Split the
+  // new column back into one cell per row; each already holds its own empty
+  // paragraph, so no index moves.
+  const mergedDown = rows.some((row) =>
+    (row.tableCells || []).some((c) => (c.tableCellStyle?.rowSpan || 1) > 1),
+  );
+  if (mergedDown) {
+    requests.push({
+      unmergeTableCells: {
+        tableRange: {
+          tableCellLocation: {
+            tableStartLocation: loc,
+            rowIndex: 0,
+            columnIndex: n,
+          },
+          rowSpan: rows.length,
+          columnSpan: 1,
+        },
+      },
+    });
+  }
+  if (hasHeaderRow(table)) {
+    const rowEnd = rows.length > 1 ? rows[1].startIndex : e - 1;
+    const at = rowEnd + 1;
+    requests.push(
+      {
+        insertText: { location: { index: at, tabId }, text: FEEDBACK_HEADING },
+      },
+      headingStyle(at, at + FEEDBACK_HEADING.length, tabId, look),
+    );
+  } else {
+    requests.push({
+      insertTableRow: {
+        tableCellLocation: {
+          tableStartLocation: loc,
+          rowIndex: 0,
+          columnIndex: 0,
+        },
+        insertBelow: false,
+      },
+    });
+    const firstAt = s + 3;
+    const lastAt = s + 3 + 2 * n;
+    const first = SENTENCE_HEADING;
+    requests.push(
+      {
+        insertText: {
+          location: { index: lastAt, tabId },
+          text: FEEDBACK_HEADING,
+        },
+      },
+      { insertText: { location: { index: firstAt, tabId }, text: first } },
+      headingStyle(firstAt, firstAt + first.length, tabId, look),
+      headingStyle(
+        lastAt + first.length,
+        lastAt + first.length + FEEDBACK_HEADING.length,
+        tabId,
+        look,
+      ),
+    );
+  }
+  const widths = fixedWidths(table);
+  if (widths) {
+    const total = widths.reduce((sum, w) => sum + w, 0);
+    const comment = total * (n === 1 ? 0.45 : 0.4);
+    const scale = (total - comment) / total;
+    widths.forEach((w, k) =>
+      requests.push(columnWidth(s, tabId, k, w * scale)),
+    );
+    requests.push(columnWidth(s, tabId, n, comment));
+  }
+  return requests;
+}
+
+/**
+ * What "Cập nhật mẫu" would change in a lesson tab, and the requests doing it
+ * in one batchUpdate. Exercise by exercise ("Exercise N: …" lines):
+ *  - an essay exercise ("Viết Intro và Overview", "viết bài hoàn chỉnh"): its
+ *    writing table — the lesson's own (every row a part label: "Intro:", …),
+ *    the 2-column one or one with a "GV chữa/nhận xét" row below — gets the
+ *    pair table and the "NHẬN XÉT" line below it; the older template's empty
+ *    feedback row or column goes. A table whose feedback already holds text
+ *    was graded: it stays as it is.
+ *  - a short-sentence exercise ("Viết câu …", "Kết hợp các câu …"): each of
+ *    its tables gets a "GV chữa/nhận xét" column, except a worked example
+ *    (right under a "VD: …" line).
+ * Anything else (fill in the gaps, multiple choice, outlines, checklists) is
+ * not touched. A tab already on the template plans nothing: running it again
+ * is a no-op. Groups run from the end of the tab up, so no change moves the
+ * next one's indexes.
+ *
+ * @returns {{changes: Array<{exercise, kind, tableIdx, written}>,
+ *   skipped: Array<{exercise, reason}>, requests: object[]}}
+ *   reason: "graded" | "noTable" | "merged" | "layout".
+ */
+export function planIeltsTemplateUpdate(tab) {
+  const tabId = tab?.tabProperties?.tabId;
+  const body = tab?.documentTab?.body?.content || [];
+  const changes = [];
+  const skipped = [];
+  const groups = [];
+  const tableIdxAt = new Map();
+  body.forEach((block, at) => {
+    if (block?.table) tableIdxAt.set(at, tableIdxAt.size);
+  });
+
+  // Exercises in document order: [{text, kind, from, to}].
+  const exercises = [];
+  body.forEach((block, at) => {
+    const text = blockText(block);
+    if (!EXERCISE_LINE.test(text)) return;
+    if (exercises.length) exercises.at(-1).to = at;
+    exercises.push({
+      text,
+      kind: exerciseKind(text),
+      from: at + 1,
+      to: body.length,
+    });
+  });
+
+  for (const exercise of exercises) {
+    if (!exercise.kind) continue;
+    const tables = [];
+    for (let at = exercise.from; at < exercise.to; at++) {
+      if (body[at]?.table) tables.push(at);
+    }
+    const name = exercise.text;
+    if (exercise.kind === "sentences") {
+      let found = 0;
+      for (const at of tables) {
+        const block = body[at];
+        if (resolveSentenceTable(block.table)) {
+          found++;
+          continue; // already on the template
+        }
+        if (isExampleTable(body, at)) continue;
+        if (isWritingTable(block.table)) continue; // an essay layout
+        found++;
+        if (hasMergedCells(block.table)) {
+          skipped.push({ exercise: name, reason: "merged" });
+          continue;
+        }
+        const textsOf = (row) =>
+          (row.tableCells || []).map((c) => getCellText(c));
+        const headed = hasHeaderRow(block.table);
+        const titles = headed ? textsOf(block.table.tableRows[0]) : [];
+        const written = block.table.tableRows
+          .slice(headed ? 1 : 0)
+          .some((row) => sentenceWritten(textsOf(row), titles));
+        changes.push({
+          exercise: name,
+          kind: "sentences",
+          tableIdx: tableIdxAt.get(at),
+          written,
+        });
+        groups.push({
+          start: block.startIndex,
+          requests: sentenceColumnRequests(
+            block,
+            tabId,
+            textLookOf(block.table),
+          ),
+        });
+      }
+      if (!found) skipped.push({ exercise: name, reason: "noTable" });
+      continue;
+    }
+
+    let found = 0;
+    for (const at of tables) {
+      const block = body[at];
+      const table = block.table;
+      if (resolvePairTable(table)) {
+        found++;
+        continue; // already on the template (seen from its essay table)
+      }
+      const next = nextBlockAt(body, at);
+      if (
+        next >= 0 &&
+        body[next]?.table &&
+        resolvePairTable(body[next].table)
+      ) {
+        continue; // the essay table of a pair already in place
+      }
+      const columnRow = (table.tableRows || []).findIndex((row) =>
+        resolveColumnRow(row),
+      );
+      const below = columnRow < 0 ? resolveBelowTable(table) : null;
+      if (columnRow < 0 && !below && !isEssayShaped(table)) continue;
+      found++;
+      const after = body[at + 1];
+      if (!after?.paragraph || after.startIndex !== block.endIndex) {
+        skipped.push({ exercise: name, reason: "layout" });
+        continue;
+      }
+      const look = textLookOf(table);
+      const requests = pairTableRequests(block.endIndex, tabId, look);
+      const loc = { index: block.startIndex, tabId };
+      if (columnRow >= 0) {
+        const column = resolveColumnRow(table.tableRows[columnRow]);
+        if (column.feedbackText.trim()) {
+          skipped.push({ exercise: name, reason: "graded" });
+          continue;
+        }
+        const fbCol = table.tableRows[columnRow].tableCells.indexOf(
+          column.fbCell,
+        );
+        if (table.rows !== 1 || table.columns !== 2 || fbCol !== 1) {
+          skipped.push({ exercise: name, reason: "layout" });
+          continue;
+        }
+        const widths = fixedWidths(table);
+        requests.push({
+          deleteTableColumn: {
+            tableCellLocation: {
+              tableStartLocation: loc,
+              rowIndex: 0,
+              columnIndex: 1,
+            },
+          },
+        });
+        if (widths) {
+          requests.push(
+            columnWidth(block.startIndex, tabId, 0, widths[0] + widths[1]),
+          );
+        }
+      } else if (below) {
+        if (below.feedbackText.trim()) {
+          skipped.push({ exercise: name, reason: "graded" });
+          continue;
+        }
+        if (below.rowIdx !== table.rows - 1) {
+          skipped.push({ exercise: name, reason: "layout" });
+          continue;
+        }
+        requests.push({
+          deleteTableRow: {
+            tableCellLocation: {
+              tableStartLocation: loc,
+              rowIndex: below.rowIdx,
+              columnIndex: 0,
+            },
+          },
+        });
+      }
+      const written = essayOfTable(table)
+        .essayText.split("\n")
+        .some((line) => line.trim() && !PART_LABEL_LINE.test(line));
+      changes.push({
+        exercise: name,
+        kind: "essay",
+        tableIdx: tableIdxAt.get(at),
+        written,
+      });
+      groups.push({ start: block.startIndex, requests });
+    }
+    if (!found) skipped.push({ exercise: name, reason: "noTable" });
+  }
+
+  groups.sort((a, b) => b.start - a.start);
+  return { changes, skipped, requests: groups.flatMap((g) => g.requests) };
 }

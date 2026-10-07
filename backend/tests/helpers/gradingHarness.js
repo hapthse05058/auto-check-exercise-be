@@ -424,6 +424,7 @@ function createHarness({
     gradedItems: [], // every item handed to gradeItems
     ielts: 0, // gradeIelts calls
     ieltsInputs: [], // every validated IELTS submission graded
+    sentenceInputs: [], // every validated IELTS short-sentence table graded
     images: [], // every chart uri downloaded
     hs: 0, // gradeHs calls
     hsItems: [], // every item handed to gradeHs
@@ -440,6 +441,17 @@ function createHarness({
     paragraphFeedback: PARAGRAPH_FEEDBACK, // what the AI says about a paragraph
     ieltsFeedback: IELTS_FEEDBACK, // what the AI says about an IELTS essay
     ieltsFail: null, // (input) => Error | null — the IELTS grader fails
+    ieltsParts: null, // the parts the IELTS grader returns with its feedback
+    // (input) => Map<row, {verdict, feedback}> — a short-sentence table graded
+    sentenceVerdicts: (input) =>
+      new Map(
+        input.rows.map((r) => [
+          r.row,
+          /wrong/.test(r.cells.join(" "))
+            ? { verdict: "fix", feedback: "It **wrong** → right (thì)." }
+            : { verdict: "correct", feedback: "✅" },
+        ]),
+      ),
     imageFail: null, // (uri) => boolean — a chart download fails
     // (item) => verdict | null — what the HS grader says about an item
     hsVerdict: (item) =>
@@ -505,7 +517,14 @@ function createHarness({
       counters.ieltsInputs.push(input);
       const error = hooks.ieltsFail?.(input);
       if (error) throw error;
-      return { feedback: hooks.ieltsFeedback };
+      return {
+        feedback: hooks.ieltsFeedback,
+        ...(hooks.ieltsParts ? { parts: hooks.ieltsParts } : {}),
+      };
+    },
+    async gradeIeltsSentences(input) {
+      counters.sentenceInputs.push(input);
+      return { results: hooks.sentenceVerdicts(input) };
     },
     async fetchImage(uri, token) {
       counters.images.push({ uri, token });

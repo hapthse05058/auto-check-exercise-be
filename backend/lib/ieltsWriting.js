@@ -111,34 +111,42 @@ function validateRequest(input) {
   const raw =
     body.images === undefined || body.images === null ? [] : body.images;
   if (!Array.isArray(raw)) throw new IeltsError(400, "invalid_image");
-  let images = [];
   if (task === TASK_1 && raw.length === 0) {
     throw new IeltsError(400, "chart_required");
   }
-  if (CHART_TASKS.includes(task)) {
-    if (raw.length > MAX_IMAGES) {
-      throw new IeltsError(400, "too_many_images", { max: MAX_IMAGES });
-    }
-    images = raw.map((item) => {
-      const image =
-        typeof item === "string"
-          ? parseDataUrl(item)
-          : item && Buffer.isBuffer(item.buffer)
-            ? {
-                mime: String(item.mime || "").toLowerCase(),
-                buffer: item.buffer,
-              }
-            : null;
-      if (!image || !IMAGE_MIME.test(image.mime) || !image.buffer.length) {
-        throw new IeltsError(400, "invalid_image");
-      }
-      if (image.buffer.length > MAX_IMAGE_BYTES) {
-        throw new IeltsError(400, "image_too_large", { max: MAX_IMAGE_BYTES });
-      }
-      return { ...image, hash: sha256(image.buffer) };
-    });
-  }
+  const images = CHART_TASKS.includes(task) ? normalizeImages(raw) : [];
   return { task, prompt, essay, images };
+}
+
+/**
+ * Charts as {mime, buffer, hash}, from data URLs (website) or {mime, buffer}
+ * (read from a Google Doc).
+ *
+ * @throws {IeltsError} 400 too_many_images | invalid_image | image_too_large
+ */
+function normalizeImages(raw) {
+  if (!Array.isArray(raw)) throw new IeltsError(400, "invalid_image");
+  if (raw.length > MAX_IMAGES) {
+    throw new IeltsError(400, "too_many_images", { max: MAX_IMAGES });
+  }
+  return raw.map((item) => {
+    const image =
+      typeof item === "string"
+        ? parseDataUrl(item)
+        : item && Buffer.isBuffer(item.buffer)
+          ? {
+              mime: String(item.mime || "").toLowerCase(),
+              buffer: item.buffer,
+            }
+          : null;
+    if (!image || !IMAGE_MIME.test(image.mime) || !image.buffer.length) {
+      throw new IeltsError(400, "invalid_image");
+    }
+    if (image.buffer.length > MAX_IMAGE_BYTES) {
+      throw new IeltsError(400, "image_too_large", { max: MAX_IMAGE_BYTES });
+    }
+    return { ...image, hash: sha256(image.buffer) };
+  });
 }
 
 /** Line endings, trailing spaces and runs of blank lines do not change a text. */
@@ -470,33 +478,44 @@ function cleanMarkup(text) {
     .join("\n");
 }
 
-const formatBand = (band) =>
-  Number.isInteger(band) ? band.toFixed(1) : String(band);
+/**
+ * The feedback in its three parts, each plain text with "**bold**" markers:
+ * the corrected writing, the improved version and the review. The teachers'
+ * table (lib/doc/ieltsDoc.js, layout "pair") puts the first two side by side
+ * and the review below. No numbering, no band and no overall: the teachers
+ * asked for feedback that reads like their own (the bands still steer the
+ * model's comments, they are just not shown).
+ */
+function ieltsFeedbackParts(described) {
+  const review = described.criteria.map(
+    (c) => `- **${c.name}:** ${cleanMarkup(c.comment)}`,
+  );
+  review.push(`**Nhận xét chung:** ${cleanMarkup(described.general)}`);
+  review.push(`**Lời khuyên cải thiện:** ${cleanMarkup(described.advice)}`);
+  return {
+    corrected: cleanMarkup(described.corrected),
+    improved: cleanMarkup(described.improved),
+    review: review.join("\n"),
+  };
+}
 
 /**
- * The feedback as plain text with "**bold**" markers — what is written into
- * the doc's "GV chữa" cell (createStyledTextRequests turns the markers into
- * styling) and what the website renders and copies.
+ * The feedback as one plain text with "**bold**" markers — what is written
+ * below the heading of the older doc layouts and what the website renders
+ * and copies.
  */
 function formatIeltsFeedback(described) {
-  const lines = [
-    "**1. BẢN CHỮA**",
-    cleanMarkup(described.corrected),
+  const parts = ieltsFeedbackParts(described);
+  return [
+    "**BẢN CHỮA**",
+    parts.corrected,
     "",
-    "**2. BẢN CẢI THIỆN**",
-    cleanMarkup(described.improved),
+    "**BẢN CẢI THIỆN**",
+    parts.improved,
     "",
-    "**3. NHẬN XÉT**",
-  ];
-  for (const c of described.criteria) {
-    lines.push(`- **${c.name} (${c.band}):** ${cleanMarkup(c.comment)}`);
-  }
-  if (described.overall !== null) {
-    lines.push(`**Overall: ${formatBand(described.overall)}**`);
-  }
-  lines.push(`**Nhận xét chung:** ${cleanMarkup(described.general)}`);
-  lines.push(`**Lời khuyên cải thiện:** ${cleanMarkup(described.advice)}`);
-  return lines.join("\n");
+    "**NHẬN XÉT**",
+    parts.review,
+  ].join("\n");
 }
 
 /**
@@ -573,8 +592,9 @@ function createIeltsGrader({
   /**
    * Grades one validated submission (see validateRequest).
    *
-   * @returns {Promise<{result: object, feedback: string, cached: boolean,
-   *   chartData: string|null}>}
+   * @returns {Promise<{result: object, feedback: string, parts: object,
+   *   cached: boolean, chartData: string|null}>}
+   *   `parts` = ieltsFeedbackParts (corrected / improved / review);
    *   `result` = describeResult (criteria with names, overall, wordCount);
    *   `chartData` = the chart as the model was given it (readChart), or null.
    * @throws {IeltsError} 502 `ielts_ai_invalid` when the model fails twice,
@@ -602,6 +622,7 @@ function createIeltsGrader({
         return {
           result,
           feedback: formatIeltsFeedback(result),
+          parts: ieltsFeedbackParts(result),
           cached: true,
           chartData,
         };
@@ -627,6 +648,7 @@ function createIeltsGrader({
     return {
       result,
       feedback: formatIeltsFeedback(result),
+      parts: ieltsFeedbackParts(result),
       cached: false,
       chartData,
     };
@@ -656,7 +678,10 @@ module.exports = {
   describeResult,
   formatIeltsFeedback,
   ieltsCacheKey,
+  ieltsFeedbackParts,
   inputIdentity,
+  normalizeForKey,
+  normalizeImages,
   overallBand,
   parseDataUrl,
   parseIeltsResponse,

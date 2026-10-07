@@ -63,6 +63,7 @@ const ieltsWriting = require("./lib/ieltsWriting.js");
 const hsGrading = require("./lib/hsGrading.js");
 const ieltsChartData = require("./lib/ieltsChartData.js");
 const ieltsPaste = require("./lib/ieltsPaste.js");
+const ieltsSentences = require("./lib/ieltsSentences.js");
 
 const app = express();
 const courses = createCourses({ db });
@@ -421,6 +422,8 @@ async function callGrader(instruction, inputText, model) {
 //   IELTS_AI_THINKING=enabled|disabled   DeepSeek only (`thinking` param);
 //                             unset = the model's default. Other providers: unset.
 //   IELTS_PROMPT_VERSION      bump to invalidate ieltsGradingCache
+//   IELTS_SENTENCE_PROMPT_VERSION  bump to invalidate ieltsSentenceCache
+//                             (short-sentence tables, lib/ieltsSentences.js)
 // The CHART READER (lib/ieltsChartData.js): a strong vision model that reads
 // each Task 1 chart once into text, cached in ieltsChartData; the grader then
 // grades from that text and never sees the image. Unset → the grader gets the
@@ -438,6 +441,8 @@ const IELTS_AI_THINKING = String(process.env.IELTS_AI_THINKING || "")
   .trim()
   .toLowerCase();
 const IELTS_PROMPT_VERSION = process.env.IELTS_PROMPT_VERSION || "v1";
+const IELTS_SENTENCE_PROMPT_VERSION =
+  process.env.IELTS_SENTENCE_PROMPT_VERSION || "v1";
 const ieltsConfigured = Boolean(IELTS_AI_API_KEY && IELTS_AI_MODEL);
 if (!ieltsConfigured) {
   console.warn(
@@ -532,6 +537,15 @@ const ieltsGrader = ieltsWriting.createIeltsGrader({
     fs.readFileSync(path.join(__dirname, "prompt_ielts_writing.txt"), "utf8"),
   model: IELTS_AI_MODEL,
   promptVersion: IELTS_PROMPT_VERSION,
+  readChart: ieltsChartReader ? ieltsChartReader.read : null,
+});
+const ieltsSentenceGrader = ieltsSentences.createIeltsSentenceGrader({
+  db,
+  callModel: callIeltsModel,
+  readPrompt: () =>
+    fs.readFileSync(path.join(__dirname, "prompt_ielts_sentences.txt"), "utf8"),
+  model: IELTS_AI_MODEL,
+  promptVersion: IELTS_SENTENCE_PROMPT_VERSION,
   readChart: ieltsChartReader ? ieltsChartReader.read : null,
 });
 // ---------------------------------------------------------------------------
@@ -3924,6 +3938,8 @@ const gradingJobs = createGradingJobs({
       ? gradingProfileOf(await courses.get(classData.courseId))
       : gradingProfileOf(null),
   gradeIelts: (input, options) => ieltsGrader.grade(input, options),
+  gradeIeltsSentences: (input, options) =>
+    ieltsSentenceGrader.grade(input, options),
   fetchImage: fetchDocImage,
   ieltsEnabled: ieltsConfigured,
   // HS classes (course gradingProfile "hs") — see lib/hsGrading.js.

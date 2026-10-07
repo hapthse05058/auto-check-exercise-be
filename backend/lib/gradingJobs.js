@@ -43,6 +43,7 @@ const {
   TASK_1: IELTS_TASK_1,
   validateRequest: validateIeltsRequest,
 } = require("./ieltsWriting.js");
+const { validateSentenceRequest } = require("./ieltsSentences.js");
 const { hsItemIdentity } = require("./hsGrading.js");
 const { pointLedgerId } = require("./teacherPoints.js");
 
@@ -67,6 +68,8 @@ const JOB_STALE_MS = 2 * 60 * 60 * 1000;
 /** Docs per job — one prepare transaction writes them all (limit 500). */
 const MAX_DOCS = 200;
 const READ_CONCURRENCY = 5;
+/** Plan-and-write rounds of an IELTS template update (a doc may move). */
+const MAX_TEMPLATE_ROUNDS = 3;
 /** IELTS essays graded at once — each is one long vision-model call. */
 const IELTS_CONCURRENCY = 3;
 /** Re-read + retry rounds for a write refused because the doc moved. */
@@ -144,7 +147,10 @@ const info = (...args) => console.log("[GRADING-JOB]", ...args);
  * this build does not know is refused — never graded as Basic.
  * @param deps.gradingProfileOfClass (classData) =>
  *                             Promise<"basic"|"ielts"|"hs"|null> (null: unknown)
- * @param deps.gradeIelts      (input, {useCache, requestId}) => {feedback}
+ * @param deps.gradeIelts      (input, {useCache, requestId}) => {feedback, parts}
+ * @param deps.gradeIeltsSentences (input, {useCache, requestId}) =>
+ *                             {results: Map<row, {verdict, feedback}>}
+ *                             (lib/ieltsSentences.js)
  * @param deps.fetchImage      (contentUri, accessToken) => Promise<{mime, buffer}>
  * @param deps.ieltsEnabled    false refuses IELTS jobs up front (no model set)
  * @param deps.gradeHs         (items, {useCache, requestId}) =>
@@ -165,6 +171,7 @@ function createGradingJobs(deps) {
     now = () => Date.now(),
     gradingProfileOfClass = async () => GRADING_PROFILE_BASIC,
     gradeIelts,
+    gradeIeltsSentences,
     fetchImage,
     ieltsEnabled = true,
     gradeHs,
@@ -479,7 +486,13 @@ function createGradingJobs(deps) {
   }
 
   /** Reads one doc and decides whether it needs grading. */
-  async function readForGrading(lib, job, docId, access) {
+  async function readForGrading(
+    lib,
+    job,
+    docId,
+    access,
+    { write = false } = {},
+  ) {
     if (!knownProfile(job)) throw new JobError(400, "unknown_grading_profile");
     let data;
     try {
@@ -499,7 +512,7 @@ function createGradingJobs(deps) {
       };
     }
 
-    const tab = findLessonTab(lib, job, data);
+    let tab = findLessonTab(lib, job, data);
     if (!tab || !tab.documentTab) {
       return {
         docId,
@@ -508,7 +521,20 @@ function createGradingJobs(deps) {
         warnings: [warning("tabMissing", { docId })],
       };
     }
-    if (isIelts(job)) return readIeltsForGrading(lib, tab, docId);
+    if (isIelts(job)) {
+      // Counting (no write) reads the lesson as it is; grading first brings
+      // it to the current template (lib/doc/ieltsDoc.js), then reads it.
+      if (!write) {
+        return readIeltsForGrading(lib, tab, docId, {
+          planned: lib.planIeltsTemplateUpdate(tab),
+        });
+      }
+      const updated = await updateIeltsTemplate(lib, job, docId, access, data);
+      tab = updated.tab || tab;
+      const read = readIeltsForGrading(lib, tab, docId);
+      read.warnings = [...updated.warnings, ...(read.warnings || [])];
+      return read;
+    }
     if (isHs(job)) return readHsForGrading(lib, job, tab, docId);
 
     const warnings = [];
@@ -726,13 +752,60 @@ function createGradingJobs(deps) {
   }
 
   /**
+   * Brings an IELTS lesson to the current template before it is graded
+   * (lib/doc/ieltsDoc.js planIeltsTemplateUpdate): one batchUpdate guarded
+   * by the revision it was planned from; a doc that moved meanwhile is read
+   * and planned again. Nothing is charged for it, and running it twice
+   * changes nothing. A refused update is reported and the lesson graded as
+   * it stands.
+   *
+   * @returns {Promise<{tab: object|null, warnings: object[]}>} tab: the lesson
+   *   tab read after the update (null when nothing was changed).
+   */
+  async function updateIeltsTemplate(lib, job, docId, access, data) {
+    for (let attempt = 0; attempt < MAX_TEMPLATE_ROUNDS; attempt++) {
+      const tab = findLessonTab(lib, job, data);
+      const plan = tab?.documentTab ? lib.planIeltsTemplateUpdate(tab) : null;
+      if (!plan?.requests.length) {
+        return { tab: attempt ? tab : null, warnings: [] };
+      }
+      try {
+        await docsApi.batchUpdate(docId, plan.requests, access.token, {
+          requiredRevisionId: data.revisionId,
+        });
+        info(
+          `${docId}: template updated (${plan.changes.length} table(s), ` +
+            `${plan.requests.length} requests)`,
+        );
+      } catch (err) {
+        if (err.kind !== "bad_request") throw err;
+        const current = await docsApi.getRevisionId(docId, access.token);
+        if (current === data.revisionId) {
+          console.error(
+            `[GRADING-JOB] ${docId} template update rejected: ${err.message}`,
+          );
+          return {
+            tab,
+            warnings: [warning("ieltsTemplateUpdateFailed", { docId })],
+          };
+        }
+      }
+      data = await docsApi.getDocument(docId, access.token);
+    }
+    return { tab: findLessonTab(lib, job, data), warnings: [] };
+  }
+
+  /**
    * readForGrading for an IELTS class: the IELTS Writing tables of the tab
    * (lib/doc/ieltsDoc.js), each graded on its own "GV chữa" cell. The charts
    * are only LOCATED here (download URLs); runPrepare fetches them, so a
    * submission count (countSubmissions) never downloads an image.
    */
-  function readIeltsForGrading(lib, tab, docId) {
+  function readIeltsForGrading(lib, tab, docId, { planned = null } = {}) {
     const { rows, invalidTables } = lib.collectIeltsRows(tab);
+    // Counting only: a table the template update would make gradable counts
+    // as pending when the student already wrote in it.
+    const plannedWriting = (planned?.changes || []).some((c) => c.written);
     const warnings = [];
     if (invalidTables.length) {
       warnings.push(
@@ -742,7 +815,7 @@ function createGradingJobs(deps) {
         }),
       );
     }
-    if (!rows.length) {
+    if (!rows.length && !plannedWriting) {
       return {
         docId,
         status: "skipped",
@@ -751,6 +824,9 @@ function createGradingJobs(deps) {
       };
     }
     const { items, graded } = lib.selectIeltsItemsToGrade(rows);
+    if (!items.length && plannedWriting) {
+      return { docId, status: "pending", ielts: [], warnings };
+    }
     if (!items.length) {
       return {
         docId,
@@ -786,6 +862,10 @@ function createGradingJobs(deps) {
     }
     await mapLimit(tasks, IELTS_CONCURRENCY, async ({ doc, item }) => {
       const where = { docId: doc.docId, table: item.tableIdx + 1 };
+      if (item.type === "ielts_sentences") {
+        await gradeSentenceTable(jobId, job, doc, item, accessToken, where);
+        return;
+      }
       let images = [];
       // Task 1 needs its chart; a paragraph about a chart (Intro/Overview,
       // sentences) sends its images too, so its numbers can be checked.
@@ -830,7 +910,7 @@ function createGradingJobs(deps) {
         return;
       }
       try {
-        const { feedback } = await gradeIelts(input, {
+        const { feedback, parts } = await gradeIelts(input, {
           useCache: job.useCache,
           requestId: jobId,
         });
@@ -838,6 +918,7 @@ function createGradingJobs(deps) {
           rowKey: `${item.tableIdx}:${item.rowIdx}`,
           questionIndex: null,
           aiFeedback: feedback,
+          ...(parts ? { parts } : {}),
         });
       } catch (err) {
         if (!(err instanceof IeltsError)) throw err;
@@ -856,6 +937,57 @@ function createGradingJobs(deps) {
     }
   }
 
+  /**
+   * One short-sentence table (lib/ieltsSentences.js): a gradingResult per
+   * row the AI commented on; a row it found unwritten gets nothing. The
+   * chart above the exercise goes along when it can be fetched — sentences
+   * are still graded without it, on their language alone.
+   */
+  async function gradeSentenceTable(jobId, job, doc, item, accessToken, where) {
+    let images = [];
+    const uris = item.imageUris || [];
+    if (uris.length && uris.length <= IELTS_MAX_IMAGES && uris.every(Boolean)) {
+      try {
+        images = await Promise.all(
+          uris.map((uri) => fetchImage(uri, accessToken)),
+        );
+      } catch (err) {
+        info(`${jobId}/${doc.docId}: chart download failed: ${err.message}`);
+      }
+    }
+    let input;
+    try {
+      input = validateSentenceRequest({
+        prompt: item.question,
+        columns: item.columns,
+        rows: item.sentences.map((s, k) => ({ row: k + 1, cells: s.cells })),
+        images,
+      });
+    } catch (err) {
+      if (!(err instanceof IeltsError)) throw err;
+      doc.warnings.push(warning("ieltsInvalid", { ...where, code: err.code }));
+      return;
+    }
+    try {
+      const { results } = await gradeIeltsSentences(input, {
+        useCache: job.useCache,
+        requestId: jobId,
+      });
+      item.sentences.forEach((s, k) => {
+        const result = results.get(k + 1);
+        if (!result || result.verdict === "blank" || !result.feedback) return;
+        doc.gradingResults.push({
+          rowKey: `${item.tableIdx}:${s.rowIdx}`,
+          questionIndex: null,
+          aiFeedback: result.feedback,
+        });
+      });
+    } catch (err) {
+      if (!(err instanceof IeltsError)) throw err;
+      doc.warnings.push(warning("ieltsAiInvalid", where));
+    }
+  }
+
   /** The body of prepare, run by the worker holding `epoch`. */
   async function runPrepare(jobId, job, epoch) {
     if (!knownProfile(job)) {
@@ -870,7 +1002,7 @@ function createGradingJobs(deps) {
     );
 
     const docs = await mapLimit(job.docIds, READ_CONCURRENCY, (docId) =>
-      readForGrading(lib, job, docId, access),
+      readForGrading(lib, job, docId, access, { write: true }),
     );
     const readMs = now() - started;
     const pending = docs.filter((d) => d.status === "pending");
