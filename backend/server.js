@@ -30,6 +30,7 @@ const {
   createTokenCipher,
   describeError: describeGoogleError,
   parseKeys,
+  ReauthRequiredError,
 } = require("./lib/googleUserToken.js");
 const {
   JobError,
@@ -4092,6 +4093,32 @@ app.post("/grading-jobs", verifyGoogleToken, async (req, res) => {
     return res.status(202).json({ jobId });
   } catch (err) {
     return sendJobError(res, err, "create");
+  }
+});
+
+/**
+ * IELTS classes: brings the lesson of every student's doc to the current
+ * feedback template (lib/gradingJobs.js updateTemplates). Nothing is graded
+ * or charged; answers when every doc is done.
+ */
+app.post("/ielts-template-updates", verifyGoogleToken, async (req, res) => {
+  try {
+    const summary = await gradingJobs.updateTemplates({
+      email: req.userEmail,
+      authKind: req.authKind,
+      classId: req.body.classId,
+      lessonId: req.body.lessonId,
+      docIds: req.body.docIds,
+    });
+    res.locals.auditDetail =
+      `Mẫu IELTS · lớp ${req.body.classId} · buổi ${req.body.lessonId} · ` +
+      `${summary.updated}/${summary.total} doc`;
+    return res.json(summary);
+  } catch (err) {
+    if (err instanceof ReauthRequiredError) {
+      return res.status(409).json({ error: "google_reauth_required" });
+    }
+    return sendJobError(res, err, "template update");
   }
 });
 

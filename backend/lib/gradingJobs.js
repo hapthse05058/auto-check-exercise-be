@@ -486,13 +486,7 @@ function createGradingJobs(deps) {
   }
 
   /** Reads one doc and decides whether it needs grading. */
-  async function readForGrading(
-    lib,
-    job,
-    docId,
-    access,
-    { write = false } = {},
-  ) {
+  async function readForGrading(lib, job, docId, access) {
     if (!knownProfile(job)) throw new JobError(400, "unknown_grading_profile");
     let data;
     try {
@@ -512,7 +506,7 @@ function createGradingJobs(deps) {
       };
     }
 
-    let tab = findLessonTab(lib, job, data);
+    const tab = findLessonTab(lib, job, data);
     if (!tab || !tab.documentTab) {
       return {
         docId,
@@ -521,20 +515,9 @@ function createGradingJobs(deps) {
         warnings: [warning("tabMissing", { docId })],
       };
     }
-    if (isIelts(job)) {
-      // Counting (no write) reads the lesson as it is; grading first brings
-      // it to the current template (lib/doc/ieltsDoc.js), then reads it.
-      if (!write) {
-        return readIeltsForGrading(lib, tab, docId, {
-          planned: lib.planIeltsTemplateUpdate(tab),
-        });
-      }
-      const updated = await updateIeltsTemplate(lib, job, docId, access, data);
-      tab = updated.tab || tab;
-      const read = readIeltsForGrading(lib, tab, docId);
-      read.warnings = [...updated.warnings, ...(read.warnings || [])];
-      return read;
-    }
+    // Grading reads the lesson as it stands; bringing it to the current
+    // template is the teacher's own button (updateTemplates).
+    if (isIelts(job)) return readIeltsForGrading(lib, tab, docId);
     if (isHs(job)) return readHsForGrading(lib, job, tab, docId);
 
     const warnings = [];
@@ -752,27 +735,28 @@ function createGradingJobs(deps) {
   }
 
   /**
-   * Brings an IELTS lesson to the current template before it is graded
-   * (lib/doc/ieltsDoc.js planIeltsTemplateUpdate): one batchUpdate guarded
-   * by the revision it was planned from; a doc that moved meanwhile is read
-   * and planned again. Nothing is charged for it, and running it twice
-   * changes nothing. A refused update is reported and the lesson graded as
-   * it stands.
+   * Brings an IELTS lesson to the current template (lib/doc/ieltsDoc.js
+   * planIeltsTemplateUpdate): one batchUpdate guarded by the revision it was
+   * planned from; a doc that moved meanwhile is read and planned again. A
+   * table that already holds feedback is left as it is, so running it twice
+   * changes nothing.
    *
-   * @returns {Promise<{tab: object|null, warnings: object[]}>} tab: the lesson
-   *   tab read after the update (null when nothing was changed).
+   * @returns {Promise<{changed: number, noTable: number, failed: boolean}>}
+   *   changed: tables brought to the template; noTable: writing exercises
+   *   with no table to grade in; failed: the update was refused.
    */
   async function updateIeltsTemplate(lib, job, docId, access, data) {
+    let changed = 0;
     for (let attempt = 0; attempt < MAX_TEMPLATE_ROUNDS; attempt++) {
       const tab = findLessonTab(lib, job, data);
-      const plan = tab?.documentTab ? lib.planIeltsTemplateUpdate(tab) : null;
-      if (!plan?.requests.length) {
-        return { tab: attempt ? tab : null, warnings: [] };
-      }
+      const plan = lib.planIeltsTemplateUpdate(tab);
+      const noTable = plan.skipped.filter((s) => s.reason === "noTable").length;
+      if (!plan.requests.length) return { changed, noTable, failed: false };
       try {
         await docsApi.batchUpdate(docId, plan.requests, access.token, {
           requiredRevisionId: data.revisionId,
         });
+        changed += plan.changes.length;
         info(
           `${docId}: template updated (${plan.changes.length} table(s), ` +
             `${plan.requests.length} requests)`,
@@ -784,15 +768,12 @@ function createGradingJobs(deps) {
           console.error(
             `[GRADING-JOB] ${docId} template update rejected: ${err.message}`,
           );
-          return {
-            tab,
-            warnings: [warning("ieltsTemplateUpdateFailed", { docId })],
-          };
+          return { changed, noTable, failed: true };
         }
       }
       data = await docsApi.getDocument(docId, access.token);
     }
-    return { tab: findLessonTab(lib, job, data), warnings: [] };
+    return { changed, noTable: 0, failed: false };
   }
 
   /**
@@ -800,12 +781,16 @@ function createGradingJobs(deps) {
    * (lib/doc/ieltsDoc.js), each graded on its own "GV chữa" cell. The charts
    * are only LOCATED here (download URLs); runPrepare fetches them, so a
    * submission count (countSubmissions) never downloads an image.
+   *
+   * A table still on an older template is graded where it stands when that
+   * template has a feedback slot; one without a slot cannot be, and the doc
+   * says so (ieltsTemplateOutdated) so the teacher knows to update it.
    */
-  function readIeltsForGrading(lib, tab, docId, { planned = null } = {}) {
+  function readIeltsForGrading(lib, tab, docId) {
     const { rows, invalidTables } = lib.collectIeltsRows(tab);
-    // Counting only: a table the template update would make gradable counts
-    // as pending when the student already wrote in it.
-    const plannedWriting = (planned?.changes || []).some((c) => c.written);
+    const outdated = lib
+      .planIeltsTemplateUpdate(tab)
+      .changes.filter((c) => c.written).length;
     const warnings = [];
     if (invalidTables.length) {
       warnings.push(
@@ -815,24 +800,28 @@ function createGradingJobs(deps) {
         }),
       );
     }
-    if (!rows.length && !plannedWriting) {
-      return {
-        docId,
-        status: "skipped",
-        reason: "noTable",
-        warnings: [...warnings, warning("noTable", { docId })],
-      };
+    if (outdated) {
+      warnings.push(
+        warning("ieltsTemplateOutdated", { docId, count: outdated }),
+      );
     }
     const { items, graded } = lib.selectIeltsItemsToGrade(rows);
-    if (!items.length && plannedWriting) {
-      return { docId, status: "pending", ielts: [], warnings };
-    }
     if (!items.length) {
+      const reason = outdated
+        ? "ieltsTemplateOutdated"
+        : !rows.length
+          ? "noTable"
+          : graded
+            ? "alreadyGraded"
+            : "noAnswers";
       return {
         docId,
         status: "skipped",
-        reason: graded ? "alreadyGraded" : "noAnswers",
-        warnings,
+        reason,
+        warnings:
+          reason === "noTable"
+            ? [...warnings, warning("noTable", { docId })]
+            : warnings,
       };
     }
     return {
@@ -1002,7 +991,7 @@ function createGradingJobs(deps) {
     );
 
     const docs = await mapLimit(job.docIds, READ_CONCURRENCY, (docId) =>
-      readForGrading(lib, job, docId, access, { write: true }),
+      readForGrading(lib, job, docId, access),
     );
     const readMs = now() - started;
     const pending = docs.filter((d) => d.status === "pending");
@@ -1106,7 +1095,13 @@ function createGradingJobs(deps) {
     let noticeParams = null;
     if (!ready.length) {
       const oldFeedback = docs.filter((d) => d.reason === "oldFeedback").length;
-      if (oldFeedback) {
+      const outdated = docs.filter(
+        (d) => d.reason === "ieltsTemplateOutdated",
+      ).length;
+      if (outdated) {
+        notice = "allIeltsTemplateOutdated";
+        noticeParams = { count: outdated };
+      } else if (oldFeedback) {
         notice = "allSkippedOldFeedback";
         noticeParams = { count: oldFeedback };
       } else if (docs.some((d) => d.reason === "alreadyGraded")) {
@@ -1195,6 +1190,114 @@ function createGradingJobs(deps) {
       alreadyGraded: docs.filter(
         (d) => d.reason === "alreadyGraded" || d.reason === "oldFeedback",
       ).length,
+    };
+  }
+
+  /**
+   * The "update template" button of an IELTS class: brings the lesson of
+   * every doc (or of the pasted docs) to the current template, without
+   * grading or charging anything. Tables that already hold feedback are left
+   * as they are. Runs within the request — one read and one write per doc.
+   *
+   * Throws a JobError for a request that cannot run (409 job_in_progress
+   * while the lesson is being graded), ReauthRequiredError when the
+   * teacher's Google grant is gone.
+   *
+   * @returns {Promise<{total: number, updated: number, unchanged: number,
+   *   skipped: number, failed: number, tables: number, noTable: number}>}
+   */
+  async function updateTemplates({
+    email,
+    authKind,
+    classId,
+    lessonId,
+    docIds,
+  }) {
+    classId = String(classId || "");
+    lessonId = String(lessonId || "");
+    if (!classId || !lessonId) {
+      throw new JobError(400, "classId_and_lessonId_required");
+    }
+    const [classSnap, lessonSnap, lockSnap] = await Promise.all([
+      db.collection("classes").doc(classId).get(),
+      db.collection("lesson").doc(lessonId).get(),
+      lockRef(classId, lessonId).get(),
+    ]);
+    if (!classSnap.exists) throw new JobError(404, "class_not_found");
+    if (!lessonSnap.exists) throw new JobError(404, "lesson_not_found");
+    const profile = await gradingProfileOfClass(classSnap.data());
+    if (profile !== GRADING_PROFILE_IELTS) {
+      throw new JobError(400, "not_ielts_class");
+    }
+    // The grading job reads and writes these tables; changing them under it
+    // would only make its writes retry or skip.
+    if (lockSnap.exists && lockSnap.data().jobId) {
+      const running = await jobRef(lockSnap.data().jobId).get();
+      if (
+        running.exists &&
+        !JOB_TERMINAL.has(running.data().status) &&
+        !isStale(running.data())
+      ) {
+        throw new JobError(409, "job_in_progress", { jobId: running.id });
+      }
+    }
+    const ids = await resolveDocIds(classId, docIds);
+    if (!ids.length) throw new JobError(400, "no_docs");
+    if (ids.length > MAX_DOCS) {
+      throw new JobError(400, "too_many_docs", { max: MAX_DOCS });
+    }
+    if (authKind === "google" && !(await tokens.hasRefreshToken(email))) {
+      throw new JobError(409, "google_reauth_required");
+    }
+    // The same right as grading the class: its teacher, or an admin.
+    if (!(await resolvePayer(email, classId))) {
+      throw new JobError(403, "payer_not_found");
+    }
+
+    const lib = await loadDocLib();
+    const job = {
+      lessonName: lessonSnap.data().name || "",
+      classType: classSnap.data().classType || "",
+      gradingProfile: profile,
+      createdByEmail: String(email).toLowerCase(),
+    };
+    const access = await tokens.getDocsAccessToken(
+      job.createdByEmail,
+      authKind === "google" ? "google" : "jwt",
+    );
+    const results = await mapLimit(ids, READ_CONCURRENCY, async (docId) => {
+      try {
+        const data = await docsApi.getDocument(docId, access.token);
+        const tab = findLessonTab(lib, job, data);
+        if (!tab?.documentTab) return { status: "skipped" };
+        const done = await updateIeltsTemplate(lib, job, docId, access, data);
+        if (done.failed) return { status: "failed" };
+        return {
+          status: done.changed ? "updated" : "unchanged",
+          tables: done.changed,
+          noTable: done.noTable,
+        };
+      } catch (err) {
+        if (err instanceof ReauthRequiredError) throw err;
+        if (err.kind === "auth") tokens.invalidate?.(job.createdByEmail);
+        console.error(
+          `[GRADING-JOB] template update of ${docId} failed:`,
+          err.message,
+        );
+        return { status: err.kind === "transient" ? "failed" : "skipped" };
+      }
+    });
+    const count = (status) => results.filter((r) => r.status === status).length;
+    const sum = (key) => results.reduce((n, r) => n + (r[key] || 0), 0);
+    return {
+      total: ids.length,
+      updated: count("updated"),
+      unchanged: count("unchanged"),
+      skipped: count("skipped"),
+      failed: count("failed"),
+      tables: sum("tables"),
+      // Exercises of the lesson with no table to write in (same in every doc).
+      noTable: Math.max(0, ...results.map((r) => r.noTable || 0)),
     };
   }
 
@@ -1660,6 +1763,7 @@ function createGradingJobs(deps) {
     getLatestJob,
     handleTask,
     prepare,
+    updateTemplates,
     write,
   };
 }
