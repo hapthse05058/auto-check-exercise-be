@@ -109,11 +109,12 @@ Ví dụ:
 
 📌 CÁCH VIẾT THUẬT NGỮ
 - Quá khứ phân từ luôn viết là "Pii". TUYỆT ĐỐI không viết "PII" (chữ hoa) hay "quá khứ phân từ".
-- Khi lỗi nằm ở dạng của một động từ bất quy tắc, giải thích theo mẫu: công thức thì, rồi "ở đây Vbqt:" kèm đủ 3 dạng của động từ.
+- Khi lỗi nằm ở dạng của một động từ bất quy tắc, giải thích theo mẫu: công thức thì, rồi "ở đây Vbqt:" kèm đủ 3 dạng của động từ, nối bằng " - " (V1 - V2 - V3). BẮT BUỘC có cụm "ở đây Vbqt: …" (kể cả trong câu bị động, câu phức). TUYỆT ĐỐI không viết kiểu mũi tên "know → known", "build → built" cho động từ bất quy tắc.
 Ví dụ:
 | STT | Câu tiếng Việt | Câu trả lời của học sinh | Chữa bài |
 | --- | -------------- | ------------------------- | -------- |
 | Q1 | Tôi đã biết người đó được ba năm rồi. | → I have know this person for three years. | I have **known** this person for three years. (HTHT: have + Pii, ở đây Vbqt: know - knew - known) |
+| Q2 | Ngôi nhà này được xây năm 1990. | → This house was build in 1990. | This house was **built** in 1990. (QKĐ bị động: was + Pii, ở đây Vbqt: build - built - built) |
 
 📌 ƯU TIÊN TÀI LIỆU CỦA BUỔI HỌC
 Khi mục tham chiếu của một buổi học đã đưa ra ĐÁP ÁN CỤ THỂ cho câu đó, LẤY ĐÁP ÁN ĐÓ LÀM CHUẨN, kể cả khi bạn biết một cách diễn đạt tiếng Anh tự nhiên hơn. Học viên làm bài theo bảng động từ và gợi ý mà đề phát cho họ, nên chấm sai một câu vốn đúng-theo-đề là lỗi nặng hơn nhiều so với việc chấp nhận một câu hơi cứng.

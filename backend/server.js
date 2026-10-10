@@ -84,7 +84,7 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 // Bump this (or change AI_MODEL) to invalidate the gradingCache: cached
 // feedback is keyed on promptVersion + model + question + answer.
-const PROMPT_VERSION = process.env.PROMPT_VERSION || "v3";
+const PROMPT_VERSION = process.env.PROMPT_VERSION || "v4";
 
 app.use(cors());
 // Body size limit. Register the parsers EXACTLY ONCE: body-parser sets
