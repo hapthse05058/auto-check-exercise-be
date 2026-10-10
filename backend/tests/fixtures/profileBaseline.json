@@ -779,7 +779,7 @@
     "prompts": {
       "prompt_and_instruction_for_responses_api_2.txt": "4c2e6a84da51e6a228ade41739a3baf8341a840a83c89c766372caaa53d401ee",
       "prompt_paragraph.txt": "aaa2de5cfb9ddcb62d620bf8ca13d177f1b6faedbedf46d10a536b0feda582b1",
-      "prompt_ielts_writing.txt": "7b056beabfa3ee67e279fc19e48d4c5c070756a3ee939d9db4ccadf4210586c9",
+      "prompt_ielts_writing.txt": "4663607f67bc0e434da440b8fb34242b9f17ce25aa2514cc2ed2238e2c9a5ad5",
       "prompt_ielts_chart.txt": "d6f109be53e43887613d27a6f9cf28c227f5c026ecebd904bdd872ce088b429b",
       "lib/basicRows.js": "2b89758b84d6ebbdd1deaf869b57190706197239a5a2fa0f629cf1a78facc345"
     },

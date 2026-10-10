@@ -84,7 +84,7 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 // Bump this (or change AI_MODEL) to invalidate the gradingCache: cached
 // feedback is keyed on promptVersion + model + question + answer.
-const PROMPT_VERSION = process.env.PROMPT_VERSION || "v1";
+const PROMPT_VERSION = process.env.PROMPT_VERSION || "v2";
 
 app.use(cors());
 // Body size limit. Register the parsers EXACTLY ONCE: body-parser sets
@@ -446,7 +446,7 @@ const IELTS_AI_JSON_MODE = ["true", "1", "on"].includes(
 const IELTS_AI_THINKING = String(process.env.IELTS_AI_THINKING || "")
   .trim()
   .toLowerCase();
-const IELTS_PROMPT_VERSION = process.env.IELTS_PROMPT_VERSION || "v1";
+const IELTS_PROMPT_VERSION = process.env.IELTS_PROMPT_VERSION || "v4";
 const IELTS_SENTENCE_PROMPT_VERSION =
   process.env.IELTS_SENTENCE_PROMPT_VERSION || "v1";
 const ieltsConfigured = Boolean(IELTS_AI_API_KEY && IELTS_AI_MODEL);

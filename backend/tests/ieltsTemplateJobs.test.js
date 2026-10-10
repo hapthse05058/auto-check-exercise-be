@@ -1,7 +1,8 @@
 /**
  * IELTS lessons in an older layout. The teacher's "update template" button
  * (updateTemplates) brings them to the current template (lib/doc/ieltsDoc.js
- * planIeltsTemplateUpdate — the pair table + "NHẬN XÉT" below the writing,
+ * planIeltsTemplateUpdate — the review table + "Nhận xét chung" / "Lời
+ * khuyên cải thiện" below the writing,
  * a "GV chữa/nhận xét" column on short-sentence tables); grading reads a
  * lesson as it stands and never changes its template. What the update does
  * to a doc is tested in the website's tests/ieltsTemplate.test.js.
@@ -127,8 +128,9 @@ const newSpec = ({ essay = ESSAY, sentences = SENTENCES } = {}) => [
   { image: "chart1" },
   { table: essay },
   "",
-  { table: [["GV chữa/nhận xét", "BẢN CẢI THIỆN"]] },
-  "NHẬN XÉT",
+  { table: [["Bài chữa 1", "Bài cải thiện 1"]] },
+  "Nhận xét chung",
+  "Lời khuyên cải thiện",
   "",
   EXERCISE_3,
   {
@@ -157,6 +159,8 @@ const PARTS = {
   corrected: "Intro: The graph **show** → shows (S-V) fish.",
   improved: "The graph shows fish.",
   review: "**Nhận xét chung:** Ổn nha.",
+  general: "Ổn nha.",
+  advice: "Học thêm từ nối.",
 };
 
 async function runJob(h) {
@@ -225,17 +229,24 @@ describe("IELTS template update (its own button)", () => {
     );
     assert.match(table.prompt, /^Exercise 3: /);
 
-    // The feedback: three pieces for the pair, one per written sentence.
+    // The feedback: four pieces for the review row (corrected, improved,
+    // general comment, advice), one per written sentence.
     const inserts = doc.batches[1]
       .filter((r) => r.insertText)
       .map((r) => r.insertText.text);
     assert.deepEqual(inserts.sort(), [
+      "\nHọc thêm từ nối.",
       "\nIntro: The graph show → shows (S-V) fish.",
-      "\nNhận xét chung: Ổn nha.",
       "\nThe graph shows fish.",
+      "\nỔn nha.",
       "It wrong → right (thì).",
       "✅",
     ]);
+    // The explanation after the fix is in italics.
+    const italic = doc.batches[1].filter(
+      (r) => r.updateTextStyle?.textStyle?.italic === true,
+    );
+    assert.ok(italic.length >= 1);
   });
 
   it("a lesson already on the template is left alone", async () => {

@@ -485,17 +485,24 @@ function cleanMarkup(text) {
  * and the review below. No numbering, no band and no overall: the teachers
  * asked for feedback that reads like their own (the bands still steer the
  * model's comments, they are just not shown).
+ * `general` and `advice` alone are for the "review" layout (2026-10-09),
+ * which writes them under its own "Nhận xét chung" / "Lời khuyên cải thiện"
+ * lines.
  */
 function ieltsFeedbackParts(described) {
+  const general = cleanMarkup(described.general);
+  const advice = cleanMarkup(described.advice);
   const review = described.criteria.map(
     (c) => `- **${c.name}:** ${cleanMarkup(c.comment)}`,
   );
-  review.push(`**Nhận xét chung:** ${cleanMarkup(described.general)}`);
-  review.push(`**Lời khuyên cải thiện:** ${cleanMarkup(described.advice)}`);
+  review.push(`**Nhận xét chung:** ${general}`);
+  review.push(`**Lời khuyên cải thiện:** ${advice}`);
   return {
     corrected: cleanMarkup(described.corrected),
     improved: cleanMarkup(described.improved),
     review: review.join("\n"),
+    general,
+    advice,
   };
 }
 
