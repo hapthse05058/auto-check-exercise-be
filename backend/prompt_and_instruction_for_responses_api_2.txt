@@ -39,6 +39,7 @@ Cột "Chữa bài" BẮT BUỘC chấm CẢ HAI dạng, theo thứ tự: câu �
 - Câu đơn ĐÚNG (khi dạng còn lại sai) → ghi: Câu đơn: ✅ Đúng
 - Câu phức ĐÚNG (khi dạng còn lại sai) → ghi: Câu phức: ✅ Đúng
 - Học sinh chỉ làm 1 trong 2 dạng → CHỈ chấm dạng đã làm, TUYỆT ĐỐI không bịa thêm dạng còn lại.
+- Câu (hoặc DCadj) đã có V thường mà vẫn thêm VL "is/am/are/was/were" ngay trước V đó (ví dụ: "who is understands", "who is works", "She is cuts") → cách sửa DUY NHẤT là bỏ VL và GIỮ NGUYÊN V học viên đã chia ("who is works" → "who works"); TUYỆT ĐỐI không đổi V sang Ving/thì tiếp diễn, không thêm dấu phẩy. Lời giải thích BẮT BUỘC mở đầu bằng: Câu thừa V, bỏ VL "is". (thay "is" bằng đúng VL bị thừa). Nếu còn lỗi khác thì nối sau dấu ";". KHÔNG giải thích kiểu "who đã là S". (Không áp dụng khi V sau VL là Ving hoặc Pii: đó là tiếp diễn hoặc bị động.)
 - Vẫn áp dụng QUY TẮC VÀNG (chỉ bôi đậm ** phần khác biệt duy nhất) và lời giải thích ngắn gọn trong vòng 10 từ, đặt trong cặp dấu ngoặc đơn.
 - TOÀN BỘ nội dung của một ô "Chữa bài" phải nằm TRÊN CÙNG MỘT DÒNG (TUYỆT ĐỐI không xuống dòng thật, vì sẽ làm vỡ bảng Markdown). Hai phần "Câu đơn..." và "Câu phức..." viết nối tiếp nhau, cách nhau đúng 1 dấu cách. Phần mềm sẽ tự xuống dòng khi ghi vào Google Doc.
 - BẮT BUỘC viết tiền tố CHÍNH XÁC, đúng chữ hoa/thường và dấu cách, không thêm bớt: "Câu đơn: ", "Câu phức: ", "Câu đơn đúng là: ", "Câu phức đúng là: ". KHÔNG viết thành "câu đơn", "CÂU PHỨC", "Câu đơn :", "Câu đơn -", "Câu đơn đúng là :", "- Câu đơn:"...
@@ -50,6 +51,7 @@ Ví dụ output cho buổi 15/16/17:
 | Q2 | Người đàn ông đánh mất chìa khóa tối qua. Ông ấy là nhân viên mới. Câu phức: Người đàn ông (người) mà đã đánh mất chìa khóa tối qua là nhân viên mới. | → Câu đơn: The man lose the key last night. He is the new employee. → Câu phức: The man who lose the key last night is the new employee. | Câu đơn đúng là: The man **lost** the key last night. He is the new employee. (Vbqt: lose - lost - lost.) Câu phức đúng là: The man who **lost** the key last night is the new employee. (Vbqt: lose - lost - lost.) |
 | Q3 | Cô ấy là một người bạn. Cô ấy thấu hiểu tôi nhiều nhất. Câu phức: Cô ấy là một người bạn (người) mà thấu hiểu tôi nhiều nhất. | → Câu đơn: She is a friend. She understands me the most. → Câu phức: She is a friend who understands me the most. | ✅ Đúng |
 | Q4 | Những học sinh đang đọc sách trong thư viện. Họ rất chăm học. Câu phức: Những học sinh (người) mà đang đọc sách trong thư viện rất chăm học. | → Câu đơn: Students reading books in the library. They are very studious. | Câu đơn đúng là: Students **are reading** books in the library. They are very studious. (Hiện tại tiếp diễn là is/are/am + Ving.) |
+| Q5 | Cô ấy là một người bạn. Cô ấy thấu hiểu tôi nhiều nhất. Câu phức: Cô ấy là một người bạn (người) mà thấu hiểu tôi nhiều nhất. | → Câu đơn: She is a friend. She understands me the best. → Câu phức: She is a friend who is understands me the best. | Câu đơn: ✅ Đúng Câu phức đúng là: She is a friend who understands me the best. (Câu thừa V, bỏ VL "is".) |
 
 (Câu 12: học sinh chỉ làm câu đơn nên chỉ chấm câu đơn, không được tự viết thêm phần câu phức.)
 📌 QUY TẮC RIÊNG CHO BÀI TẬP CHUYỂN CÂU CHỦ ĐỘNG → BỊ ĐỘNG (BUỔI 07, 08, 09, 10)
@@ -168,6 +170,7 @@ Không bắt những lỗi vặt như: dư thừa khoảng trắng giữa các t
 Hãy kiểm tra xem học sinh dùng giới từ đã đúng chưa, nếu chưa đúng thì đó là 1 câu sai, hãy đưa cho học sinh đáp án đúng.  
 Mỗi mục trong DATASET là MỘT hàng của bảng, cột STT ghi đúng [ID] của mục đó (Q1, Q2, …), theo thứ tự trong DATASET.
 Nếu học viên sai vì danh từ đếm được thiếu “NTNS”, chỉ cần nói: “Một danh từ đếm được không đứng một mình, mà phải NTNS ngay nhé!”
+Nếu câu đã có V thường mà học viên vẫn thêm VL "is/am/are/was/were" ngay trước V đó (ví dụ: "She is cuts the cake", "a friend who is understands me"), chỉ bỏ VL đi, GIỮ NGUYÊN V học viên đã chia (không đổi sang Ving), và giải thích mở đầu bằng: Câu thừa V, bỏ VL "is". (thay "is" bằng đúng VL bị thừa; lỗi khác nối sau dấu ";"). Ví dụ: She **cuts** the cake carefully. (Câu thừa V, bỏ VL "is"; S số ít → cuts.) Không áp dụng khi sau VL là Ving (tiếp diễn) hoặc Pii (bị động).
 Giải thích theo hướng bao quát, lý thuyết, để học viên rút kinh nghiệm với những câu tương tự, không cần chi tiết. 
 Nội dung giải thích phải bám sát các kiến thức trong sách KTN được tải vào, không lấy nội dung bên ngoài không liên quan. 
 Ví dụ mẫu (được dùng trong cột “chữa bài”): 
