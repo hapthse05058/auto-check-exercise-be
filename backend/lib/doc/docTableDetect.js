@@ -105,26 +105,28 @@ function asSection(text) {
  * hay null. Tiêu đề quyết định câu nào là đúng — "I will play football" sai
  * dưới tiêu đề "Be going to" — nên nó được gửi cho AI cùng các câu bên dưới.
  *
- * Nhận ra theo bố cục: đúng MỘT ô có chữ (tiêu đề thường gộp các cột đề bài,
- * ô "Chữa bài" để trống), và chữ đó không phải câu hỏi, dòng "Ví dụ:", header
- * hay dòng công thức. Chữ chỉ nằm ở ô cuối (cột chữa bài) thì không phải tiêu
- * đề. Chỉ xét những dòng mà `resolveRowCells` đã bỏ qua.
+ * Nhận ra theo bố cục: ô "Chữa bài" (ô cuối) để trống, tiêu đề là ô có chữ
+ * ĐẦU TIÊN, và chữ đó không phải câu hỏi, dòng "Ví dụ:", header hay dòng công
+ * thức. Ô "Gợi ý" của dòng tiêu đề có thể có chữ: GV hay để sót gợi ý của câu
+ * trên ("Be going to: …" | "Dùng TLHT BĐ: will have been + PII" | "") — dòng
+ * đó vẫn là tiêu đề. Chỉ xét những dòng mà `resolveRowCells` đã bỏ qua.
  */
 export function sectionHeadingOf(row) {
   const cells = row?.tableCells || [];
   const filled = cells
     .map((cell, i) => ({ i, text: normalizeText(getCellText(cell)) }))
     .filter(({ text }) => text);
-  if (filled.length !== 1) return null;
-  if (cells.length > 1 && filled[0].i === cells.length - 1) return null;
-  // A cell holding a numbered question or an answer is not a heading, even
-  // when resolveRowCells skipped the row.
-  const lines = getCellLines(cells[filled[0].i]);
-  if (
-    lines.some((line) => startsWithNumberDot(line) || startsWithArrow(line))
-  ) {
+  if (!filled.length) return null;
+  if (cells.length > 1 && filled.some(({ i }) => i === cells.length - 1)) {
     return null;
   }
+  // A cell holding a numbered question or an answer is not a heading, even
+  // when resolveRowCells skipped the row.
+  const holdsItem = ({ i }) =>
+    getCellLines(cells[i]).some(
+      (line) => startsWithNumberDot(line) || startsWithArrow(line),
+    );
+  if (filled.some(holdsItem)) return null;
   return asSection(filled[0].text);
 }
 
