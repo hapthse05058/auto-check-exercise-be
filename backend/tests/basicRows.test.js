@@ -177,6 +177,31 @@ describe("row checks", () => {
   });
 });
 
+describe("an item graded on its own", () => {
+  it("keeps a correction for an answer to another question (no fit check)", () => {
+    const group = [
+      {
+        question: "Không khí ở Đà Lạt trong lành và sạch sẽ",
+        answer: "Water is very good for your health",
+      },
+    ];
+    const rows = parseGradedRows(
+      table([
+        "Q1",
+        "x",
+        "Water is very good for your health",
+        "**The air in Da Lat is fresh and clean.** (Câu trả lời lạc đề.)",
+      ]),
+    );
+    assert.deepEqual(matchGradedRows(group, rows).rejected, [
+      { index: 0, reason: "mismatch" },
+    ]);
+    const alone = matchGradedRows(group, rows, { checkFit: false });
+    assert.deepEqual(alone.rejected, []);
+    assert.match(alone.feedbacks[0], /Da Lat/);
+  });
+});
+
 describe("gradingCacheKey section", () => {
   const key = (section) =>
     gradingCacheKey(

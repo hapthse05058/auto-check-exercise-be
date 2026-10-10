@@ -779,26 +779,31 @@ async function runWithConcurrency(taskFactories, limit) {
  * Grades ONE group of uncached items with OpenAI. Each item is sent under an
  * id ("Q1".."Qk") that cannot collide with the question numbers the prompt's
  * reference answers are listed under, and every returned row is checked
- * (lib/basicRows.js). A row that fails is graded again on its own, once; if
- * it still fails its item stays null — not written, not cached, retried on
- * the next run. Returns feedback aligned to `group` by index.
+ * (lib/basicRows.js). A row that fails is graded again on its own, once —
+ * alone it cannot be mixed up with another item, so only its id and echo
+ * must hold; if it still fails its item stays null — not written, not
+ * cached, retried on the next run.
+ *
+ * @returns {{feedbacks: Array<string|null>, single: Set<number>}} feedbacks
+ *   aligned to `group` by index; `single`: the indexes graded on their own.
  */
 async function gradeGroupWithOpenAI(group, instruction, model) {
-  const ask = async (items) => {
+  const ask = async (items, options) => {
     const aiResponse = await callGrader(
       instruction,
       buildSentenceInput(items),
       model,
     );
-    return matchGradedRows(items, parseGradedRows(aiResponse));
+    return matchGradedRows(items, parseGradedRows(aiResponse), options);
   };
   const { feedbacks, rejected } = await ask(group);
+  const single = new Set();
   await Promise.all(
     rejected.map(async ({ index, reason }) => {
       const item = group[index];
       let again = null;
       try {
-        again = await ask([item]);
+        again = await ask([item], { checkFit: false });
       } catch (err) {
         console.warn("[GRADE-CACHED] single re-grade failed:", err.message);
       }
@@ -809,11 +814,13 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
             again?.rejected[0]?.reason || "error"
           }): ${JSON.stringify(item.answer).slice(0, 120)}`,
         );
+      } else {
+        single.add(index);
       }
       feedbacks[index] = fb;
     }),
   );
-  return feedbacks;
+  return { feedbacks, single };
 }
 
 /** Raised by gradeItemsCached when there is nothing gradable in `items`. */
@@ -899,12 +906,15 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
   //    caching is off, so every answer is treated as a miss and re-graded.
   const feedbackById = new Map();
   const itemById = new Map(ids.map((id, idx) => [id, uniqueItems[idx]]));
-  // A cached sentence correction that shares no words with its answer was
-  // filed under the wrong item (the old renumbering bug): grade it again.
-  const trusted = (id, feedback) => {
+  // A cached sentence correction that shares no words with its answer may
+  // have been filed under the wrong item (the old renumbering bug): grade it
+  // again — on its own, so the new one is kept and marked `checked:
+  // "single"`, and trusted from then on.
+  const trusted = (id, data) => {
     const it = itemById.get(id);
     if (!it || it.taskType === TASK_PARAGRAPH) return true;
-    if (correctionFitsAnswer(feedback, it.answer)) return true;
+    if (data.checked === "single") return true;
+    if (correctionFitsAnswer(data.feedback, it.answer)) return true;
     console.warn(`[GRADE-CACHED] cached feedback ignored (mismatch): ${id}`);
     return false;
   };
@@ -920,7 +930,7 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
             data &&
             data.feedback !== null &&
             data.feedback !== undefined &&
-            trusted(snap.id, data.feedback)
+            trusted(snap.id, data)
           ) {
             feedbackById.set(snap.id, data.feedback);
           }
@@ -974,19 +984,23 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     const groupErrors = [];
     const tasks = groups.map((group) => async () => {
       try {
-        const feedbacks =
+        const { feedbacks, single } =
           group[0].taskType === TASK_PARAGRAPH
-            ? await gradeParagraphGroup(group, {
-                instruction: paragraphInstruction,
-                model,
-                callGrader,
-              })
+            ? {
+                feedbacks: await gradeParagraphGroup(group, {
+                  instruction: paragraphInstruction,
+                  model,
+                  callGrader,
+                }),
+                single: new Set(),
+              }
             : await gradeGroupWithOpenAI(group, instruction, model);
         group.forEach((it, i) => {
           const fb = feedbacks[i];
           if (fb !== null && fb !== undefined) {
             feedbackById.set(ids[it.idx], fb);
             it._feedback = fb; // mark for cache write
+            it._single = single.has(i);
           }
         });
       } catch (err) {
@@ -1049,6 +1063,8 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
             promptVersion: PROMPT_VERSION,
             taskType: it.taskType,
             ...(it.section ? { section: it.section } : {}),
+            // Graded on its own after a group answer failed a check.
+            ...(it._single ? { checked: "single" } : {}),
             hitCount: 0,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });

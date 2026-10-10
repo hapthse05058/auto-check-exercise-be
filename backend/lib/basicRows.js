@@ -151,8 +151,14 @@ function correctionFitsAnswer(feedback, answer) {
  * only costs its own item: the other rows of the group are kept.
  *
  * reason: "missing" | "duplicate" | "echo" | "mismatch" | "empty"
+ *
+ * `checkFit: false` skips the shared-words check: for an item graded on its
+ * own there is no other item to mix it up with, and a student who answered
+ * another question, or copied the Vietnamese, rightly gets a correction that
+ * shares no words with the answer (2026-10-10 audit: 124 of 129 cached
+ * "mismatches" were such cases, 5 were the real mix-up).
  */
-function matchGradedRows(group, rows) {
+function matchGradedRows(group, rows, { checkFit = true } = {}) {
   const byId = new Map();
   for (const row of rows) {
     if (!byId.has(row.id)) byId.set(row.id, []);
@@ -167,7 +173,10 @@ function matchGradedRows(group, rows) {
     else if (found.length > 1) reason = "duplicate";
     else if (!found[0].feedback) reason = "empty";
     else if (!echoMatches(item.answer, found[0].answer)) reason = "echo";
-    else if (!correctionFitsAnswer(found[0].feedback, item.answer)) {
+    else if (
+      checkFit &&
+      !correctionFitsAnswer(found[0].feedback, item.answer)
+    ) {
       reason = "mismatch";
     }
     feedbacks.push(reason ? null : found[0].feedback);
