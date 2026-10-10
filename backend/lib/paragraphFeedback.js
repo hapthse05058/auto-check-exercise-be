@@ -13,6 +13,21 @@
 
 /** Phải trùng `IS_CORRECT_ANSWER` của lib/doc/docParser.js (test kiểm tra). */
 const IS_CORRECT_ANSWER = "✅ Đúng";
+/**
+ * Đoạn văn không có lỗi nào — câu giáo viên yêu cầu thay cho "✅ Đúng". Phải
+ * trùng `PARAGRAPH_ALL_CORRECT` của lib/doc/docParser.js (test kiểm tra).
+ */
+const PARAGRAPH_ALL_CORRECT = "Các câu đúng hết rồi nha! ^^";
+
+// "nhé" ở cuối một ý ("… dùng “is” nhé.", "…; sau can → Vbare nhé;"): giáo
+// viên yêu cầu bỏ khỏi nhận xét đoạn văn. Chỉ bỏ khi nó đứng cuối ý, trước dấu
+// câu hoặc hết chuỗi.
+const TRAILING_NHE = /\s*(?<![\p{L}])nh[ée](?![\p{L}])(?=\s*(?:[.,;!?]|$))/giu;
+
+/** Lời giải thích không còn "nhé" cuối ý. */
+function dropNhe(reason) {
+  return reason.replace(TRAILING_NHE, "").trim();
+}
 
 /**
  * Đọc JSON AI trả về thành Map<stt, corrections[]>.
@@ -66,7 +81,7 @@ function stripOuterParens(text) {
  */
 function formatParagraphFeedback(corrections) {
   if (!Array.isArray(corrections)) return null;
-  if (corrections.length === 0) return IS_CORRECT_ANSWER;
+  if (corrections.length === 0) return PARAGRAPH_ALL_CORRECT;
 
   const blocks = [];
   for (const correction of corrections) {
@@ -74,10 +89,13 @@ function formatParagraphFeedback(corrections) {
     const sentence = String(correction.sentence ?? "")
       .replace(/\s+/g, " ")
       .trim();
-    const reason = stripOuterParens(
-      String(correction.reason ?? "")
-        .replace(/\s+/g, " ")
-        .trim(),
+    const reason = dropNhe(
+      stripOuterParens(
+        String(correction.reason ?? "")
+          .replace(/\s+/g, " ")
+          .replace(/\bPII\b/g, "Pii")
+          .trim(),
+      ),
     );
     if (!sentence || !reason) return null;
     blocks.push(`${sentence}\n(${reason})`);
@@ -119,6 +137,7 @@ async function gradeParagraphGroup(group, { instruction, model, callGrader }) {
 
 module.exports = {
   IS_CORRECT_ANSWER,
+  PARAGRAPH_ALL_CORRECT,
   formatParagraphFeedback,
   gradeParagraphGroup,
   paragraphText,

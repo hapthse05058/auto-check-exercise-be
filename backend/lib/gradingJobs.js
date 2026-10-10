@@ -1045,12 +1045,19 @@ function createGradingJobs(deps) {
       const unique = new Map();
       for (const { qa } of pending) {
         for (const item of qa) {
-          const key = lib.makeAnswerKey(item.question, item.answer, item.type);
+          const key = lib.makeAnswerKey(
+            item.question,
+            item.answer,
+            item.type,
+            item.section,
+          );
           if (!unique.has(key)) {
             unique.set(key, {
               question: item.question,
               answer: item.answer,
               taskType: item.type,
+              // The heading the question sits under ("Be going to: …").
+              ...(item.section ? { section: item.section } : {}),
             });
           }
         }
@@ -1063,13 +1070,13 @@ function createGradingJobs(deps) {
       for (const g of graded) {
         if (g && g.feedback !== null && g.feedback !== undefined) {
           feedbackByKey.set(
-            lib.makeAnswerKey(g.question, g.answer, g.taskType),
+            lib.makeAnswerKey(g.question, g.answer, g.taskType, g.section),
             // formatFeedbackForDoc gộp mọi xuống dòng thành một dòng — đúng
             // cho feedback một câu (một ô bảng Markdown), nhưng sẽ phá cấu
             // trúc "câu sửa / (lý do) / dòng trống" của đoạn văn, vốn đã được
             // định dạng xong ở lib/paragraphFeedback.js.
             g.taskType === lib.KIND_PARAGRAPH
-              ? g.feedback
+              ? lib.paragraphFeedbackForDoc(g.feedback)
               : lib.formatFeedbackForDoc(g.feedback),
           );
         }
@@ -1079,7 +1086,12 @@ function createGradingJobs(deps) {
         doc.gradingResults = [];
         for (const item of doc.qa) {
           const feedback = feedbackByKey.get(
-            lib.makeAnswerKey(item.question, item.answer, item.type),
+            lib.makeAnswerKey(
+              item.question,
+              item.answer,
+              item.type,
+              item.section,
+            ),
           );
           if (feedback === null || feedback === undefined) continue;
           doc.gradingResults.push({

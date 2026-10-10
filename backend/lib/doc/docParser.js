@@ -17,6 +17,29 @@
 export const IS_CORRECT_ANSWER = "✅ Đúng";
 
 /**
+ * What a paragraph ("Học viên viết") with no mistake gets, in place of
+ * "✅ Đúng" — the wording the teachers asked for.
+ */
+export const PARAGRAPH_ALL_CORRECT = "Các câu đúng hết rồi nha! ^^";
+
+/** Buổi 15/16/17 grade two forms in one cell ("Câu đơn: ✅ Đúng Câu phức…"). */
+const DUAL_SENTENCE_FEEDBACK = /Câu (đơn|phức)/i;
+
+/**
+ * True when a feedback says the item is right. The one test for it, so the
+ * cell writer and the overall comment always agree: "✅ Đúng" (also with
+ * stray text around it, which the writer collapses), or the paragraph's
+ * all-correct sentence — but not a Câu đơn/phức cell where only one form is
+ * right.
+ */
+export function isCorrectFeedback(feedback) {
+  const text = String(feedback ?? "").trim();
+  if (!text) return false;
+  if (text === PARAGRAPH_ALL_CORRECT) return true;
+  return text.includes(IS_CORRECT_ANSWER) && !DUAL_SENTENCE_FEEDBACK.test(text);
+}
+
+/**
  * The one literal marker in the layout: the row holding the teacher's overall
  * comment. Lives here rather than in `docWriter` because the table detector
  * needs it too, and `docWriter` imports from this module — putting it the
@@ -113,13 +136,17 @@ export function normalizeText(value) {
  * pair. Two students who answered the SAME question DIFFERENTLY get different
  * keys, so they never share feedback.
  */
-export function makeAnswerKey(question, answer, type) {
+export function makeAnswerKey(question, answer, type, section) {
   const base = `${normalizeText(question)}${normalizeText(answer)}`;
   // Cùng một câu tiếng Anh có thể vừa là ĐÁP ÁN của bài dịch, vừa là ĐỀ BÀI của
   // bài chuyển sang bị động. Không tách theo loại thì hai thứ đó dùng chung
   // feedback của nhau. Bỏ hậu tố cho "vi_en" để khoá của bài dịch — tức gần như
   // toàn bộ kho câu hiện có — giữ nguyên từng byte.
-  return type && type !== "vi_en" ? `${base}${type}` : base;
+  const typed = type && type !== "vi_en" ? `${base}${type}` : base;
+  // A section heading ("Be going to: …") changes the right answer too; no
+  // heading, no suffix, so every key without one stays as it was.
+  const sec = normalizeText(section);
+  return sec ? `${typed}sec:${sec}` : typed;
 }
 
 /**
@@ -411,6 +438,7 @@ function extractPairsFromRows(rows) {
       pairs.push({
         ...pair,
         type: entry.kind,
+        ...(entry.section ? { section: entry.section } : {}),
         tableIdx: entry.tableIdx,
         rowIdx: entry.rowIdx,
       });
@@ -429,9 +457,16 @@ function extractPairsFromRows(rows) {
 export function getQuesAndAnsFromRows(rows) {
   const finalArr = [];
   extractPairsFromRows(rows).forEach(
-    ({ question, answer, type, tableIdx, rowIdx }) => {
+    ({ question, answer, type, section, tableIdx, rowIdx }) => {
       if (hasAnswer(answer?.trim())) {
-        finalArr.push({ question, answer, type, tableIdx, rowIdx });
+        finalArr.push({
+          question,
+          answer,
+          type,
+          ...(section ? { section } : {}),
+          tableIdx,
+          rowIdx,
+        });
       }
     },
   );

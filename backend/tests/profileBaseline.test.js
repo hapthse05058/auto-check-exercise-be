@@ -212,15 +212,19 @@ function pinnedSources() {
     "prompt_paragraph.txt",
     "prompt_ielts_writing.txt",
     "prompt_ielts_chart.txt",
+    // Builds the Basic sentence payload and checks every returned row.
+    "lib/basicRows.js",
   ];
   return {
     prompts: Object.fromEntries(
-      files.map((f) => [f, sha(fs.readFileSync(path.join(ROOT, f), "utf8"))]),
+      files.map((f) => [
+        f,
+        sha(fs.readFileSync(path.join(ROOT, f), "utf8").replace(/\r\n/g, "\n")),
+      ]),
     ),
     serverFunctions: Object.fromEntries(
       [
         "callGrader",
-        "parseGradedTable",
         "gradeGroupWithOpenAI",
         "gradeItemsCached",
         "callIeltsModel",

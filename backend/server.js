@@ -42,7 +42,6 @@ const {
   scheduleAwareOnFinished,
 } = require("./lib/gradingSchedules.js");
 const {
-  TASK_ACTIVE_PASSIVE,
   TASK_PARAGRAPH,
   TASK_TYPES,
   cleanContent,
@@ -50,6 +49,12 @@ const {
   normalizeForKey,
   normalizeTaskType,
 } = require("./lib/gradingKey.js");
+const {
+  buildSentenceInput,
+  correctionFitsAnswer,
+  matchGradedRows,
+  parseGradedRows,
+} = require("./lib/basicRows.js");
 const {
   gradeParagraphGroup,
   paragraphText,
@@ -708,8 +713,15 @@ app.post("/grade", verifyGoogleToken, async (req, res) => {
 // test.
 
 /** gradingCache id for the current PROMPT_VERSION (used by the grading flow). */
-function gradingCacheId(question, answer, model, taskType) {
-  return gradingCacheKey(PROMPT_VERSION, model, question, answer, taskType);
+function gradingCacheId(question, answer, model, taskType, section) {
+  return gradingCacheKey(
+    PROMPT_VERSION,
+    model,
+    question,
+    answer,
+    taskType,
+    section,
+  );
 }
 
 // Always admins, whatever ADMIN_EMAILS says (the website's config.js lists
@@ -763,53 +775,45 @@ async function runWithConcurrency(taskFactories, limit) {
   return results;
 }
 
-/** Parses the AI markdown table into a { STT -> "Chữa bài" } map. */
-function parseGradedTable(aiText) {
-  const map = {};
-  for (const line of aiText.split("\n")) {
-    if (!line.includes("|") || line.includes("---")) continue;
-    const cleanLine = line.trim().replace(/^\||\|$/g, "");
-    const columns = cleanLine.split("|").map((col) => col.trim());
-    // Real rows have >=4 columns and a numeric STT in column 0.
-    if (columns.length >= 4 && /^\d+$/.test(columns[0])) {
-      map[columns[0]] = columns[3];
-    }
-  }
-  return map;
-}
-
 /**
- * Grades ONE group of uncached items with OpenAI. Each item is renumbered
- * 1..k (unique within the group) so the returned table maps back
- * unambiguously. Returns feedback aligned to `group` by index (null if the AI
- * did not return a row for that item).
+ * Grades ONE group of uncached items with OpenAI. Each item is sent under an
+ * id ("Q1".."Qk") that cannot collide with the question numbers the prompt's
+ * reference answers are listed under, and every returned row is checked
+ * (lib/basicRows.js). A row that fails is graded again on its own, once; if
+ * it still fails its item stays null — not written, not cached, retried on
+ * the next run. Returns feedback aligned to `group` by index.
  */
 async function gradeGroupWithOpenAI(group, instruction, model) {
-  const studentExercises = group
-    .map((item, i) => {
-      const seq = i + 1;
-      const hasLeadingNumber = /^\s*\d+\s*\./.test(item.question || "");
-      const question = hasLeadingNumber
-        ? String(item.question).replace(/^\s*\d+\s*\./, `${seq}.`)
-        : `${seq}. ${item.question}`;
-      // Bài chuyển chủ động → bị động có "đề bài" là câu TIẾNG ANH, không phải
-      // câu tiếng Việt cần dịch. Gắn nhãn [VIETNAMESE] cho nó là nói dối model,
-      // và prompt sẽ chấm như một bài dịch hỏng.
-      if (item.taskType === TASK_ACTIVE_PASSIVE) {
-        return `\n[TASK]: ACTIVE_TO_PASSIVE\n[ACTIVE_SENTENCE]: ${question}\n[STUDENT_ANSWER]: ${item.answer}`;
+  const ask = async (items) => {
+    const aiResponse = await callGrader(
+      instruction,
+      buildSentenceInput(items),
+      model,
+    );
+    return matchGradedRows(items, parseGradedRows(aiResponse));
+  };
+  const { feedbacks, rejected } = await ask(group);
+  await Promise.all(
+    rejected.map(async ({ index, reason }) => {
+      const item = group[index];
+      let again = null;
+      try {
+        again = await ask([item]);
+      } catch (err) {
+        console.warn("[GRADE-CACHED] single re-grade failed:", err.message);
       }
-      return `\n[VIETNAMESE]: ${question}\n[STUDENT_ANSWER]: ${item.answer}`;
-    })
-    .join("\n");
-
-  const inputText = `DATASET TO EVALUATE:\`\`\`\n${studentExercises}\n\n\`\`\`[CRITICAL RULE]: Evaluate each item above strictly against the instruction guide. Output a single combined Markdown table. You must provide the clear reason/evaluation for the grade inside the table if the answer is incorrect.`;
-
-  const aiResponse = await callGrader(instruction, inputText, model);
-  const tableByStt = parseGradedTable(aiResponse);
-  return group.map((_, i) => {
-    const fb = tableByStt[String(i + 1)];
-    return fb !== null && fb !== undefined && fb !== "" ? fb : null;
-  });
+      const fb = again?.feedbacks[0] ?? null;
+      if (fb === null) {
+        console.warn(
+          `[GRADE-CACHED] untrusted row dropped (${reason}, then ${
+            again?.rejected[0]?.reason || "error"
+          }): ${JSON.stringify(item.answer).slice(0, 120)}`,
+        );
+      }
+      feedbacks[index] = fb;
+    }),
+  );
+  return feedbacks;
 }
 
 /** Raised by gradeItemsCached when there is nothing gradable in `items`. */
@@ -855,20 +859,32 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     const question = clean(item.question);
     const answer = clean(item.answer);
     if (!answer) continue;
+    // The heading the question sits under ("Be going to: …") changes what a
+    // right answer is, so it is part of the item: same Q/A under two
+    // headings = two items, two cache records.
+    const section = normalizeForKey(item.section);
     // Same normalization as the cache key, so two items never dedupe apart
     // yet land on one cache id.
     const key = JSON.stringify([
       normalizeForKey(question),
       normalizeForKey(answer),
       taskType,
+      ...(section ? [section] : []),
     ]);
     if (!uniqueMap.has(key)) {
-      uniqueMap.set(key, { question, answer, taskType, originals: [] });
+      uniqueMap.set(key, {
+        question,
+        answer,
+        taskType,
+        section,
+        originals: [],
+      });
     }
     uniqueMap.get(key).originals.push({
       question: item.question,
       answer: item.answer,
       taskType,
+      ...(section ? { section } : {}),
     });
   }
   const uniqueItems = [...uniqueMap.values()];
@@ -876,12 +892,22 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
 
   const cacheRef = db.collection("gradingCache");
   const ids = uniqueItems.map((it) =>
-    gradingCacheId(it.question, it.answer, model, it.taskType),
+    gradingCacheId(it.question, it.answer, model, it.taskType, it.section),
   );
 
   // 2. Read existing feedback from the cache (chunked getAll). Skipped when
   //    caching is off, so every answer is treated as a miss and re-graded.
   const feedbackById = new Map();
+  const itemById = new Map(ids.map((id, idx) => [id, uniqueItems[idx]]));
+  // A cached sentence correction that shares no words with its answer was
+  // filed under the wrong item (the old renumbering bug): grade it again.
+  const trusted = (id, feedback) => {
+    const it = itemById.get(id);
+    if (!it || it.taskType === TASK_PARAGRAPH) return true;
+    if (correctionFitsAnswer(feedback, it.answer)) return true;
+    console.warn(`[GRADE-CACHED] cached feedback ignored (mismatch): ${id}`);
+    return false;
+  };
   if (useCache) {
     const READ_CHUNK = 200;
     for (let i = 0; i < ids.length; i += READ_CHUNK) {
@@ -890,7 +916,12 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
       snaps.forEach((snap) => {
         if (snap.exists) {
           const data = snap.data();
-          if (data && data.feedback !== null && data.feedback !== undefined) {
+          if (
+            data &&
+            data.feedback !== null &&
+            data.feedback !== undefined &&
+            trusted(snap.id, data.feedback)
+          ) {
             feedbackById.set(snap.id, data.feedback);
           }
         }
@@ -1017,6 +1048,7 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
             model: model,
             promptVersion: PROMPT_VERSION,
             taskType: it.taskType,
+            ...(it.section ? { section: it.section } : {}),
             hitCount: 0,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
@@ -1131,6 +1163,12 @@ function sanitizeCacheInput(body, existing = {}) {
     out.hitCount = Number(body.hitCount) || 0;
   // Bản ghi cũ không có trường này; mặc định về bài dịch để khoá không đổi.
   out.taskType = normalizeTaskType(body.taskType ?? existing.taskType);
+  // Tiêu đề nhóm câu là một phần của khoá; rỗng = không có (khoá cũ).
+  if (body.section !== null && body.section !== undefined) {
+    const section = normalizeForKey(body.section);
+    if (section) out.section = section;
+    else delete out.section;
+  }
   return out;
 }
 
@@ -1214,6 +1252,7 @@ app.post(
         data.question,
         data.answer,
         data.taskType,
+        data.section,
       );
       const ref = db.collection("gradingCache").doc(id);
       if ((await ref.get()).exists) {
@@ -1266,6 +1305,7 @@ app.patch(
         merged.question,
         merged.answer,
         merged.taskType,
+        merged.section,
       );
 
       if (newId === id) {

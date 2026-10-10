@@ -3,6 +3,7 @@ const { describe, it } = require("node:test");
 
 const {
   IS_CORRECT_ANSWER,
+  PARAGRAPH_ALL_CORRECT,
   formatParagraphFeedback,
   gradeParagraphGroup,
   paragraphText,
@@ -49,7 +50,7 @@ describe("formatParagraphFeedback", () => {
         ok("My name **is** Tom.", "S “My name” số ít → dùng “is” nhé."),
         ok("I **am** 18 years old.", "VL → Adj/N nhé."),
       ]),
-      "My name **is** Tom.\n(S “My name” số ít → dùng “is” nhé.)\n\nI **am** 18 years old.\n(VL → Adj/N nhé.)",
+      "My name **is** Tom.\n(S “My name” số ít → dùng “is”.)\n\nI **am** 18 years old.\n(VL → Adj/N.)",
     );
   });
 
@@ -65,18 +66,29 @@ describe("formatParagraphFeedback", () => {
     assert.equal(text.match(/\*\*[^*]+\*\*/g).length, 3);
     assert.match(
       text,
-      /\n\(S “hobby” số ít → “is”; sau “is” dùng Ving; “do not \+ Vbare” nhé\.\)$/,
+      /\n\(S “hobby” số ít → “is”; sau “is” dùng Ving; “do not \+ Vbare”\.\)$/,
     );
   });
 
-  it("says ✅ Đúng for a paragraph with no mistakes", () => {
-    assert.equal(formatParagraphFeedback([]), IS_CORRECT_ANSWER);
+  it("says the teachers' all-correct sentence for a paragraph with no mistakes", () => {
+    assert.equal(formatParagraphFeedback([]), PARAGRAPH_ALL_CORRECT);
+    assert.equal(PARAGRAPH_ALL_CORRECT, "Các câu đúng hết rồi nha! ^^");
+  });
+
+  it("drops “nhé” at the end of every point, and spells Pii", () => {
+    assert.equal(
+      formatParagraphFeedback([
+        ok("A **is** b.", "S số ít → “is” nhé; be + PII nhé!"),
+        ok("C.", "Phải NTNS ngay nhé"),
+      ]),
+      "A **is** b.\n(S số ít → “is”; be + Pii!)\n\nC.\n(Phải NTNS ngay)",
+    );
   });
 
   it("does not double the parentheses the model added itself", () => {
     assert.equal(
       formatParagraphFeedback([ok("A.", "(lý do nhé.)")]),
-      "A.\n(lý do nhé.)",
+      "A.\n(lý do.)",
     );
   });
 
@@ -85,7 +97,7 @@ describe("formatParagraphFeedback", () => {
       formatParagraphFeedback([
         ok("My name\n**is** Tom.", "S số ít\n→ is nhé."),
       ]),
-      "My name **is** Tom.\n(S số ít → is nhé.)",
+      "My name **is** Tom.\n(S số ít → is.)",
     );
   });
 
@@ -176,9 +188,9 @@ describe("gradeParagraphGroup", () => {
       callGrader: g.callGrader,
     });
     assert.deepEqual(feedback, [
-      "A **is** b.\n(lý do nhé.)",
+      "A **is** b.\n(lý do.)",
       null,
-      IS_CORRECT_ANSWER,
+      PARAGRAPH_ALL_CORRECT,
     ]);
   });
 
@@ -199,7 +211,7 @@ describe("gradeParagraphGroup", () => {
       model: "m",
       callGrader: g.callGrader,
     });
-    assert.deepEqual(feedback, [null, "D **is** e.\n(lý do nhé.)"]);
+    assert.deepEqual(feedback, [null, "D **is** e.\n(lý do.)"]);
   });
 
   it("gives null to every item when the reply is not JSON", async () => {
@@ -218,5 +230,11 @@ describe("IS_CORRECT_ANSWER", () => {
     const { IS_CORRECT_ANSWER: fromDoc } =
       await import("../lib/doc/docParser.js");
     assert.equal(IS_CORRECT_ANSWER, fromDoc);
+  });
+
+  it("PARAGRAPH_ALL_CORRECT matches the doc library, which counts it as right", async () => {
+    const doc = await import("../lib/doc/docParser.js");
+    assert.equal(PARAGRAPH_ALL_CORRECT, doc.PARAGRAPH_ALL_CORRECT);
+    assert.ok(doc.isCorrectFeedback(PARAGRAPH_ALL_CORRECT));
   });
 });

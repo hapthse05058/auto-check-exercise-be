@@ -27,7 +27,7 @@ Mỗi mục trong DATASET có:
 - Ví dụ: "She will cooking dinner." → "She will **be** cooking dinner." (ĐÚNG); "She **will be cooking** dinner." (SAI).
 
 ### LỜI GIẢI THÍCH (reason)
-Viết bằng tiếng Việt, súc tích, dễ hiểu, không học thuật, giọng thân thiện kết thúc bằng "nhé". Tối đa khoảng 20 từ. KHÔNG đặt trong ngoặc đơn (phần mềm tự thêm).
+Viết bằng tiếng Việt, súc tích, dễ hiểu, không học thuật. KHÔNG dùng "nhé" (không ở cuối câu, không ở cuối ý). Tối đa khoảng 20 từ. KHÔNG đặt trong ngoặc đơn (phần mềm tự thêm).
 Giải thích dựa vào 3 nguyên tắc sinh từ (3NTST):
 1. S → V(tts) → (O) ; VL → Adj / N
    Chủ ngữ sinh động từ, động từ phải xét thì - thể - số. Ngoại V sinh tân ngữ, nội V không. Động từ nối (VL: be, feel, look, become…) sinh tính từ hoặc danh từ.
@@ -36,9 +36,9 @@ Giải thích dựa vào 3 nguyên tắc sinh từ (3NTST):
 3. N → Adj ~ (Prep + N) ~ DCadj { NTNS }
    Danh từ đếm được không đứng một mình → phải "NTNS" (nhìn trước - ngó sau): phía trước không có mạo từ / tính từ sở hữu / tính từ chỉ định thì phía sau phải có "s".
    DCadj đứng sau N nó bổ nghĩa. DCadv: trước IC có dấu ","; sau IC không có dấu ",".
-Cách gọi tên: "S số ít" (không phải "số ít chủ ngữ"), "V thêm s", "Vbare", "Ving", "to V", "PII", "VL", "Adj", "Adv", "N".
-Danh từ đếm được thiếu NTNS: chỉ cần nói "Một danh từ đếm được không đứng một mình, mà phải NTNS ngay nhé!".
-Các mẫu hay gặp: "Like/enjoy + Ving", "Let sb do sth", "Let's + Vbare", sau "can/will/do not/does not" → Vbare, "be born" là bị động be + PII, hai V nối bằng "and/or" phải cùng dạng, "usually/often/always" đứng trước V thường, Adv không đứng giữa V và O.
+Cách gọi tên: "S số ít" (không phải "số ít chủ ngữ"), "V thêm s", "Vbare", "Ving", "to V", "Pii", "VL", "Adj", "Adv", "N".
+Danh từ đếm được thiếu NTNS: chỉ cần nói "Một danh từ đếm được không đứng một mình, mà phải NTNS ngay!".
+Các mẫu hay gặp: "Like/enjoy + Ving", "Let sb do sth", "Let's + Vbare", sau "can/will/do not/does not" → Vbare, "be born" là bị động be + Pii, hai V nối bằng "and/or" phải cùng dạng, "usually/often/always" đứng trước V thường, Adv không đứng giữa V và O.
 
 ### MỘT CÂU CÓ NHIỀU LỖI
 Một câu sai = ĐÚNG MỘT object, dù câu đó có bao nhiêu lỗi. Sửa hết các lỗi trong CÙNG một câu đã sửa, in đậm từng chỗ khác biệt riêng lẻ, và GỘP mọi lý do vào MỘT reason, các ý ngăn nhau bằng dấu ";". TUYỆT ĐỐI không tách một câu thành nhiều object.
@@ -90,28 +90,28 @@ My favorite hobby is reading books. I read books every evening, and I enjoy lear
 OUTPUT:
 {"items":[
 {"stt":1,"corrections":[
-{"sentence":"My name **is** Tom.","reason":"S “My name” số ít → dùng “is” nhé."},
-{"sentence":"I am 18 years old.","reason":"VL → Adj/N, bỏ “have” nhé."},
-{"sentence":"My family **has** 4 people: my father, my mother, my brother, and me.","reason":"S “My family” số ít → V dùng “has” nhé."},
-{"sentence":"My mother is very kind.","reason":"“Kind” là Adj nên không dùng “a” nhé."},
-{"sentence":"My father **is** very funny.","reason":"Một câu hoàn chỉnh phải có S → V nhé."},
-{"sentence":"I love **my family very much**.","reason":"Adv không đứng giữa V và O nhé."},
-{"sentence":"My best friend **is** Nam.","reason":"S số ít → dùng “is” nhé."},
-{"sentence":"We often **talk** and **study** together.","reason":"S “We” → Vbare; hai V nối bằng “and” cần cùng dạng nhé."},
-{"sentence":"I feel happy to meet everyone.","reason":"“Feel” là VL → sinh Adj “happy”, bỏ “am” nhé."}
+{"sentence":"My name **is** Tom.","reason":"S “My name” số ít → dùng “is”."},
+{"sentence":"I am 18 years old.","reason":"VL → Adj/N, bỏ “have”."},
+{"sentence":"My family **has** 4 people: my father, my mother, my brother, and me.","reason":"S “My family” số ít → V dùng “has”."},
+{"sentence":"My mother is very kind.","reason":"“Kind” là Adj nên không dùng “a”."},
+{"sentence":"My father **is** very funny.","reason":"Một câu hoàn chỉnh phải có S → V."},
+{"sentence":"I love **my family very much**.","reason":"Adv không đứng giữa V và O."},
+{"sentence":"My best friend **is** Nam.","reason":"S số ít → dùng “is”."},
+{"sentence":"We often **talk** and **study** together.","reason":"S “We” → Vbare; hai V nối bằng “and” cần cùng dạng."},
+{"sentence":"I feel happy to meet everyone.","reason":"“Feel” là VL → sinh Adj “happy”, bỏ “am”."}
 ]},
 {"stt":2,"corrections":[
-{"sentence":"My favourite hobby **is playing** the guitar, but I **do** not **play** it very well.","reason":"S “hobby” số ít → “is”; sau “is” dùng Ving “playing”; S “I” → “do not + Vbare” nhé."},
-{"sentence":"I **usually play** it every weekend.","reason":"“Usually” đứng trước V thường “play” nhé."},
-{"sentence":"My sister **does** not like playing the guitar, but she **likes playing** the piano.","reason":"S “My sister/she” số ít → V số ít; “like + Ving” nhé."},
-{"sentence":"She **thinks** that it is very interesting.","reason":"S “She” số ít → V thêm “s” nhé."}
+{"sentence":"My favourite hobby **is playing** the guitar, but I **do** not **play** it very well.","reason":"S “hobby” số ít → “is”; sau “is” dùng Ving “playing”; S “I” → “do not + Vbare”."},
+{"sentence":"I **usually play** it every weekend.","reason":"“Usually” đứng trước V thường “play”."},
+{"sentence":"My sister **does** not like playing the guitar, but she **likes playing** the piano.","reason":"S “My sister/she” số ít → V số ít; “like + Ving”."},
+{"sentence":"She **thinks** that it is very interesting.","reason":"S “She” số ít → V thêm “s”."}
 ]},
 {"stt":3,"corrections":[
-{"sentence":"My family **lives** in the countryside.","reason":"S “My family” số ít → V thêm “s” nhé."},
-{"sentence":"Our house **is** next to the station, and I can **walk** there in five minutes.","reason":"S “house” số ít → “is”; sau “can” → Vbare nhé."},
-{"sentence":"The toilet **is** under the stairs, and it is small but **clean**.","reason":"S “toilet” số ít → “is”; sau VL “is” → Adj “clean” nhé."},
-{"sentence":"The man **who lives** at the corner often **gives** us fresh vegetables.","reason":"“Who” thay cho người; S “man” số ít → V thêm “s” nhé."},
-{"sentence":"I feel comfortable here.","reason":"“Feel” là VL → sinh Adj “comfortable”, bỏ “am” nhé."}
+{"sentence":"My family **lives** in the countryside.","reason":"S “My family” số ít → V thêm “s”."},
+{"sentence":"Our house **is** next to the station, and I can **walk** there in five minutes.","reason":"S “house” số ít → “is”; sau “can” → Vbare."},
+{"sentence":"The toilet **is** under the stairs, and it is small but **clean**.","reason":"S “toilet” số ít → “is”; sau VL “is” → Adj “clean”."},
+{"sentence":"The man **who lives** at the corner often **gives** us fresh vegetables.","reason":"“Who” thay cho người; S “man” số ít → V thêm “s”."},
+{"sentence":"I feel comfortable here.","reason":"“Feel” là VL → sinh Adj “comfortable”, bỏ “am”."}
 ]},
 {"stt":4,"corrections":[]}
 ]}

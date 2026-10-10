@@ -110,8 +110,17 @@ function cleanContent(value) {
  * đổi mọi hash đang có, tức tương đương xoá sạch cache và chấm lại toàn bộ kho
  * câu với chi phí DeepSeek thật. Bỏ hậu tố cho "vi_en" giữ khoá của bài dịch —
  * gần như toàn bộ cache hiện tại — giống hệt từng byte so với trước.
+ * `section` (tiêu đề nhóm câu, vd "Be going to: …") cũng là hậu tố có điều
+ * kiện, cùng lý do.
  */
-function gradingCacheKey(promptVersion, model, question, answer, taskType) {
+function gradingCacheKey(
+  promptVersion,
+  model,
+  question,
+  answer,
+  taskType,
+  section,
+) {
   // Chuẩn hoá NGAY TẠI ĐÂY, đừng tin người gọi: một giá trị lạ (client cũ, gõ
   // sai, loại bài thêm sau này) mà lọt thẳng vào hash sẽ âm thầm mở ra một
   // nhánh cache riêng — mọi câu trong đó là cache miss vĩnh viễn, chấm lại mãi
@@ -123,7 +132,11 @@ function gradingCacheKey(promptVersion, model, question, answer, taskType) {
   // đã sạch giữ nguyên id.
   const q = normalizeForKey(cleanContent(question));
   const a = normalizeForKey(cleanContent(answer));
-  const raw = `${promptVersion}|${model}|${q}|${a}${suffix}`;
+  // The heading a question sits under ("Be going to: …") — same conditional
+  // rule: no heading, no suffix, so every key without one stays as it was.
+  const sec = normalizeForKey(section);
+  const secSuffix = sec ? `|sec:${sec}` : "";
+  const raw = `${promptVersion}|${model}|${q}|${a}${suffix}${secSuffix}`;
   return crypto.createHash("sha1").update(raw).digest("hex");
 }
 
@@ -160,6 +173,7 @@ function planCacheCleanup(docs) {
       question,
       answer,
       data.taskType,
+      data.section,
     );
     if (!groups.has(newId)) groups.set(newId, []);
     groups.get(newId).push({ id: doc.id, data, question, answer });

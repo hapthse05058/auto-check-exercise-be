@@ -156,4 +156,25 @@ describe("grading job: paragraph writing", () => {
     assert.equal(h.docRecords(second).docA.reason, "alreadyGraded");
     assert.equal(h.points(), 9);
   });
+
+  it("writes the teachers' sentence for a paragraph with no mistake, even from an old cached ✅ Đúng", async () => {
+    const h = createHarness({
+      tabs: {
+        docA: makeTab({
+          answers: ["ok answer"],
+          paragraph: { student: "My name is Tom." },
+        }),
+      },
+      points: 10,
+    });
+    h.hooks.paragraphFeedback = "✅ Đúng";
+    await runJob(h);
+
+    assert.equal(
+      h.docsApi.paragraphFeedbackOf("docA"),
+      "Các câu đúng hết rồi nha! ^^",
+    );
+    // Everything right — the paragraph counts as right in the overall comment.
+    assert.match(h.docsApi.overallOf("docA"), /Làm tốt lắm/);
+  });
 });

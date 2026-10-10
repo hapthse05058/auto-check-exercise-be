@@ -11,9 +11,10 @@
 import {
   IS_CORRECT_ANSWER,
   OVERALL_FEEDBACK_LABEL,
-  containsCorrectMark,
+  PARAGRAPH_ALL_CORRECT,
   extractQuestionIndex,
   getCellText,
+  isCorrectFeedback,
 } from "./docParser.js";
 
 /** Parses the AI's markdown table response into {questionIndex, aiFeedback}. */
@@ -41,15 +42,15 @@ export function parseAiResponse(agentResponse) {
 /** Generates the teacher's overall comment from the per-question results. */
 export function generateOverallFeedback(gradingResults) {
   if (!gradingResults || gradingResults.length === 0) return "";
-  const isAllCorrect = gradingResults.every(
-    (item) => item.aiFeedback === IS_CORRECT_ANSWER,
+  const isAllCorrect = gradingResults.every((item) =>
+    isCorrectFeedback(item.aiFeedback),
   );
   // Case 1: everything correct.
   if (isAllCorrect) {
     return " Làm tốt lắm, hãy cố gắng phát huy phong độ này nhé!💯🔥";
   }
-  const hasAnyCorrect = gradingResults.some(
-    (item) => item.aiFeedback === IS_CORRECT_ANSWER,
+  const hasAnyCorrect = gradingResults.some((item) =>
+    isCorrectFeedback(item.aiFeedback),
   );
   // Case 2: nothing correct.
   const messageWhenWrong = "  Hãy rút kinh nghiệm và cố gắng hơn nữa nhé!🔥🔥";
@@ -57,7 +58,7 @@ export function generateOverallFeedback(gradingResults) {
     return messageWhenWrong;
   }
   const hasAnyWrong = gradingResults.some(
-    (item) => item.aiFeedback !== IS_CORRECT_ANSWER && item.aiFeedback,
+    (item) => item.aiFeedback && !isCorrectFeedback(item.aiFeedback),
   );
   // Case 3: mixed results.
   if (hasAnyCorrect && hasAnyWrong) {
@@ -242,11 +243,23 @@ export function createStyledTextRequests(text, baseIndex, tabId) {
 /** The text actually written for one graded item. */
 function feedbackTextOf(item) {
   // Buổi 15/16/17 grade two forms in one cell, so a ✅ on one of them must NOT
-  // collapse the whole cell (that would drop the correction).
-  const isDualSentenceFeedback = /Câu (đơn|phức)/i.test(item.aiFeedback);
-  return !isDualSentenceFeedback && containsCorrectMark(item.aiFeedback)
+  // collapse the whole cell (that would drop the correction) — isCorrectFeedback
+  // knows. The paragraph's own all-correct sentence is written as it is.
+  if (item.aiFeedback === PARAGRAPH_ALL_CORRECT) return item.aiFeedback;
+  return isCorrectFeedback(item.aiFeedback)
     ? IS_CORRECT_ANSWER
     : item.aiFeedback;
+}
+
+/**
+ * A paragraph's feedback as written into its "GV sửa" cell. Cached results
+ * from before the teachers' wording still say "✅ Đúng" for a paragraph with
+ * no mistake: they get the new sentence too.
+ */
+export function paragraphFeedbackForDoc(feedback) {
+  return String(feedback ?? "").trim() === IS_CORRECT_ANSWER
+    ? PARAGRAPH_ALL_CORRECT
+    : feedback;
 }
 
 /**

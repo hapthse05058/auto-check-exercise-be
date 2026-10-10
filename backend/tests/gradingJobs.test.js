@@ -589,3 +589,41 @@ describe("charging", () => {
     assert.equal(h.ledger().length, 1);
   });
 });
+
+describe("section headings", () => {
+  /** makeTab with a heading row ("Be going to: …") above every question. */
+  function withHeading(tab, text) {
+    const rows = tab.documentTab.body.content[0].table.tableRows;
+    rows[1] = {
+      tableCells: [
+        { content: [P(`${text}\n`)] },
+        { content: [P("\n")] },
+        { content: [P("\n")] },
+      ],
+    };
+    return tab;
+  }
+
+  it("sends the heading with the question and keys it apart", async () => {
+    const h = createHarness({
+      tabs: {
+        docA: withHeading(
+          makeTab({ answers: ["I will play football"] }),
+          "Be going to: Tương lai gần có dự định trước",
+        ),
+        docB: makeTab({ answers: ["I will play football"] }),
+      },
+      points: 10,
+    });
+    const jobId = await runJob(h);
+
+    // Same question and answer, two headings → two items, each written back.
+    assert.deepEqual(
+      h.counters.gradedItems.map((i) => i.section ?? null).sort(),
+      ["Be going to: Tương lai gần có dự định trước", null],
+    );
+    assert.equal(h.job(jobId).written, 2);
+    assert.deepEqual(h.docsApi.feedbackOf("docA"), [CORRECTION]);
+    assert.deepEqual(h.docsApi.feedbackOf("docB"), [CORRECTION]);
+  });
+});

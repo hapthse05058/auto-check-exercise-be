@@ -20,10 +20,13 @@
 import {
   KIND_PARAGRAPH,
   OVERALL_FEEDBACK_LABEL,
+  getCellLines,
   getCellText,
   getQuesAndAnsFromRows,
   normalizeText,
   resolveRowCells,
+  startsWithArrow,
+  startsWithNumberDot,
 } from "./docParser.js";
 import { TABLE_OVERRIDES } from "./docTables.js";
 
@@ -81,6 +84,49 @@ const PARAGRAPH_SAMPLE_LABEL = /^\s*đo[aạ]n\s*v[aă]n\s*m[aẫ]u\s*:?\s*$/i;
 const PARAGRAPH_STUDENT_LABEL = /^\s*h[oọ]c\s*vi[eê]n\s*vi[eế]t\s*:?\s*$/i;
 /** Gạch chân dạng ký tự tổ hợp ("H̲e̲y̲") có trong đoạn mẫu buổi 03. */
 const COMBINING_LOW_LINE = /̲/g;
+
+/** "Ví dụ:" — dòng ví dụ của đề, không phải tiêu đề nhóm câu. */
+const EXAMPLE_LINE = /^\s*v[íi]\s*d[ụu](?![\p{L}])/iu;
+/** Dài hơn thế này thì là lý thuyết hay đoạn văn, không phải tiêu đề nhóm câu. */
+const MAX_SECTION_LENGTH = 160;
+
+function asSection(text) {
+  const clean = normalizeText(text);
+  if (!clean || clean.length > MAX_SECTION_LENGTH) return null;
+  if (EXAMPLE_LINE.test(clean) || startsWithNumberDot(clean)) return null;
+  if (FEEDBACK_HEADER.test(clean) || FORMULA_HEADER.test(clean)) return null;
+  if (clean.includes(OVERALL_FEEDBACK_LABEL)) return null;
+  return clean;
+}
+
+/**
+ * Chữ của một dòng TIÊU ĐỀ NHÓM CÂU trong bảng bài tập ("Be going to: Tương
+ * lai gần có dự định trước", "DC adv chỉ sự nhượng bộ (Although/ though…)"),
+ * hay null. Tiêu đề quyết định câu nào là đúng — "I will play football" sai
+ * dưới tiêu đề "Be going to" — nên nó được gửi cho AI cùng các câu bên dưới.
+ *
+ * Nhận ra theo bố cục: đúng MỘT ô có chữ (tiêu đề thường gộp các cột đề bài,
+ * ô "Chữa bài" để trống), và chữ đó không phải câu hỏi, dòng "Ví dụ:", header
+ * hay dòng công thức. Chữ chỉ nằm ở ô cuối (cột chữa bài) thì không phải tiêu
+ * đề. Chỉ xét những dòng mà `resolveRowCells` đã bỏ qua.
+ */
+export function sectionHeadingOf(row) {
+  const cells = row?.tableCells || [];
+  const filled = cells
+    .map((cell, i) => ({ i, text: normalizeText(getCellText(cell)) }))
+    .filter(({ text }) => text);
+  if (filled.length !== 1) return null;
+  if (cells.length > 1 && filled[0].i === cells.length - 1) return null;
+  // A cell holding a numbered question or an answer is not a heading, even
+  // when resolveRowCells skipped the row.
+  const lines = getCellLines(cells[filled[0].i]);
+  if (
+    lines.some((line) => startsWithNumberDot(line) || startsWithArrow(line))
+  ) {
+    return null;
+  }
+  return asSection(filled[0].text);
+}
 
 /** Mọi bảng trong tab, kèm chỉ số theo đúng thứ tự tài liệu. */
 function listTables(tab) {
@@ -414,8 +460,12 @@ export function collectExerciseRows(tab, classType) {
     classType,
   );
   const rows = [];
+  // Tiêu đề nhóm câu đang có hiệu lực. Mảnh bảng bị ngắt trang
+  // (`continuation`) giữ tiêu đề của mảnh trước; bảng mới thì bắt đầu lại.
+  let section = null;
 
-  for (const { tableIdx, table, kind, paragraph } of tables) {
+  for (const { tableIdx, table, kind, paragraph, continuation } of tables) {
+    if (!continuation) section = null;
     // Cả bảng đoạn văn là MỘT dòng bài tập: dòng "Học viên viết".
     if (kind === KIND_PARAGRAPH) {
       rows.push({
@@ -434,7 +484,10 @@ export function collectExerciseRows(tab, classType) {
     }
     (table.tableRows || []).forEach((row, rowIdx) => {
       const cells = resolveRowCells(row);
-      if (!cells) return;
+      if (!cells) {
+        section = sectionHeadingOf(row) ?? section;
+        return;
+      }
       rows.push({
         tableIdx,
         rowIdx,
@@ -443,6 +496,7 @@ export function collectExerciseRows(tab, classType) {
         qCell: cells.qCell,
         fbCell: cells.fbCell,
         numberCell: cells.numberCell,
+        ...(section ? { section } : {}),
         isOverall: false,
         overallCell: null,
       });
