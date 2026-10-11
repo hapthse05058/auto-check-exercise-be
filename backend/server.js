@@ -2797,7 +2797,7 @@ app.delete(
 );
 
 /**
- * Admin: top up a teacher's balance. The amount (a multiple of 70.000đ) is
+ * Admin: top up a teacher's balance. The amount (any whole đ, 1.000đ–10M) is
  * credited as is; amount × 6/7 is added to the admin's revenue (the saler
  * keeps the rest). Balance, history and revenue move in one transaction.
  */

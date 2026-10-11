@@ -11,9 +11,12 @@ const PRICE_AUTO_VND = 700;
 /** A balance from before VND: 1 legacy point = 700đ (what a teacher paid). */
 const LEGACY_VND_PER_POINT = 700;
 
-/** Top-ups are whole multiples of 70.000đ, up to 100 steps. */
-const TOPUP_STEP_VND = 70000;
-const TOPUP_MAX_VND = 7000000;
+/**
+ * A top-up is any whole number of đ in [1.000đ, 10.000.000đ] — what the
+ * teacher actually paid. The ceiling only catches a mistyped extra zero.
+ */
+const TOPUP_MIN_VND = 1000;
+const TOPUP_MAX_VND = 10000000;
 
 /**
  * Share of a top-up that is the admin's revenue: 6/7 (≈ 0.85714). The other
@@ -39,13 +42,12 @@ function unitPriceOfJob(job) {
   return job?.origin?.type === "schedule" ? PRICE_AUTO_VND : PRICE_MANUAL_VND;
 }
 
-/** Validates a top-up amount: integer multiple of 70k within [70k, 7M]. */
+/** Validates a top-up amount: a whole number of đ within [1.000đ, 10M]. */
 function isValidTopUp(amountVnd) {
   return (
     Number.isInteger(amountVnd) &&
-    amountVnd >= TOPUP_STEP_VND &&
-    amountVnd <= TOPUP_MAX_VND &&
-    amountVnd % TOPUP_STEP_VND === 0
+    amountVnd >= TOPUP_MIN_VND &&
+    amountVnd <= TOPUP_MAX_VND
   );
 }
 
@@ -103,7 +105,7 @@ module.exports = {
   PRICE_MANUAL_VND,
   PRICE_AUTO_VND,
   LEGACY_VND_PER_POINT,
-  TOPUP_STEP_VND,
+  TOPUP_MIN_VND,
   TOPUP_MAX_VND,
   balanceVndOf,
   unitPriceOfJob,

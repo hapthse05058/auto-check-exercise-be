@@ -4,7 +4,7 @@ const { describe, test } = require("node:test");
 const {
   PRICE_AUTO_VND,
   PRICE_MANUAL_VND,
-  TOPUP_STEP_VND,
+  TOPUP_MIN_VND,
   balanceVndOf,
   chargeSentence,
   costFormula,
@@ -48,21 +48,26 @@ describe("balanceVndOf", () => {
 });
 
 describe("top-up", () => {
-  test("only whole multiples of 70.000đ, 70k..7M", () => {
-    assert.equal(TOPUP_STEP_VND, 70000);
+  test("any whole number of đ, 1.000đ..10.000.000đ", () => {
+    assert.equal(TOPUP_MIN_VND, 1000);
+    assert.ok(isValidTopUp(1000));
     assert.ok(isValidTopUp(70000));
-    assert.ok(isValidTopUp(140000));
-    assert.ok(isValidTopUp(7000000));
+    assert.ok(isValidTopUp(100000));
+    assert.ok(isValidTopUp(123456));
+    assert.ok(isValidTopUp(10000000));
     assert.ok(!isValidTopUp(0));
-    assert.ok(!isValidTopUp(60000));
-    assert.ok(!isValidTopUp(100000));
-    assert.ok(!isValidTopUp(7070000));
+    assert.ok(!isValidTopUp(999));
+    assert.ok(!isValidTopUp(-50000));
+    assert.ok(!isValidTopUp(10000001));
     assert.ok(!isValidTopUp(70000.5));
+    assert.ok(!isValidTopUp(Number("abc")));
   });
   test("revenue is 6/7 of the amount (≈ 0.85714)", () => {
     assert.equal(revenueOfTopUp(70000), 60000);
     assert.equal(revenueOfTopUp(700000), 600000);
     assert.equal(revenueOfTopUp(0), 0);
+    // Any amount: rounded to the đ (100.000 × 6/7 = 85.714,28…).
+    assert.equal(revenueOfTopUp(100000), 85714);
   });
   test("saler commission is revenue / 6 (= amount / 7)", () => {
     assert.equal(salerCostVnd(60000), 10000);
