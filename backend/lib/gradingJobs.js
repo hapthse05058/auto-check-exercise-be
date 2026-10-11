@@ -45,7 +45,12 @@ const {
 } = require("./ieltsWriting.js");
 const { validateSentenceRequest } = require("./ieltsSentences.js");
 const { hsItemIdentity } = require("./hsGrading.js");
-const { pointLedgerId } = require("./teacherPoints.js");
+const { pointLedgerId, readBalanceVnd } = require("./teacherPoints.js");
+const {
+  PRICE_AUTO_VND,
+  PRICE_MANUAL_VND,
+  unitPriceOfJob,
+} = require("./billing.js");
 
 const JOBS = "gradingJobs";
 const LOCKS = "gradingJobLocks";
@@ -137,7 +142,8 @@ const info = (...args) => console.log("[GRADING-JOB]", ...args);
  * @param deps.loadDocLib      () => Promise<lib/doc exports>
  * @param deps.gradeItems      (items, {useCache, requestId}) => results
  * @param deps.consumePoints   ({payer, docIds, classId, lessonId,
- *                             chargedByEmail, jobId}) => {point, charged, need?}
+ *                             chargedByEmail, unitPriceVnd, jobId}) =>
+ *                             {balanceVnd, charged, need?}
  *                             (lib/teacherPoints.js)
  * @param deps.resolvePayer    (email, classId) => teacher|null
  * @param deps.enqueue         (name, payload, opts) => Promise
@@ -212,9 +218,22 @@ function createGradingJobs(deps) {
 
   const isStale = (job) => now() - (job.progressAt || 0) > JOB_STALE_MS;
 
-  async function readPoint(teacherId) {
-    const snap = await db.collection("TeacherPoint").doc(teacherId).get();
-    return snap.exists ? (snap.data().point ?? 0) : 0;
+  /**
+   * The gate before anything is written: the payer's balance must cover every
+   * doc still to write at this job's price. Fails the job and returns false
+   * when it does not.
+   */
+  async function canAfford(jobId, job, epoch, docCount) {
+    const haveVnd = await readBalanceVnd(db, job.payerTeacherId);
+    const needVnd = docCount * unitPriceOfJob(job);
+    if (needVnd <= haveVnd) return true;
+    await failPrepare(jobId, epoch, "not_enough_points", {
+      need: docCount,
+      needVnd,
+      haveVnd,
+      teacher: job.payerName,
+    });
+    return false;
   }
 
   // -------------------------------------------------------------------------
@@ -335,6 +354,9 @@ function createGradingJobs(deps) {
       classType: classSnap.data().classType || "",
       courseId: classSnap.data().courseId || null,
       gradingProfile,
+      // Fixed at creation, like the profile: what one doc of this job costs.
+      unitPriceVnd:
+        origin?.type === "schedule" ? PRICE_AUTO_VND : PRICE_MANUAL_VND,
       lessonName: lessonSnap.data().name || "",
       docIds: ids,
       // Only admins may skip the cache — same rule as /grade-cached.
@@ -359,6 +381,8 @@ function createGradingJobs(deps) {
       skipped: 0,
       failed: 0,
       charged: 0,
+      // Written but not charged: already paid for this lesson before.
+      alreadyPaid: 0,
       createdAt: at,
       progressAt: at,
       finishedAt: null,
@@ -1006,40 +1030,13 @@ function createGradingJobs(deps) {
     const pending = docs.filter((d) => d.status === "pending");
 
     if (pending.length && isHs(job)) {
-      // Same gate as Basic below: 1 point per doc to write.
-      const have = await readPoint(job.payerTeacherId);
-      if (pending.length > have) {
-        await failPrepare(jobId, epoch, "not_enough_points", {
-          need: pending.length,
-          have,
-          teacher: job.payerName,
-        });
-        return;
-      }
+      if (!(await canAfford(jobId, job, epoch, pending.length))) return;
       await gradeHsDocs(jobId, job, pending);
     } else if (pending.length && isIelts(job)) {
-      // Same gate as Basic below: 1 point per doc to write.
-      const have = await readPoint(job.payerTeacherId);
-      if (pending.length > have) {
-        await failPrepare(jobId, epoch, "not_enough_points", {
-          need: pending.length,
-          have,
-          teacher: job.payerName,
-        });
-        return;
-      }
+      if (!(await canAfford(jobId, job, epoch, pending.length))) return;
       await gradeIeltsDocs(jobId, job, pending, access.token);
     } else if (pending.length) {
-      // Point gate before anything is written: 1 point per doc to write.
-      const have = await readPoint(job.payerTeacherId);
-      if (pending.length > have) {
-        await failPrepare(jobId, epoch, "not_enough_points", {
-          need: pending.length,
-          have,
-          teacher: job.payerName,
-        });
-        return;
-      }
+      if (!(await canAfford(jobId, job, epoch, pending.length))) return;
 
       // Dedupe across the class — identical answers are graded once.
       const unique = new Map();
@@ -1429,7 +1426,7 @@ function createGradingJobs(deps) {
   async function finishDoc(
     jobId,
     docId,
-    { status, reason, warnings, charged },
+    { status, reason, warnings, charged, alreadyPaid },
   ) {
     const last = await db.runTransaction(async (tx) => {
       const [jobSnap, dSnap] = await tx.getAll(
@@ -1465,6 +1462,9 @@ function createGradingJobs(deps) {
       tx.update(jobSnap.ref, {
         [bucket]: counts[bucket],
         charged: job.charged + (charged || 0),
+        ...(alreadyPaid
+          ? { alreadyPaid: (job.alreadyPaid || 0) + alreadyPaid }
+          : {}),
         progressAt: now(),
         ...(isLast ? { finalizeRequested: true } : {}),
       });
@@ -1505,19 +1505,23 @@ function createGradingJobs(deps) {
       classId: job.classId,
       lessonId: job.lessonId,
       chargedByEmail: job.createdByEmail,
+      unitPriceVnd: unitPriceOfJob(job),
       jobId,
     });
     let charged = result.charged;
     if (!charged && !result.need) {
-      // Nothing billable: either this job charged the doc on an attempt that
-      // died before recording it, or it was paid for earlier (e.g. graded,
-      // cleared by an admin, graded again). Only the first counts as ours.
+      // Nothing billable: receipts are per job (pointLedgerId's scope), so
+      // this job charged the doc on an attempt that died before recording it.
+      // A receipt from another run never blocks a charge any more.
       const receipt = await db
         .collection("TeacherPointLedger")
-        .doc(pointLedgerId(job.payerTeacherId, docId, job.lessonId))
+        .doc(pointLedgerId(job.payerTeacherId, docId, job.lessonId, jobId))
         .get();
       if (receipt.exists && receipt.data().jobId === jobId) charged = 1;
     }
+    // Paid for earlier, so free this time: counted so the summary and the
+    // teacher can tell "nothing charged" from "charging failed".
+    const alreadyPaid = !charged && !result.need ? 1 : 0;
     if (result.need) {
       // The balance was checked just before writing, so only a concurrent
       // spend lands here. The feedback is already in the doc — say it is
@@ -1530,7 +1534,11 @@ function createGradingJobs(deps) {
         charged: 0,
       });
     }
-    return finishDoc(jobId, docId, { status: "written", charged });
+    return finishDoc(jobId, docId, {
+      status: "written",
+      charged,
+      alreadyPaid,
+    });
   }
 
   /** Classifies a failed read of the doc inside write. */
@@ -1657,7 +1665,9 @@ function createGradingJobs(deps) {
       }
 
       // Never write what cannot be paid for.
-      if ((await readPoint(job.payerTeacherId)) < 1) {
+      if (
+        (await readBalanceVnd(db, job.payerTeacherId)) < unitPriceOfJob(job)
+      ) {
         await jobRef(jobId).update({ stopped: true });
         return finishDoc(jobId, docId, { status: "insufficient_points" });
       }
@@ -1732,7 +1742,9 @@ function createGradingJobs(deps) {
     if (!job || job.error === "abandoned") return;
 
     // At least once, but idempotent: fixed ids, so a retry overwrites.
-    if (!job.summaryRecordedAt && job.charged > 0) {
+    // A run that wrote docs is logged even when it charged nothing, so the
+    // audit log shows why (already paid) instead of showing nothing.
+    if (!job.summaryRecordedAt && (job.charged > 0 || job.written > 0)) {
       await onFinished.recordSummary({ ...job, id: jobId });
       await jobRef(jobId).update({ summaryRecordedAt: now() });
     }
@@ -1794,6 +1806,9 @@ function createGradingJobs(deps) {
       skipped: job.skipped,
       failed: job.failed,
       charged: job.charged,
+      alreadyPaid: job.alreadyPaid || 0,
+      unitPriceVnd: unitPriceOfJob(job),
+      chargedVnd: (job.charged || 0) * unitPriceOfJob(job),
       stopped: job.stopped,
       reauthRequired: job.reauthRequired,
       createdAt: job.createdAt,

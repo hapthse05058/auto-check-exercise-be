@@ -1770,25 +1770,12 @@ app.post(
 );
 
 // ---------------------------------------------------------------------------
-// TeacherPoint — point balance per teacher (1 point spent per student doc whose
-// feedback is written), top-up history, and an admin billing summary.
-//   point = topUpVnd / 700 ;  saler commission = topUpVnd / 700 * 100
+// TeacherPoint — each teacher's balance IN VND (`balanceVnd`; the collection
+// keeps its old name). Each student doc whose feedback is written costs 800đ by
+// hand, 700đ in a scheduled run (lib/billing.js). A top-up of N đ credits N đ
+// and adds N × 6/7 to the admin's revenue (the saler keeps N/7).
 // Admin-only CRUD + top-up. Teachers only read their own balance / consume it.
 // ---------------------------------------------------------------------------
-
-const TOPUP_STEP_VND = 60000;
-const TOPUP_MAX_VND = 6000000;
-const VND_PER_POINT = 600;
-
-/** Validates a top-up amount: integer multiple of 60k within [60k, 6M]. */
-function isValidTopUp(amountVnd) {
-  return (
-    Number.isInteger(amountVnd) &&
-    amountVnd >= TOPUP_STEP_VND &&
-    amountVnd <= TOPUP_MAX_VND &&
-    amountVnd % TOPUP_STEP_VND === 0
-  );
-}
 
 /** Resolves the teacher doc for the authenticated user (by gmail). */
 async function findTeacherByEmail(email) {
@@ -1828,11 +1815,14 @@ app.get("/teacher-points/me", verifyGoogleToken, async (req, res) => {
     // Resolve through the teacher record: TeacherPoint is keyed BY TEACHER ID
     // and that is the doc /teacher-points/consume debits. Querying by gmail
     // here instead would read one record while the charge lands on another.
+    const prices = {
+      priceManualVnd: billing.PRICE_MANUAL_VND,
+      priceAutoVnd: billing.PRICE_AUTO_VND,
+    };
     const teacher = await findTeacherByEmail(req.userEmail);
-    if (!teacher) return res.json({ point: 0 });
-    const snap = await db.collection("TeacherPoint").doc(teacher.id).get();
-    const point = snap.exists ? (snap.data().point ?? 0) : 0;
-    return res.json({ point });
+    if (!teacher) return res.json({ balanceVnd: 0, ...prices });
+    const balanceVnd = await teacherPoints.readBalanceVnd(db, teacher.id);
+    return res.json({ balanceVnd, ...prices });
   } catch (err) {
     console.error("[TEACHER-POINTS] me error:", err);
     return res.status(500).json({ error: "failed_to_get_point" });
@@ -1848,9 +1838,8 @@ app.get("/teacher-points/payer", verifyGoogleToken, async (req, res) => {
   try {
     const payer = await resolvePayer(req.userEmail, req.query.classId);
     if (!payer) return res.status(403).json({ error: "payer_not_found" });
-    const snap = await db.collection("TeacherPoint").doc(payer.id).get();
     return res.json({
-      point: snap.exists ? (snap.data().point ?? 0) : 0,
+      balanceVnd: await teacherPoints.readBalanceVnd(db, payer.id),
       teacherId: payer.id,
       teacherName: payer.name || payer.gmail || "",
     });
@@ -1887,18 +1876,22 @@ app.post("/teacher-points/consume", verifyGoogleToken, async (req, res) => {
       classId: req.body.classId,
       lessonId: req.body.lessonId,
       chargedByEmail: req.userEmail,
+      // Graded in the browser, by hand.
+      unitPriceVnd: billing.PRICE_MANUAL_VND,
     });
 
     if (result.need) {
       return res.status(402).json({
         error: "insufficient_points",
-        point: result.point,
+        balanceVnd: result.balanceVnd,
         need: result.need,
+        needVnd: result.needVnd,
       });
     }
     return res.json({
-      point: result.point,
+      balanceVnd: result.balanceVnd,
       charged: result.charged,
+      chargedVnd: result.chargedVnd,
       payerTeacherId: payer.id,
       payerName: payer.name || payer.gmail || "",
     });
@@ -1972,17 +1965,20 @@ app.post("/ielts-writing/grade", verifyToken, async (req, res) => {
       throw err;
     }
 
-    const { result, feedback, cached, charged, point, chartData } = graded;
+    const { result, feedback, cached, charged, chargedVnd, balanceVnd } =
+      graded;
+    const { chartData } = graded;
     res.locals.auditDetail =
       `IELTS ${input.task} · ${result.wordCount} từ · Overall ` +
       `${result.overall ?? "-"} · ${cached ? "cache" : "AI"} · ` +
-      `trừ ${charged} point`;
+      `trừ ${billing.formatVnd(chargedVnd)}`;
     return res.json({
       result,
       feedback,
       cached,
       charged,
-      point,
+      chargedVnd,
+      balanceVnd,
       payerName: payer.name || payer.gmail || "",
       chartData: chartData || null,
     });
@@ -2113,10 +2109,13 @@ app.post("/grading-summary", verifyGoogleToken, async (req, res) => {
         ? db.collection("lesson").doc(String(req.body.lessonId)).get()
         : null,
     ]);
-    // Point total leads: the audit screen clips the detail column at 220px, so
+    // The amount leads: the audit screen clips the detail column at 220px, so
     // whatever comes first is the only part read without hovering.
+    // totalPoints counts docs graded by hand (the browser path).
     res.locals.auditDetail =
-      `Tổng point bị trừ: ${Number(req.body.totalPoints) || 0} · ` +
+      `Tổng tiền bị trừ: ${billing.formatVnd(
+        (Number(req.body.totalPoints) || 0) * billing.PRICE_MANUAL_VND,
+      )} · ` +
       `Lớp: ${classSnap?.data()?.name || "?"} · ` +
       `Buổi: ${lessonSnap?.data()?.name || "?"} · ` +
       `GV: ${payer?.name || payer?.gmail || "?"}`;
@@ -2554,10 +2553,11 @@ app.delete(
 );
 
 /**
- * Admin: the billing summary. `totalTopUpVnd` is the lifetime revenue (the amount
- * the admin records/receives). `totalCommissionVnd` is the saler's cut, shown for
- * the admin's information only (the saler takes it upfront — it does not reduce
- * the admin's revenue).
+ * Admin: the billing summary. `totalTopUpVnd` is the lifetime REVENUE — the
+ * field kept its name: every top-up adds amount × 6/7 to it (before VND it
+ * added the 60.000đ per 100 points, the same share). `totalCommissionVnd` is
+ * the saler's cut, shown for the admin's information only (the saler takes it
+ * upfront — it does not reduce the admin's revenue).
  */
 app.get(
   "/teacher-points/billing",
@@ -2613,13 +2613,19 @@ app.get(
         pointByTeacher.set(d.teacherId ?? doc.id, { docId: doc.id, ...d });
       });
 
-      const buildRow = (id, teacherId, source, point) => {
+      const buildRow = (id, teacherId, source, balanceVnd) => {
         const history = Array.isArray(source?.topUpHistory)
           ? source.topUpHistory
           : [];
+        // Before VND an entry recorded the points bought (amountVnd was the
+        // 60.000đ revenue per 100 points); since, the credit and the revenue.
         const mappedHistory = history.map((h) => ({
           amountVnd: h.amountVnd ?? 0,
-          points: h.points ?? 0,
+          creditVnd:
+            h.creditVnd ??
+            Math.round((h.points ?? 0) * billing.LEGACY_VND_PER_POINT),
+          revenueVnd: h.revenueVnd ?? h.amountVnd ?? 0,
+          points: h.points ?? null,
           topUpAt: h.topUpAt?.toDate?.().toISOString() ?? null,
         }));
         return {
@@ -2627,7 +2633,7 @@ app.get(
           teacherId,
           gmail: source?.gmail ?? "",
           name: source?.name ?? "",
-          point,
+          balanceVnd,
           topUpCount: mappedHistory.length,
           lastTopUpAt: mappedHistory.length
             ? mappedHistory[mappedHistory.length - 1].topUpAt
@@ -2653,7 +2659,12 @@ app.get(
           name: t.name ?? pd?.name,
         };
         records.push(
-          buildRow(pd?.docId ?? doc.id, doc.id, source, pd?.point ?? 0),
+          buildRow(
+            pd?.docId ?? doc.id,
+            doc.id,
+            source,
+            billing.balanceVndOf(pd),
+          ),
         );
         seen.add(doc.id);
       });
@@ -2663,7 +2674,7 @@ app.get(
         const d = doc.data();
         const teacherId = d.teacherId ?? doc.id;
         if (seen.has(teacherId)) return;
-        records.push(buildRow(doc.id, teacherId, d, d.point ?? 0));
+        records.push(buildRow(doc.id, teacherId, d, billing.balanceVndOf(d)));
       });
 
       records.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -2683,7 +2694,7 @@ app.post(
   async (req, res) => {
     try {
       const teacherId = req.body.teacherId;
-      const point = Number(req.body.point) || 0;
+      const balanceVnd = Math.round(Number(req.body.balanceVnd) || 0);
       if (!teacherId) {
         return res.status(400).json({ error: "teacherId_required" });
       }
@@ -2700,7 +2711,7 @@ app.post(
         teacherId,
         gmail: teacher.gmail || "",
         name: teacher.name || "",
-        point,
+        balanceVnd,
         topUpHistory: [],
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2714,7 +2725,7 @@ app.post(
   },
 );
 
-/** Admin: set a teacher's point balance directly (lazy-creates the record). */
+/** Admin: set a teacher's balance (VND) directly (lazy-creates the record). */
 app.patch(
   "/teacher-points/:id",
   verifyGoogleToken,
@@ -2722,17 +2733,19 @@ app.patch(
   async (req, res) => {
     try {
       if (
-        req.body.point === null ||
-        req.body.point === undefined ||
-        !Number.isFinite(Number(req.body.point))
+        req.body.balanceVnd === null ||
+        req.body.balanceVnd === undefined ||
+        req.body.balanceVnd === "" ||
+        !Number.isInteger(Number(req.body.balanceVnd)) ||
+        Number(req.body.balanceVnd) < 0
       ) {
-        return res.status(400).json({ error: "invalid_point" });
+        return res.status(400).json({ error: "invalid_balance" });
       }
-      const point = Number(req.body.point);
+      const balanceVnd = Number(req.body.balanceVnd);
       const ref = db.collection("TeacherPoint").doc(req.params.id);
       if ((await ref.get()).exists) {
         await ref.update({
-          point,
+          balanceVnd,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       } else {
@@ -2749,13 +2762,13 @@ app.patch(
           teacherId: req.params.id,
           gmail: teacher.gmail || "",
           name: teacher.name || "",
-          point,
+          balanceVnd,
           topUpHistory: [],
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      return res.json({ id: req.params.id, point });
+      return res.json({ id: req.params.id, balanceVnd });
     } catch (err) {
       console.error("[TEACHER-POINTS] update error:", err);
       return res.status(500).json({ error: "failed_to_update" });
@@ -2784,8 +2797,9 @@ app.delete(
 );
 
 /**
- * Admin: top up a teacher's points from a VND amount. Adds the computed points,
- * appends a history entry, and bumps the global admin billing total.
+ * Admin: top up a teacher's balance. The amount (a multiple of 70.000đ) is
+ * credited as is; amount × 6/7 is added to the admin's revenue (the saler
+ * keeps the rest). Balance, history and revenue move in one transaction.
  */
 app.post(
   "/teacher-points/:id/topup",
@@ -2794,56 +2808,67 @@ app.post(
   async (req, res) => {
     try {
       const amountVnd = Number(req.body.amountVnd);
-      if (!isValidTopUp(amountVnd)) {
+      if (!billing.isValidTopUp(amountVnd)) {
         return res.status(400).json({ error: "invalid_amount" });
       }
       const ref = db.collection("TeacherPoint").doc(req.params.id);
-      if (!(await ref.get()).exists) {
-        // No record yet — create one (id === teacherId) before topping up.
-        const teacherDoc = await db
-          .collection("teachers")
-          .doc(req.params.id)
-          .get();
-        if (!teacherDoc.exists) {
-          return res.status(404).json({ error: "not_found" });
-        }
-        const teacher = teacherDoc.data();
-        await ref.set({
-          teacherId: req.params.id,
-          gmail: teacher.gmail || "",
-          name: teacher.name || "",
-          point: 0,
-          topUpHistory: [],
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-      const points = amountVnd / VND_PER_POINT;
-      await ref.update({
-        point: admin.firestore.FieldValue.increment(points),
-        topUpHistory: admin.firestore.FieldValue.arrayUnion({
+      const teacherRef = db.collection("teachers").doc(req.params.id);
+      const summaryRef = db.collection("AdminBilling").doc("summary");
+      const revenueVnd = billing.revenueOfTopUp(amountVnd);
+
+      const balanceVnd = await db.runTransaction(async (tx) => {
+        const [pointSnap, teacherSnap] = await tx.getAll(ref, teacherRef);
+        if (!pointSnap.exists && !teacherSnap.exists) return null;
+        // A record from before VND only has `point`: converted here (× 700).
+        const next = billing.balanceVndOf(pointSnap.data()) + amountVnd;
+        const entry = {
           amountVnd,
-          points,
+          creditVnd: amountVnd,
+          revenueVnd,
           topUpAt: admin.firestore.Timestamp.now(),
-        }),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      // Bump the admin billing total (lazy-create the singleton).
-      await db
-        .collection("AdminBilling")
-        .doc("summary")
-        .set(
+        };
+        if (pointSnap.exists) {
+          tx.update(ref, {
+            balanceVnd: next,
+            topUpHistory: admin.firestore.FieldValue.arrayUnion(entry),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        } else {
+          // No record yet — create one (id === teacherId).
+          const teacher = teacherSnap.data();
+          tx.set(ref, {
+            teacherId: req.params.id,
+            gmail: teacher.gmail || "",
+            name: teacher.name || "",
+            balanceVnd: next,
+            topUpHistory: [entry],
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        // Lazy-creates the singleton.
+        tx.set(
+          summaryRef,
           {
-            totalTopUpVnd: admin.firestore.FieldValue.increment(amountVnd),
+            totalTopUpVnd: admin.firestore.FieldValue.increment(revenueVnd),
+            totalDepositVnd: admin.firestore.FieldValue.increment(amountVnd),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true },
         );
-      const updated = await ref.get();
+        return next;
+      });
+      if (balanceVnd === null) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      res.locals.auditDetail =
+        `Nạp ${billing.formatVnd(amountVnd)} · doanh thu ` +
+        `+${billing.formatVnd(revenueVnd)} · số dư ${billing.formatVnd(balanceVnd)}`;
       return res.json({
         id: req.params.id,
-        point: updated.data().point ?? 0,
-        addedPoints: points,
+        balanceVnd,
+        addedVnd: amountVnd,
+        revenueVnd,
       });
     } catch (err) {
       console.error("[TEACHER-POINTS] topup error:", err);
@@ -2855,13 +2880,25 @@ app.post(
 /**
  * 1. Endpoint đổi 'code' lấy Access Token & Refresh Token (Lúc mới Login)
  */
+/**
+ * When a Google refresh token stops working, or null when Google does not say.
+ * Google sends refresh_token_expires_in only for time-limited grants, so it is
+ * usually absent: "now + undefined × 1000" was NaN, sent as null, which the
+ * website read as "already expired" and logged everyone out within the hour.
+ */
+function refreshExpiryOf(tokens) {
+  const seconds = Number(tokens?.refresh_token_expires_in);
+  return Number.isFinite(seconds) && seconds > 0
+    ? Date.now() + seconds * 1000
+    : null;
+}
+
 app.post("/auth/google", async (req, res) => {
   const { code } = req.body;
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     // tokens sẽ chứa: access_token, refresh_token, expiry_date...
-    tokens.refresh_token_expires_date =
-      Date.now() + tokens.refresh_token_expires_in * 1000;
+    tokens.refresh_token_expires_date = refreshExpiryOf(tokens);
 
     // Attach the signed-in user's email + full name so the website's teacher
     // signup screen can pre-fill them (Gmail read-only, name editable). They
@@ -3110,9 +3147,8 @@ app.post("/auth/refresh", async (req, res) => {
     res.json({
       access_token: credentials.access_token,
       expiry_date: credentials.expiry_date || 3600 * 1000 + Date.now(),
-      refresh_token: credentials.refresh_token,
-      refresh_token_expires_date:
-        Date.now() + credentials.refresh_token_expires_in * 1000,
+      refresh_token: credentials.refresh_token || refreshToken,
+      refresh_token_expires_date: refreshExpiryOf(credentials),
     });
   } catch (error) {
     // Only the description: the error object carries the refresh token.
@@ -3958,10 +3994,11 @@ function describeJobOutcome(job) {
   if (job.error === "not_enough_points") {
     return {
       type: "grading.jobFailed",
-      title: "Chưa chấm được: không đủ point",
+      title: "Chưa chấm được: không đủ số dư",
       body:
-        `${where}: cần ${job.errorParams?.need} point, ` +
-        `còn ${job.errorParams?.have}.`,
+        `${where}: cần ${billing.formatVnd(job.errorParams?.needVnd)} ` +
+        `(${job.errorParams?.need} bài), còn ` +
+        `${billing.formatVnd(job.errorParams?.haveVnd)}.`,
     };
   }
   if (job.error) {
@@ -3976,7 +4013,7 @@ function describeJobOutcome(job) {
     title: "Đã chấm xong",
     body:
       `${where}: ${progress}.` +
-      (job.stopped ? " Dừng giữa chừng vì hết point." : ""),
+      (job.stopped ? " Dừng giữa chừng vì hết số dư." : ""),
   };
 }
 
@@ -4029,11 +4066,19 @@ const gradingJobs = createGradingJobs({
           entityId: job.id,
           success: true,
           detail:
-            `Tổng point bị trừ: ${job.charged} · Lớp: ${job.className || "?"} · ` +
+            `Tổng tiền bị trừ: ${billing.formatVnd(
+              job.charged * billing.unitPriceOfJob(job),
+            )} (${job.charged} bài)` +
+            (job.alreadyPaid
+              ? ` · Không trừ lại ${job.alreadyPaid} bài đã trả tiền trước đó`
+              : "") +
+            ` · Lớp: ${job.className || "?"} · ` +
             `Buổi: ${job.lessonName || "?"} · GV: ${job.payerName || "?"}`,
         });
         // A scheduled job tells the payer itself (gradingSchedules owns its end).
         if (job.origin?.type === "schedule") return;
+        // "N bài đã được chấm" counts charged docs: nothing to tell at 0.
+        if (!(job.charged > 0)) return;
         const [payerSnap, classSnap, lessonSnap] = await Promise.all([
           db.collection("teachers").doc(job.payerTeacherId).get(),
           db.collection("classes").doc(job.classId).get(),

@@ -9,6 +9,7 @@ const {
   validateRequest,
 } = require("../lib/ieltsWriting.js");
 const { consumePointsForDocs } = require("../lib/teacherPoints.js");
+const { PRICE_MANUAL_VND, balanceVndOf } = require("../lib/billing.js");
 const {
   FakeFirestore,
   createFakeAdmin,
@@ -32,10 +33,16 @@ const VALID = JSON.stringify({
 const TEACHER_A = { id: "tA", gmail: "a@x.com", name: "A" };
 const TEACHER_B = { id: "tB", gmail: "b@x.com", name: "B" };
 
+// Seeded in submissions' worth at the manual price, so the assertions below
+// count submissions.
 function setup({ answers = [], points = { tA: 5, tB: 5 } } = {}) {
   const db = new FakeFirestore();
   for (const [id, point] of Object.entries(points)) {
-    db._apply({ type: "set", path: `TeacherPoint/${id}`, data: { point } });
+    db._apply({
+      type: "set",
+      path: `TeacherPoint/${id}`,
+      data: { balanceVnd: point * PRICE_MANUAL_VND },
+    });
   }
   let modelCalls = 0;
   const grader = createIeltsGrader({
@@ -56,10 +63,13 @@ function setup({ answers = [], points = { tA: 5, tB: 5 } } = {}) {
     grader,
     consumePoints: (charge) => consumePointsForDocs(db, admin, charge),
   };
-  const run = (payer, overrides = {}) =>
+  // Like server.js: every HTTP request has its own id, unless a test replays one.
+  let requests = 0;
+  const run = (payer, overrides = {}, requestId = `req-${++requests}`) =>
     gradePasted(deps, {
       payer,
       email: payer.gmail,
+      requestId,
       input: validateRequest({
         task: "task2",
         prompt: "Đề",
@@ -67,29 +77,40 @@ function setup({ answers = [], points = { tA: 5, tB: 5 } } = {}) {
         ...overrides,
       }),
     });
+  /** The balance, in submissions at the manual price. */
   const balance = async (id) =>
-    (await db.collection("TeacherPoint").doc(id).get()).data().point;
+    balanceVndOf((await db.collection("TeacherPoint").doc(id).get()).data()) /
+    PRICE_MANUAL_VND;
   return { db, run, balance, modelCalls: () => modelCalls };
 }
 
 describe("IELTS paste grading: points", () => {
-  it("charges 1 point for a new submission", async () => {
+  it("charges 800đ (the manual price) for a new submission", async () => {
     const { run, balance } = setup();
     const out = await run(TEACHER_A);
     assert.equal(out.charged, 1);
-    assert.equal(out.point, 4);
+    assert.equal(out.chargedVnd, 800);
+    assert.equal(out.balanceVnd, 3200, "4000đ minus 800đ");
     assert.equal(await balance("tA"), 4);
     assert.equal(out.result.overall, 6);
   });
 
-  it("the same teacher grading the same submission again pays nothing", async () => {
+  it("the same teacher grading the same submission again pays again (every grading is paid)", async () => {
     const { run, balance, modelCalls } = setup();
     await run(TEACHER_A);
     const again = await run(TEACHER_A);
-    assert.equal(again.charged, 0);
+    assert.equal(again.charged, 1);
     assert.equal(again.cached, true);
+    assert.equal(await balance("tA"), 3);
+    assert.equal(modelCalls(), 1, "the cache still spares the AI call");
+  });
+
+  it("a retry of the same request is not charged twice", async () => {
+    const { run, balance } = setup();
+    await run(TEACHER_A, {}, "req-x");
+    const retry = await run(TEACHER_A, {}, "req-x");
+    assert.equal(retry.charged, 0);
     assert.equal(await balance("tA"), 4);
-    assert.equal(modelCalls(), 1);
   });
 
   it("a different submission is a new charge", async () => {
@@ -132,14 +153,14 @@ describe("IELTS paste grading: points", () => {
     assert.equal(modelCalls(), 0);
   });
 
-  it("with no points, a submission already paid for is still served", async () => {
-    const { db, run } = setup({ points: { tA: 1 } });
-    await run(TEACHER_A); // balance 1 → 0
+  it("with no points, grading a submission paid for before is refused too", async () => {
+    const { db, run, modelCalls } = setup({ points: { tA: 1 } });
+    await run(TEACHER_A); // balance 800đ → 0
     assert.equal(
-      (await db.collection("TeacherPoint").doc("tA").get()).data().point,
+      (await db.collection("TeacherPoint").doc("tA").get()).data().balanceVnd,
       0,
     );
-    const again = await run(TEACHER_A);
-    assert.equal(again.charged, 0);
+    await assert.rejects(run(TEACHER_A), (err) => err.status === 402);
+    assert.equal(modelCalls(), 1, "refused before the model");
   });
 });

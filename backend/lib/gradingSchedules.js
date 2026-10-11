@@ -33,12 +33,13 @@
  *       id, so a retry overwrites it; the push is claimed before it is sent, so
  *       it goes out at most once.
  *
- * POINTS. At the reminder the week's need (the students who did the homework)
- * is reserved in `pointReservations/{payerTeacherId}` — one document per payer,
+ * BALANCE. At the reminder the week's need (the students who did the homework,
+ * at the auto price — lib/billing.js PRICE_AUTO_VND) is reserved in
+ * `pointReservations/{payerTeacherId}` — one document per payer,
  * read and written by every reminder of that payer's classes, which makes it
  * the point where they serialise. Invariant (P): at the moment a reminder
- * commits, point ≥ Σ max(0, reserved_i − charged_i) over the live
- * reservations, the new one included. The transaction reads TeacherPoint, the
+ * commits, balanceVnd ≥ Σ max(0, reserved_i − charged_i) × price_i over the
+ * live reservations (reserved/charged count docs), the new one included. The transaction reads TeacherPoint, the
  * reservation doc and every reserved job, so a concurrent charge (which
  * decrements TeacherPoint first and bumps job.charged after) forces a retry;
  * the only state it can observe in between is "debited, not yet counted",
@@ -59,6 +60,7 @@
  */
 const crypto = require("crypto");
 
+const { PRICE_AUTO_VND, balanceVndOf, formatVnd } = require("./billing.js");
 const { createCourses } = require("./courses.js");
 const { ReauthRequiredError } = require("./googleUserToken.js");
 const {
@@ -104,9 +106,11 @@ const DEFAULTS = {
   runMarginMs: 60 * MINUTE,
   /**
    * Grading time of each part of the day (Vietnam) until an admin sets
-   * another. Morning and evening sit in DeepSeek's off-peak hours.
+   * another — all off-peak. DeepSeek's peak (double price) is Monday to
+   * Friday 8:00–11:00 and 13:00–17:00 Vietnam time; the afternoon waits until
+   * 17:00, after which nothing is peak until the next morning.
    */
-  runTimes: { morning: "07:00", afternoon: "14:00", evening: "23:30" },
+  runTimes: { morning: "07:00", afternoon: "17:00", evening: "23:30" },
   /**
    * How late a grading day's run may still start (an outage, a slow queue)
    * before the week is missed instead of graded into peak hours.
@@ -124,16 +128,26 @@ const DEFAULTS = {
    */
   jitterMs: 20 * MINUTE,
   /**
-   * A reminder this late (tick lag, an outage) pushes grading back so the
-   * teacher still gets roughly the promised notice. Normal tick lag (≤ 5 min)
-   * stays under it, so the planned — off-peak — time is kept.
+   * The least notice a late reminder (a time set less than remindMs ahead,
+   * tick lag, an outage) still gives: grading stays at the time the teacher
+   * or admin set, and only a run that would start sooner than this — or is
+   * already past — waits this long after the reminder. Never the full
+   * remindMs: a class set to 23:10 at 23:05 is graded around 23:10, not 23:35.
    */
-  lateToleranceMs: 10 * MINUTE,
-  /** DeepSeek off-peak, UTC. 16:30–00:30 UTC = 23:30–07:30 in Vietnam. */
+  lateNoticeMs: 5 * MINUTE,
+  /**
+   * Off-peak window for legacy (deadline) slots, UTC. 16:30–00:30 UTC =
+   * 23:30–07:30 in Vietnam: DeepSeek's old discount window, and still inside
+   * its current off-peak hours (everything but weekdays 8:00–11:00 and
+   * 13:00–17:00 Vietnam time).
+   */
   offPeakUtc: "16:30-00:30",
 };
 
 const RUN_ACTIVE = new Set(["reminded", "starting", "running"]);
+
+/** Most runs one class can have on one day (re-grades: base, -r2 … -r20). */
+const MAX_RETAKES = 20;
 
 /** createJob refusals that retrying cannot fix: the week is cancelled. */
 const PERMANENT_START_ERRORS = new Set([
@@ -231,7 +245,8 @@ function vnParts(ms) {
     weekday: d.getUTCDay(), // 0 = Sunday
     time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
     date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
-    display: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} ${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}`,
+    // dd/mm/yyyy HH:mm — the website's formatDateTimeVn.
+    display: `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
   };
 }
 
@@ -331,8 +346,14 @@ function dayOccurrence(schedule, slot, dayAt, opts) {
     parseRunTime(opts.runTimes[part]);
   const planned = dayAt + minutes * MINUTE;
   const own = Boolean(cleanRunTimes(schedule.customRunTimes)[part]);
+  // The spread never carries a run out of its part of the day: a morning set
+  // to 11:55 stays a morning (not 12:07), an evening at 23:55 stays on the
+  // day the teacher picked (not "00:07 tomorrow").
+  const partEnd = dayAt + (PARTS[part]?.to ?? 24 * 60) * MINUTE;
+  const room = Math.max(0, partEnd - MINUTE - planned);
   const runAt =
-    planned + (own ? 0 : jitterFor(schedule.classId, opts.jitterMs));
+    planned +
+    (own ? 0 : jitterFor(schedule.classId, Math.min(opts.jitterMs, room)));
   return {
     runKey: vnParts(dayAt).date,
     studentDeadlineAt: planned - opts.remindMs - opts.graceMs,
@@ -405,6 +426,26 @@ function reachable(occ, nowMs, opts) {
   );
 }
 
+/**
+ * True when occurrence `c` would come too soon after the schedule's last run.
+ * The day that run graded, picked again once the run is over (a re-grade:
+ * "tonight again at 23:35" after 23:15), only has to start after that run
+ * finished. Anything else keeps the old bound — the candidate's students'
+ * deadline after the last run's grader deadline: moving tonight's deadline
+ * after tonight's grading, or a legacy schedule saved as days, waits a week.
+ */
+function tooSoonAfter(c, lastRun, daySchedule) {
+  if (!lastRun) return false;
+  const sameDay =
+    lastRun.runKey === c.runKey ||
+    String(lastRun.runKey || "").startsWith(`${c.runKey}-r`);
+  if (daySchedule && sameDay && !RUN_ACTIVE.has(lastRun.state)) {
+    const end = lastRun.finishedAt ?? lastRun.updatedAt ?? 0;
+    return c.runAt <= end;
+  }
+  return c.studentDeadlineAt < lastRun.graderDeadlineAt;
+}
+
 /** The first occurrence from `fromIndex` on that can still be graded. */
 function firstReachable(schedule, fromIndex, nowMs, opts) {
   let index = Math.max(0, fromIndex);
@@ -467,7 +508,7 @@ const START_REASON_TEXT = {
   class_not_found: "không tìm thấy lớp",
   lesson_not_found: "không tìm thấy buổi học",
   too_many_docs: "lớp có quá nhiều học sinh để chấm một lần",
-  payer_not_found: "không tìm thấy giáo viên trả point",
+  payer_not_found: "không tìm thấy giáo viên trả tiền chấm",
 };
 
 function render(event, run, nowMs) {
@@ -515,18 +556,22 @@ function render(event, run, nowMs) {
       return {
         type: "grading.autoCancelledNoPoints",
         severity: "WARN",
-        title: "Huỷ chấm tự động: không đủ point",
+        title: "Huỷ chấm tự động: không đủ số dư",
         body:
-          `${where}: ${base.submitted} học sinh làm bài, cần ${run.pointsNeeded} ` +
-          `point nhưng chỉ còn dùng được ${run.available}` +
-          (run.reserved ? ` (đang giữ ${run.reserved} cho lớp khác)` : "") +
-          ". Hãy nạp thêm point rồi chấm tay.",
+          `${where}: ${base.submitted} học sinh làm bài, cần ` +
+          `${formatVnd(run.needVnd)} nhưng chỉ còn dùng được ` +
+          formatVnd(run.available) +
+          (run.reserved
+            ? ` (đang giữ ${formatVnd(run.reserved)} cho lớp khác)`
+            : "") +
+          ". Hãy nạp thêm tiền rồi chấm tay.",
         data: {
           ...base,
           need: run.pointsNeeded,
-          have: run.have,
-          reserved: run.reserved || 0,
-          available: run.available,
+          needVnd: run.needVnd,
+          haveVnd: run.have,
+          reservedVnd: run.reserved || 0,
+          availableVnd: run.available,
         },
       };
     case "missed":
@@ -559,7 +604,7 @@ function render(event, run, nowMs) {
       const r = run.result || {};
       const advance = run.lessonAdvance || {};
       let note = "";
-      if (r.stopped) note += " Dừng giữa chừng vì hết point.";
+      if (r.stopped) note += " Dừng giữa chừng vì hết số dư.";
       if (r.reauthRequired)
         note += " Dừng giữa chừng: cần đăng nhập lại Google.";
       if (advance.advanced) {
@@ -576,12 +621,19 @@ function render(event, run, nowMs) {
         title: `Đã chấm xong ${run.lessonName || ""}`.trim(),
         body:
           `${where}: ${base.submitted} học sinh làm bài, đã ghi ` +
-          `${r.written ?? 0}/${r.total ?? base.total} bài, trừ ${r.charged ?? 0} point.` +
+          `${r.written ?? 0}/${r.total ?? base.total} bài, trừ ` +
+          `${formatVnd(r.chargedVnd ?? 0)}` +
+          (r.alreadyPaid
+            ? ` (${r.alreadyPaid} bài đã trả tiền trước đó nên không trừ lại)`
+            : "") +
+          "." +
           note,
         data: {
           ...base,
           written: r.written ?? 0,
           charged: r.charged ?? 0,
+          chargedVnd: r.chargedVnd ?? 0,
+          alreadyPaid: r.alreadyPaid ?? 0,
           advanced: Boolean(advance.advanced),
           nextLessonName: advance.lessonName || null,
         },
@@ -591,7 +643,8 @@ function render(event, run, nowMs) {
       const r = run.result || {};
       const why =
         r.error === "not_enough_points"
-          ? `không đủ point (cần ${r.errorParams?.need}, còn ${r.errorParams?.have})`
+          ? `không đủ số dư (cần ${formatVnd(r.errorParams?.needVnd)}, ` +
+            `còn ${formatVnd(r.errorParams?.haveVnd)})`
           : r.error === "google_reauth_required"
             ? "cần đăng nhập lại bằng Google"
             : r.error || "lỗi không xác định";
@@ -673,6 +726,33 @@ function createGradingSchedules(deps) {
     };
   }
 
+  /**
+   * Where candidate week `c` can go. A day's runs chain base, base-r2,
+   * base-r3…: a day whose last run is over (done, failed, cancelled, missed)
+   * can be graded again under the next key — a re-grade — so the earlier run,
+   * its job, notices and audit rows stay exactly as they were. A day whose
+   * last run is still under way is taken, unless it is the run this save is
+   * about to forget (`forgottenKey`). `get(ref)` reads in or out of a
+   * transaction. Returns {runKey, replaces} or {takenKey}.
+   */
+  async function placeCandidate(get, classId, c, baseSnap, forgottenKey) {
+    if (!baseSnap.exists) return { runKey: c.runKey, replaces: null };
+    let key = c.runKey;
+    let snap = baseSnap;
+    for (let k = 2; k <= MAX_RETAKES; k++) {
+      const nextKey = `${c.runKey}-r${k}`;
+      const nextSnap = await get(runRef(classId, nextKey));
+      if (!nextSnap.exists) {
+        if (key === forgottenKey) return { runKey: key, replaces: null };
+        if (RUN_ACTIVE.has(snap.data().state)) return { takenKey: key };
+        return { runKey: nextKey, replaces: key };
+      }
+      key = nextKey;
+      snap = nextSnap;
+    }
+    return { takenKey: key };
+  }
+
   /** Fields that move the schedule on to its next reachable week. */
   function advanceFields(schedule, fromIndex) {
     if (!schedule.enabled) {
@@ -720,7 +800,10 @@ function createGradingSchedules(deps) {
         (entry.expiresAt || 0) < now();
       if (dead) continue;
       entries[key] = entry;
-      outstanding += Math.max(0, (entry.points || 0) - (job?.charged || 0));
+      // In VND: docs still to charge × that reservation's price per doc.
+      outstanding +=
+        Math.max(0, (entry.points || 0) - (job?.charged || 0)) *
+        (entry.priceVnd ?? PRICE_AUTO_VND);
     }
     return {
       ref,
@@ -965,6 +1048,7 @@ function createGradingSchedules(deps) {
         submitted: found.count?.pending ?? 0,
         alreadyGraded: found.count?.alreadyGraded ?? 0,
         pointsNeeded: found.count?.pending ?? 0,
+        needVnd: (found.count?.pending ?? 0) * PRICE_AUTO_VND,
         payerTeacherId: s.payerTeacherId,
         ownerEmail: s.ownerEmail,
         authKind: s.authKind,
@@ -980,10 +1064,11 @@ function createGradingSchedules(deps) {
         updatedAt: at,
       };
 
-      // A reminder this late moves grading back so the notice still holds;
-      // past the point where it would still fit, the week is missed.
-      if (next.runAt - at < opts.remindMs - opts.lateToleranceMs) {
-        run.runAt = Math.max(next.runAt, at + opts.remindMs);
+      // A late reminder keeps the set time, with only a short notice when
+      // that time is (almost) here; past the point where it would still fit,
+      // the week is missed.
+      if (next.runAt - at < opts.lateNoticeMs) {
+        run.runAt = at + opts.lateNoticeMs;
       }
 
       let cancelled = true;
@@ -1001,9 +1086,10 @@ function createGradingSchedules(deps) {
         run.state = "cancelled_no_submissions";
         run.remindEvent = "noSubmissions";
       } else {
-        const have = pointSnap.exists ? (pointSnap.data().point ?? 0) : 0;
+        // All in VND: the balance, what other reminders hold, what is free.
+        const have = pointSnap.exists ? balanceVndOf(pointSnap.data()) : 0;
         const available = have - reservations.outstanding;
-        if (available < run.pointsNeeded) {
+        if (available < run.needVnd) {
           run.state = "cancelled_no_points";
           run.remindEvent = "noPoints";
           run.have = have;
@@ -1015,6 +1101,7 @@ function createGradingSchedules(deps) {
           run.remindEvent = "upcoming";
           reservations.entries[entryKey(classId, runKey)] = {
             points: run.pointsNeeded,
+            priceVnd: PRICE_AUTO_VND,
             jobId: run.jobId,
             expiresAt: next.graderDeadlineAt + JOB_STALE_MS,
           };
@@ -1222,6 +1309,9 @@ function createGradingSchedules(deps) {
             written: job.written ?? 0,
             total: job.total ?? 0,
             charged: job.charged ?? 0,
+            alreadyPaid: job.alreadyPaid ?? 0,
+            chargedVnd:
+              (job.charged ?? 0) * (job.unitPriceVnd ?? PRICE_AUTO_VND),
             skipped: job.skipped ?? 0,
             failed: job.failed ?? 0,
             stopped: Boolean(job.stopped),
@@ -1412,20 +1502,65 @@ function createGradingSchedules(deps) {
       ...define(cls.id, slotInput(deadlines)),
       ...runTimeFields(old?.customRunTimes, await readDefaultRunTimes()),
     };
-    let bound = -Infinity;
+    let lastRun = null;
     if (old?.lastRunKey) {
       const last = (await runRef(cls.id, old.lastRunKey).get()).data();
       const forgotten =
         last?.state === "reminded" && old.next?.runKey === old.lastRunKey;
-      if (last && !forgotten) bound = last.graderDeadlineAt;
+      if (last && !forgotten) lastRun = last;
     }
-    let occ = firstReachable(def, 0, now(), opts);
-    for (let i = 0; occ.studentDeadlineAt < bound && i < 1000; i++) {
-      occ = occurrence(def, occ.index + 1, opts);
+    const daySchedule = isDaySchedule(def);
+    // The week saving would forget (see upsert's oldRunForgotten).
+    let forgottenKey = null;
+    if (old?.next?.runKey) {
+      const run = (await runRef(cls.id, old.next.runKey).get()).data();
+      const jobGone = !run?.jobId || !(await jobDocRef(run.jobId).get()).exists;
+      if (run?.state === "reminded" || (run?.state === "starting" && jobGone)) {
+        forgottenKey = old.next.runKey;
+      }
     }
+    // Same candidates and the same placement as upsert, so the preview never
+    // promises a day that saving then moves.
+    const first = firstReachable(def, 0, now(), opts);
+    const candidates = Array.from(
+      { length: 2 * def.slots.length + 2 },
+      (_, k) => occurrence(def, first.index + k, opts),
+    );
+    const runSnaps = await db.getAll(
+      ...candidates.map((c) => runRef(cls.id, c.runKey)),
+    );
+    let occ = null;
+    let replaces = null;
+    let takenRunKey = null;
+    for (let i = 0; i < candidates.length && !occ; i++) {
+      const c = candidates[i];
+      if (tooSoonAfter(c, lastRun, daySchedule)) continue;
+      const place = await placeCandidate(
+        (ref) => ref.get(),
+        cls.id,
+        c,
+        runSnaps[i],
+        forgottenKey,
+      );
+      if (place.runKey) {
+        occ = { ...c, runKey: place.runKey };
+        replaces = place.replaces;
+      } else {
+        takenRunKey = takenRunKey || place.takenKey;
+      }
+    }
+    occ = occ || candidates[candidates.length - 1];
     return {
       ...def,
-      next: { ...occ, remindAt: remindAtOf(occ) },
+      next: {
+        ...occ,
+        remindAt: remindAtOf(occ),
+        // The day's earlier, finished run this one grades again after — the
+        // screen says it is a re-grade, not a first grading.
+        replacesRunKey: replaces,
+        // A day skipped because the class is being graded that day right now.
+        skippedRunKey: takenRunKey,
+      },
     };
   }
 
@@ -1519,6 +1654,26 @@ function createGradingSchedules(deps) {
       for (const id of payerIds) {
         reservationsByPayer[id] = await readReservations(tx, id);
       }
+      // The first candidate that can take the week (placeCandidate: a new
+      // day, the week we are about to forget, or a re-grade of a day whose
+      // run is over), and not before the last graded occurrence was over —
+      // moving tonight's deadline by an hour after tonight's grading must
+      // not grade the class again tonight, on the lesson it has just moved
+      // on to. Reads, so before any write.
+      let occ = null;
+      for (let i = 0; i < candidates.length && !occ; i++) {
+        const c = candidates[i];
+        if (tooSoonAfter(c, lastRun, isDaySchedule(timed))) continue;
+        const place = await placeCandidate(
+          (ref) => tx.get(ref),
+          cls.id,
+          c,
+          candidateSnaps[i],
+          oldRunForgotten ? oldRun.runKey : null,
+        );
+        if (place.runKey) occ = { ...c, runKey: place.runKey };
+      }
+      occ = occ || candidates[candidates.length - 1];
       // ---- no writes above this line ----
       if (oldRun) {
         settleOpenRun(
@@ -1529,19 +1684,6 @@ function createGradingSchedules(deps) {
           "edit",
         );
       }
-      // Free: no run of its own (the old one we are about to delete counts
-      // as none), and not before the last graded occurrence was over — moving
-      // tonight's deadline by an hour after tonight's grading must not grade
-      // the class again tonight, on the lesson it has just moved on to.
-      const freeIndex = candidates.findIndex((c, i) => {
-        if (lastRun && c.studentDeadlineAt < lastRun.graderDeadlineAt) {
-          return false;
-        }
-        if (!candidateSnaps[i].exists) return true;
-        return oldRunForgotten && c.runKey === oldRun.runKey;
-      });
-      const occ =
-        candidates[freeIndex >= 0 ? freeIndex : candidates.length - 1];
       const at = now();
       const doc = {
         ...timed,
@@ -1895,8 +2037,11 @@ function createGradingSchedules(deps) {
       }
     }
     return {
-      point: pointSnap.exists ? (pointSnap.data().point ?? 0) : 0,
+      balanceVnd: pointSnap.exists ? balanceVndOf(pointSnap.data()) : 0,
+      priceVnd: PRICE_AUTO_VND,
       needMax: classes.reduce((sum, c) => sum + c.students, 0),
+      needMaxVnd:
+        classes.reduce((sum, c) => sum + c.students, 0) * PRICE_AUTO_VND,
       classes,
     };
   }

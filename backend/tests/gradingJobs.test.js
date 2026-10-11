@@ -296,13 +296,18 @@ describe("prepare step", () => {
     assert.equal(h.counters.notify, 1);
   });
 
-  it("refuses to start writing when the points cannot cover the docs", async () => {
+  it("refuses to start writing when the balance cannot cover the docs", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 1 });
     const jobId = await runJob(h);
     const job = h.job(jobId);
     assert.equal(job.status, "failed");
     assert.equal(job.error, "not_enough_points");
-    assert.deepEqual(job.errorParams, { need: 2, have: 1, teacher: "Cô Hà" });
+    assert.deepEqual(job.errorParams, {
+      need: 2,
+      needVnd: 1600,
+      haveVnd: 800,
+      teacher: "Cô Hà",
+    });
     assert.equal(h.docsApi.calls.batchUpdate, 0);
     assert.equal(h.points(), 1);
   });
@@ -368,7 +373,7 @@ describe("write step: crash windows", () => {
     assert.equal(h.job(jobId).charged, 2);
   });
 
-  it("a doc already paid for by an earlier run is written without a new charge", async () => {
+  it("a doc paid for by an earlier run is charged again by a new one (every grading is paid)", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 10 });
     // e.g. graded before, then cleared by an admin: its receipt still exists.
     await consumePointsForDocs(h.db, h.admin, {
@@ -377,12 +382,35 @@ describe("write step: crash windows", () => {
       classId: "c1",
       lessonId: "l10",
       chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 800,
       jobId: "an-older-job",
     });
     const jobId = await runJob(h);
     assert.equal(h.job(jobId).written, 2);
-    assert.equal(h.job(jobId).charged, 1, "only docB is this job's spend");
-    assert.equal(h.points(), 8);
+    assert.equal(h.job(jobId).charged, 2, "docA again, and docB");
+    assert.equal(h.job(jobId).alreadyPaid, 0);
+    assert.equal(h.points(), 7, "1 earlier + 2 now");
+  });
+
+  it("an admin grading on the teacher's behalf charges the class's teacher, re-grades included", async () => {
+    const h = createHarness({ tabs: classOfFour(), points: 10 });
+    await consumePointsForDocs(h.db, h.admin, {
+      payer: { id: "t1", gmail: "teacher@x.com", name: "Cô Hà" },
+      docIds: ["docA", "docB"],
+      classId: "c1",
+      lessonId: "l10",
+      chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 800,
+      jobId: "an-older-job",
+    });
+    const jobId = await runJob(h, { email: "admin@x.com", isAdmin: true });
+    const job = h.job(jobId);
+    assert.equal(job.payerTeacherId, "t1", "the teacher pays, not the admin");
+    assert.equal(job.written, 2);
+    assert.equal(job.charged, 2);
+    assert.equal(h.points(), 6, "2 earlier + 2 by the admin");
+    assert.equal(h.counters.summary, 1);
+    assert.ok(h.ledger().filter((r) => r.jobId === jobId).length === 2);
   });
 });
 
@@ -487,11 +515,11 @@ describe("points and identity running out mid-job", () => {
   it("stops before writing what it cannot charge for", async () => {
     const h = createHarness({ tabs: classOfFour(), points: 2 });
     const jobId = await prepared(h);
-    // Something else spends a point after the gate passed.
+    // Something else spends one doc's worth after the gate passed.
     h.db._apply({
       type: "update",
       path: "TeacherPoint/t1",
-      data: { point: 1 },
+      data: { balanceVnd: 800 },
     });
     await h.drain();
     const docs = h.docRecords(jobId);
@@ -579,6 +607,7 @@ describe("charging", () => {
       classId: "c1",
       lessonId: "l10",
       chargedByEmail: "teacher@x.com",
+      unitPriceVnd: 800,
     };
     const [a, b] = await Promise.all([
       consumePointsForDocs(h.db, h.admin, charge),
