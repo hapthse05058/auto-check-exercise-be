@@ -6,6 +6,8 @@ const {
   PRICE_MANUAL_VND,
   TOPUP_STEP_VND,
   balanceVndOf,
+  chargeSentence,
+  costFormula,
   formatVnd,
   isValidTopUp,
   revenueOfTopUp,
@@ -67,6 +69,26 @@ describe("top-up", () => {
     assert.equal(salerCostVnd(revenueOfTopUp(140000)), 20000);
     assert.equal(salerCostVnd(undefined), 0);
   });
+});
+
+test("costFormula spells a charge out as docs × price = total", () => {
+  assert.equal(costFormula(25, 800), "25 bài × 800đ = 20.000đ");
+  assert.equal(costFormula(undefined, 700), "0 bài × 700đ = 0đ");
+});
+
+test("chargeSentence: charged, prepaid, or nothing", () => {
+  assert.equal(
+    chargeSentence({ charged: 25, alreadyPaid: 0, unitPriceVnd: 800 }),
+    "Đã trừ 25 bài × 800đ = 20.000đ.",
+  );
+  assert.equal(
+    chargeSentence({ charged: 2, alreadyPaid: 1, unitPriceVnd: 700 }),
+    "Đã trừ 2 bài × 700đ = 1.400đ. 1 bài đã trả tiền trước đó nên không trừ lại.",
+  );
+  assert.equal(
+    chargeSentence({ charged: 0, alreadyPaid: 0, unitPriceVnd: 800 }),
+    "Không trừ tiền.",
+  );
 });
 
 test("formatVnd groups thousands with dots", () => {

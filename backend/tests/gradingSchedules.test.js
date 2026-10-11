@@ -1099,7 +1099,7 @@ describe("a scheduled week, end to end", () => {
     assert.equal(run.result.chargedVnd, 1400);
     assert.equal(run.result.alreadyPaid, 0);
     assert.equal(h.points(), 6, "the earlier charge + this run");
-    assert.match(h.notifications[1].body, /trừ 1\.400đ\./);
+    assert.match(h.notifications[1].body, /Đã trừ 2 bài × 700đ = 1\.400đ\./);
     assert.equal(h.counters.summary, 1);
   });
 
@@ -1125,7 +1125,7 @@ describe("a scheduled week, end to end", () => {
     assert.deepEqual(h.types(), ["grading.autoUpcoming", "grading.autoDone"]);
     assert.match(
       h.notifications[1].body,
-      /2 học sinh làm bài, đã ghi 2\/2 bài, trừ 1\.400đ/,
+      /2 học sinh làm bài, đã ghi 2\/2 bài\. Đã trừ 2 bài × 700đ = 1\.400đ\./,
     );
     assert.match(h.notifications[1].body, /chuyển sang BUỔI 11/);
     assert.equal(h.pushes.length, 2);

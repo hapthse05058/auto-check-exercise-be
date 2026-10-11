@@ -3984,11 +3984,20 @@ function loadDocLib() {
 function describeJobOutcome(job) {
   const where = `Lớp ${job.className || "?"} · Buổi ${job.lessonName || "?"}`;
   const progress = `đã ghi ${job.written}/${job.total} bài`;
+  const unitPriceVnd = billing.unitPriceOfJob(job);
+  const charge = billing.chargeSentence({
+    charged: job.charged || 0,
+    alreadyPaid: job.alreadyPaid || 0,
+    unitPriceVnd,
+  });
   if (job.reauthRequired || job.error === "google_reauth_required") {
     return {
       type: "grading.jobNeedsReauth",
       title: "Cần đăng nhập lại Google để chấm tiếp",
-      body: `${where}: ${progress}. Đăng nhập lại bằng Google rồi bấm chấm lại.`,
+      body:
+        `${where}: ${progress}.` +
+        (job.charged > 0 ? ` ${charge}` : "") +
+        " Đăng nhập lại bằng Google rồi bấm chấm lại.",
     };
   }
   if (job.error === "not_enough_points") {
@@ -3996,9 +4005,9 @@ function describeJobOutcome(job) {
       type: "grading.jobFailed",
       title: "Chưa chấm được: không đủ số dư",
       body:
-        `${where}: cần ${billing.formatVnd(job.errorParams?.needVnd)} ` +
-        `(${job.errorParams?.need} bài), còn ` +
-        `${billing.formatVnd(job.errorParams?.haveVnd)}.`,
+        `${where}: cần ${billing.costFormula(job.errorParams?.need, unitPriceVnd)}, ` +
+        `còn ${billing.formatVnd(job.errorParams?.haveVnd)}. ` +
+        "Chưa chấm và chưa trừ tiền bài nào.",
     };
   }
   if (job.error) {
@@ -4012,7 +4021,7 @@ function describeJobOutcome(job) {
     type: "grading.jobDone",
     title: "Đã chấm xong",
     body:
-      `${where}: ${progress}.` +
+      `${where}: ${progress}. ${charge}` +
       (job.stopped ? " Dừng giữa chừng vì hết số dư." : ""),
   };
 }

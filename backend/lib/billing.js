@@ -72,6 +72,33 @@ function formatVnd(amountVnd) {
   return `${n < 0 ? "-" : ""}${digits}đ`;
 }
 
+/**
+ * "25 bài × 800đ = 20.000đ": what a charge (or a shortfall) is made of, for
+ * the notifications. Points were one per doc; in VND the teacher needs the
+ * sum spelled out.
+ */
+function costFormula(docs, unitPriceVnd) {
+  const n = Math.max(0, Math.floor(Number(docs) || 0));
+  const price = Math.round(Number(unitPriceVnd) || 0);
+  return `${n} bài × ${formatVnd(price)} = ${formatVnd(n * price)}`;
+}
+
+/**
+ * The money sentence closing a "grading finished" notification:
+ * "Đã trừ 25 bài × 800đ = 20.000đ." — plus the docs an earlier receipt had
+ * already paid for, or "Không trừ tiền." when nothing was charged.
+ */
+function chargeSentence({ charged, alreadyPaid, unitPriceVnd }) {
+  const parts = [];
+  if (charged > 0) {
+    parts.push(`Đã trừ ${costFormula(charged, unitPriceVnd)}.`);
+  }
+  if (alreadyPaid > 0) {
+    parts.push(`${alreadyPaid} bài đã trả tiền trước đó nên không trừ lại.`);
+  }
+  return parts.length ? parts.join(" ") : "Không trừ tiền.";
+}
+
 module.exports = {
   PRICE_MANUAL_VND,
   PRICE_AUTO_VND,
@@ -84,4 +111,6 @@ module.exports = {
   revenueOfTopUp,
   salerCostVnd,
   formatVnd,
+  costFormula,
+  chargeSentence,
 };

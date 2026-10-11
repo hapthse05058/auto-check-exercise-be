@@ -60,7 +60,13 @@
  */
 const crypto = require("crypto");
 
-const { PRICE_AUTO_VND, balanceVndOf, formatVnd } = require("./billing.js");
+const {
+  PRICE_AUTO_VND,
+  balanceVndOf,
+  chargeSentence,
+  costFormula,
+  formatVnd,
+} = require("./billing.js");
 const { createCourses } = require("./courses.js");
 const { ReauthRequiredError } = require("./googleUserToken.js");
 const {
@@ -69,6 +75,16 @@ const {
   JobError,
   RetryLater,
 } = require("./gradingJobs.js");
+
+/**
+ * The per-doc price behind a stored total (a run result, a shortfall): runs
+ * saved before results kept their price only have docs and the sum.
+ */
+function unitPriceFrom(docs, totalVnd) {
+  return docs > 0 && Number.isFinite(totalVnd)
+    ? Math.round(totalVnd / docs)
+    : PRICE_AUTO_VND;
+}
 
 const SCHEDULES = "gradingSchedules";
 const RESERVATIONS = "pointReservations";
@@ -559,7 +575,8 @@ function render(event, run, nowMs) {
         title: "Huỷ chấm tự động: không đủ số dư",
         body:
           `${where}: ${base.submitted} học sinh làm bài, cần ` +
-          `${formatVnd(run.needVnd)} nhưng chỉ còn dùng được ` +
+          `${costFormula(run.pointsNeeded, unitPriceFrom(run.pointsNeeded, run.needVnd))} ` +
+          "nhưng chỉ còn dùng được " +
           formatVnd(run.available) +
           (run.reserved
             ? ` (đang giữ ${formatVnd(run.reserved)} cho lớp khác)`
@@ -621,12 +638,13 @@ function render(event, run, nowMs) {
         title: `Đã chấm xong ${run.lessonName || ""}`.trim(),
         body:
           `${where}: ${base.submitted} học sinh làm bài, đã ghi ` +
-          `${r.written ?? 0}/${r.total ?? base.total} bài, trừ ` +
-          `${formatVnd(r.chargedVnd ?? 0)}` +
-          (r.alreadyPaid
-            ? ` (${r.alreadyPaid} bài đã trả tiền trước đó nên không trừ lại)`
-            : "") +
-          "." +
+          `${r.written ?? 0}/${r.total ?? base.total} bài. ` +
+          chargeSentence({
+            charged: r.charged ?? 0,
+            alreadyPaid: r.alreadyPaid ?? 0,
+            unitPriceVnd:
+              r.unitPriceVnd ?? unitPriceFrom(r.charged, r.chargedVnd),
+          }) +
           note,
         data: {
           ...base,
@@ -643,8 +661,10 @@ function render(event, run, nowMs) {
       const r = run.result || {};
       const why =
         r.error === "not_enough_points"
-          ? `không đủ số dư (cần ${formatVnd(r.errorParams?.needVnd)}, ` +
-            `còn ${formatVnd(r.errorParams?.haveVnd)})`
+          ? `không đủ số dư (cần ${costFormula(
+              r.errorParams?.need,
+              unitPriceFrom(r.errorParams?.need, r.errorParams?.needVnd),
+            )}, còn ${formatVnd(r.errorParams?.haveVnd)})`
           : r.error === "google_reauth_required"
             ? "cần đăng nhập lại bằng Google"
             : r.error || "lỗi không xác định";
@@ -1310,6 +1330,7 @@ function createGradingSchedules(deps) {
             total: job.total ?? 0,
             charged: job.charged ?? 0,
             alreadyPaid: job.alreadyPaid ?? 0,
+            unitPriceVnd: job.unitPriceVnd ?? PRICE_AUTO_VND,
             chargedVnd:
               (job.charged ?? 0) * (job.unitPriceVnd ?? PRICE_AUTO_VND),
             skipped: job.skipped ?? 0,
