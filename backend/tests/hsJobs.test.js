@@ -202,7 +202,13 @@ describe("HS grading job", () => {
       email: "teacher@x.com",
       authKind: "google",
     });
-    assert.deepEqual(count, { total: 3, pending: 1, alreadyGraded: 1 });
+    assert.deepEqual(count, {
+      total: 3,
+      pending: 1,
+      alreadyGraded: 1,
+      notDone: 1,
+      other: 0,
+    });
     assert.equal(h.counters.hs, 0); // counting never grades
   });
 });

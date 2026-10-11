@@ -1172,12 +1172,24 @@ function createGradingJobs(deps) {
    * exactly what a job started now would grade. Scheduled grading announces
    * this count, and reserves points for it, before starting the job.
    *
+   * `docIds` (the grading screen's pasted links) narrows it like createJob.
+   *
    * Throws ReauthRequiredError when the teacher's Google grant is gone, and
    * the Docs API's transient errors so the caller's step is retried.
    *
-   * @returns {Promise<{total: number, pending: number, alreadyGraded: number}>}
+   * @returns {Promise<{total: number, pending: number, alreadyGraded: number,
+   *   notDone: number, other: number}>} pending = will be graded (and
+   *   charged); alreadyGraded = every answer already has feedback; notDone =
+   *   nothing answered yet; other = cannot be graded (unreadable doc, lesson
+   *   missing, table layout) — the run says why in its warnings.
    */
-  async function countSubmissions({ classId, lessonId, email, authKind }) {
+  async function countSubmissions({
+    classId,
+    lessonId,
+    email,
+    authKind,
+    docIds,
+  }) {
     const [classSnap, lessonSnap] = await Promise.all([
       db.collection("classes").doc(String(classId)).get(),
       db.collection("lesson").doc(String(lessonId)).get(),
@@ -1185,8 +1197,10 @@ function createGradingJobs(deps) {
     if (!classSnap.exists) throw new JobError(404, "class_not_found");
     if (!lessonSnap.exists) throw new JobError(404, "lesson_not_found");
 
-    const ids = await resolveDocIds(String(classId));
-    if (!ids.length) return { total: 0, pending: 0, alreadyGraded: 0 };
+    const ids = await resolveDocIds(String(classId), docIds);
+    if (!ids.length) {
+      return { total: 0, pending: 0, alreadyGraded: 0, notDone: 0, other: 0 };
+    }
 
     const lib = await loadDocLib();
     const access = await tokens.getDocsAccessToken(
@@ -1202,12 +1216,17 @@ function createGradingJobs(deps) {
     const docs = await mapLimit(ids, READ_CONCURRENCY, (docId) =>
       readForGrading(lib, reading, docId, access),
     );
+    const pending = docs.filter((d) => d.status === "pending").length;
+    const alreadyGraded = docs.filter(
+      (d) => d.reason === "alreadyGraded" || d.reason === "oldFeedback",
+    ).length;
+    const notDone = docs.filter((d) => d.reason === "noAnswers").length;
     return {
       total: ids.length,
-      pending: docs.filter((d) => d.status === "pending").length,
-      alreadyGraded: docs.filter(
-        (d) => d.reason === "alreadyGraded" || d.reason === "oldFeedback",
-      ).length,
+      pending,
+      alreadyGraded,
+      notDone,
+      other: ids.length - pending - alreadyGraded - notDone,
     };
   }
 
@@ -1835,9 +1854,50 @@ function createGradingJobs(deps) {
     return describe(snap.id, snap.data());
   }
 
+  /**
+   * What a run started by hand now would grade and charge — the grading
+   * screen asks before the teacher presses the button: countSubmissions over
+   * the class (or the pasted docs) at the hand price. Docs not done yet and
+   * docs already graded are left out, exactly as the run leaves them out.
+   * Same rights as createJob (the class's teacher, or an admin) and a live
+   * Google grant; nothing is written.
+   *
+   * @returns {Promise<{total, pending, alreadyGraded, notDone, other,
+   *   unitPriceVnd: number, needVnd: number}>}
+   */
+  async function previewJob({ email, authKind, classId, lessonId, docIds }) {
+    classId = String(classId || "");
+    lessonId = String(lessonId || "");
+    if (!classId || !lessonId) {
+      throw new JobError(400, "classId_and_lessonId_required");
+    }
+    if (Array.isArray(docIds) && docIds.length > MAX_DOCS) {
+      throw new JobError(400, "too_many_docs", { max: MAX_DOCS });
+    }
+    if (authKind === "google" && !(await tokens.hasRefreshToken(email))) {
+      throw new JobError(409, "google_reauth_required");
+    }
+    if (!(await resolvePayer(email, classId))) {
+      throw new JobError(403, "payer_not_found");
+    }
+    const count = await countSubmissions({
+      classId,
+      lessonId,
+      email,
+      authKind,
+      docIds,
+    });
+    return {
+      ...count,
+      unitPriceVnd: PRICE_MANUAL_VND,
+      needVnd: count.pending * PRICE_MANUAL_VND,
+    };
+  }
+
   return {
     countSubmissions,
     createJob,
+    previewJob,
     finalize,
     getJob,
     getLatestJob,

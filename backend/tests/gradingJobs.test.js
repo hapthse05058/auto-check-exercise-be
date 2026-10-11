@@ -656,3 +656,77 @@ describe("section headings", () => {
     assert.deepEqual(h.docsApi.feedbackOf("docB"), [CORRECTION]);
   });
 });
+
+describe("previewJob: what grading by hand would grade and charge now", () => {
+  const classOfFive = () => ({
+    ...classOfFour(),
+    docEmpty: makeTab({ answers: [""] }),
+  });
+
+  it("counts only the docs to grade — not done and already graded left out", async () => {
+    const h = createHarness({ tabs: classOfFive() });
+    const preview = await h.jobs.previewJob({
+      email: "teacher@x.com",
+      authKind: "google",
+      classId: "c1",
+      lessonId: "l10",
+    });
+    assert.deepEqual(preview, {
+      total: 5,
+      pending: 2,
+      alreadyGraded: 1,
+      notDone: 1,
+      other: 1,
+      unitPriceVnd: 800,
+      needVnd: 1600,
+    });
+    // Reads only: nothing graded, written or charged.
+    assert.equal(h.counters.grade, 0);
+    assert.equal(h.counters.consume, 0);
+    assert.equal(h.queue.pending.length, 0);
+  });
+
+  it("matches what a run then grades and charges", async () => {
+    const h = createHarness({ tabs: classOfFive(), points: 10 });
+    const preview = await h.jobs.previewJob({
+      email: "teacher@x.com",
+      authKind: "google",
+      classId: "c1",
+      lessonId: "l10",
+    });
+    const job = h.job(await runJob(h));
+    assert.equal(job.written, preview.pending);
+    assert.equal(job.charged, preview.pending);
+  });
+
+  it("pasted links narrow it to those docs", async () => {
+    const h = createHarness({ tabs: classOfFive() });
+    const preview = await h.jobs.previewJob({
+      email: "teacher@x.com",
+      authKind: "google",
+      classId: "c1",
+      lessonId: "l10",
+      docIds: ["docA", "docGraded"],
+    });
+    assert.equal(preview.total, 2);
+    assert.equal(preview.pending, 1);
+    assert.equal(preview.alreadyGraded, 1);
+  });
+
+  it("same rights as grading: someone with no payer is refused", async () => {
+    const h = createHarness({ tabs: classOfFive() });
+    await assert.rejects(
+      h.jobs.previewJob({
+        email: "stranger@x.com",
+        authKind: "jwt",
+        classId: "c1",
+        lessonId: "l10",
+      }),
+      (err) => err instanceof JobError && err.code === "payer_not_found",
+    );
+    await assert.rejects(
+      h.jobs.previewJob({ email: "teacher@x.com", classId: "c1" }),
+      (err) => err.code === "classId_and_lessonId_required",
+    );
+  });
+});

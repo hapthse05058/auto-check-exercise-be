@@ -4239,6 +4239,35 @@ app.post("/ielts-template-updates", verifyGoogleToken, async (req, res) => {
   }
 });
 
+/**
+ * What grading the lesson by hand would grade and charge right now (lib/
+ * gradingJobs.js previewJob): docs not done and docs already graded left
+ * out. A GET so the grading screen can ask on every lesson pick without
+ * filling the audit log; reads the docs, writes nothing. `docIds` (pasted
+ * links) is comma-separated. Before /grading-jobs/:id.
+ */
+app.get("/grading-jobs/preview", verifyGoogleToken, async (req, res) => {
+  try {
+    const docIds = String(req.query.docIds || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const preview = await gradingJobs.previewJob({
+      email: req.userEmail,
+      authKind: req.authKind,
+      classId: req.query.classId,
+      lessonId: req.query.lessonId,
+      docIds: docIds.length ? docIds : undefined,
+    });
+    return res.json(preview);
+  } catch (err) {
+    if (err instanceof ReauthRequiredError) {
+      return res.status(409).json({ error: "google_reauth_required" });
+    }
+    return sendJobError(res, err, "preview");
+  }
+});
+
 // Before /grading-jobs/:id, which would otherwise capture "latest".
 app.get("/grading-jobs/latest", verifyGoogleToken, async (req, res) => {
   try {

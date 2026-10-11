@@ -453,7 +453,14 @@ describe("IELTS grading job on an older template", () => {
       email: "teacher@x.com",
       authKind: "google",
     });
-    assert.deepEqual(count, { total: 1, pending: 0, alreadyGraded: 0 });
+    // An outdated lesson cannot be graded: "other", not "to grade".
+    assert.deepEqual(count, {
+      total: 1,
+      pending: 0,
+      alreadyGraded: 0,
+      notDone: 0,
+      other: 1,
+    });
     assert.equal(doc.batches.length, 0);
   });
 

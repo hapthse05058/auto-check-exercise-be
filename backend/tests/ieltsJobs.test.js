@@ -297,7 +297,13 @@ describe("IELTS grading job", () => {
       email: "teacher@x.com",
       authKind: "google",
     });
-    assert.deepEqual(count, { total: 2, pending: 1, alreadyGraded: 1 });
+    assert.deepEqual(count, {
+      total: 2,
+      pending: 1,
+      alreadyGraded: 1,
+      notDone: 0,
+      other: 0,
+    });
     assert.equal(h.counters.images.length, 0);
   });
 
