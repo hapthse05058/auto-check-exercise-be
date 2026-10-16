@@ -1731,7 +1731,7 @@ function createGradingSchedules(deps) {
       }
       return doc;
     });
-    return toClient(saved, null);
+    return toClient(saved, null, (await nextLessons([saved])).get(cls.id));
   }
 
   async function disable({ viewer, classId }) {
@@ -1807,7 +1807,60 @@ function createGradingSchedules(deps) {
     };
   }
 
-  function toClient(s, lastRun) {
+  /**
+   * classId → {lessonId, lessonName}: the lesson each enabled schedule's next
+   * run grades — the class's current lesson or, once that run has been
+   * announced, the lesson it was announced with (changing the current lesson
+   * no longer moves it).
+   */
+  async function nextLessons(schedules) {
+    const live = schedules.filter((s) => s?.enabled && s.next);
+    const out = new Map();
+    if (!live.length) return out;
+    const announced = live.filter((s) => s.nextStep === "run");
+    const runs = announced.length
+      ? await db.getAll(
+          ...announced.map((s) => runRef(s.classId, s.next.runKey)),
+        )
+      : [];
+    runs.forEach((snap, i) => {
+      const r = snap.exists ? snap.data() : null;
+      if (r?.lessonId && (r.state === "reminded" || r.state === "starting")) {
+        out.set(announced[i].classId, {
+          lessonId: r.lessonId,
+          lessonName: r.lessonName || r.lessonId,
+        });
+      }
+    });
+    const rest = live.filter((s) => !out.has(s.classId));
+    if (!rest.length) return out;
+    const classes = await db.getAll(
+      ...rest.map((s) => db.collection("classes").doc(s.classId)),
+    );
+    const current = new Map();
+    classes.forEach((snap, i) => {
+      const id = snap.exists ? snap.data().currentLesson : null;
+      if (id) current.set(rest[i].classId, String(id));
+    });
+    const lessonIds = [...new Set(current.values())];
+    const lessons = lessonIds.length
+      ? await db.getAll(
+          ...lessonIds.map((id) => db.collection("lesson").doc(id)),
+        )
+      : [];
+    const names = new Map(
+      lessons.map((snap, i) => [
+        lessonIds[i],
+        (snap.exists && snap.data().name) || lessonIds[i],
+      ]),
+    );
+    for (const [classId, lessonId] of current) {
+      out.set(classId, { lessonId, lessonName: names.get(lessonId) });
+    }
+    return out;
+  }
+
+  function toClient(s, lastRun, lesson = null) {
     if (!s) return null;
     const days = isDaySchedule(s);
     return {
@@ -1831,6 +1884,9 @@ function createGradingSchedules(deps) {
               runAt: s.next.runAt,
               remindAt: remindAtOf(s.next),
               offPeak: Boolean(s.next.offPeak),
+              // The lesson it grades (null: the class has none).
+              lessonId: lesson?.lessonId || null,
+              lessonName: lesson?.lessonName || "",
             }
           : null,
       nextStep: s.nextStep || null,
@@ -1856,7 +1912,11 @@ function createGradingSchedules(deps) {
     if (!snap.exists) return null;
     const s = snap.data();
     const last = s.lastRunKey ? await runRef(cls.id, s.lastRunKey).get() : null;
-    return toClient(s, last?.exists ? last.data() : null);
+    return toClient(
+      s,
+      last?.exists ? last.data() : null,
+      (await nextLessons([s])).get(cls.id),
+    );
   }
 
   /** Schedules of the given classes (the caller decides which it may see). */
@@ -1864,7 +1924,9 @@ function createGradingSchedules(deps) {
     const ids = [...new Set((classIds || []).map(String).filter(Boolean))];
     if (!ids.length) return [];
     const snaps = await db.getAll(...ids.map((id) => scheduleRef(id)));
-    return snaps.filter((s) => s.exists).map((s) => toClient(s.data(), null));
+    const schedules = snaps.filter((s) => s.exists).map((s) => s.data());
+    const lessons = await nextLessons(schedules);
+    return schedules.map((s) => toClient(s, null, lessons.get(s.classId)));
   }
 
   // -------------------------------------------------------------------------

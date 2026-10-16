@@ -1185,6 +1185,39 @@ describe("a scheduled week, end to end", () => {
       reason: "changed",
     });
   });
+
+  it("the schedule says which lesson its next run grades", async () => {
+    const h = scheduleHarness({ tabs: { docA: pending() } });
+    const lessonOfNext = async () => {
+      const { next } = await h.s.get({ viewer: TEACHER, classId: "c1" });
+      const [listed] = await h.s.listFor(["c1"]);
+      assert.deepEqual(listed.next, next);
+      return `${next.lessonId} ${next.lessonName}`;
+    };
+    const saved = await h.save();
+    assert.equal(saved.next.lessonName, LESSON);
+    assert.equal(await lessonOfNext(), `lesson10 ${LESSON}`);
+    // The teacher picks another lesson: the next run follows it...
+    const pick = (lessonId) =>
+      h.db._apply({
+        type: "set",
+        path: "classes/c1",
+        data: { currentLesson: lessonId },
+        options: { merge: true },
+      });
+    pick("lesson11");
+    assert.equal(await lessonOfNext(), "lesson11 BUỔI 11");
+    pick("lesson10");
+    // ...until it is announced: then it grades the lesson it announced.
+    await h.at(h.schedule().nextDueAt);
+    assert.equal(h.schedule().nextStep, "run");
+    pick("lesson11");
+    assert.equal(await lessonOfNext(), `lesson10 ${LESSON}`);
+    pick("lesson10");
+    // Graded: the class moved on, and so did next week's run.
+    await h.at(h.schedule().nextDueAt);
+    assert.equal(await lessonOfNext(), "lesson11 BUỔI 11");
+  });
 });
 
 // ---------------------------------------------------------------------------
