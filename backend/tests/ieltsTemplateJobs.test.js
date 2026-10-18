@@ -187,6 +187,9 @@ const SUMMARY = {
   failed: 0,
   tables: 0,
   noTable: 0,
+  reasons: {},
+  docs: [],
+  serviceAccountDocs: 0,
 };
 
 describe("IELTS template update (its own button)", () => {
@@ -270,7 +273,111 @@ describe("IELTS template update (its own button)", () => {
       new DocsApiError(400, "Invalid requests"),
       { docId: "docA" },
     );
-    assert.deepEqual(await updateTemplates(h), { ...SUMMARY, failed: 1 });
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      failed: 1,
+      reasons: { update_rejected: 1 },
+      docs: [{ docId: "docA", status: "failed", reason: "update_rejected" }],
+    });
+  });
+
+  it("a doc not shared with the teacher's Google account is read and updated with the service account", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    h.docsApi.failNext(
+      "get",
+      new DocsApiError(403, "The caller does not have permission"),
+      { docId: "docA", token: "tok" },
+    );
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      updated: 1,
+      tables: 2,
+      serviceAccountDocs: 1,
+    });
+    assert.equal(doc.batches.length, 1);
+  });
+
+  it("a teacher who may only view the doc: the service account writes the update", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    h.docsApi.failNext(
+      "batchUpdate",
+      new DocsApiError(403, "The caller does not have permission"),
+      { docId: "docA", token: "tok" },
+    );
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      updated: 1,
+      tables: 2,
+      serviceAccountDocs: 1,
+    });
+    assert.equal(doc.batches.length, 1);
+  });
+
+  it("a stale Google grant: the token is dropped and the service account does the update", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    let invalidated = 0;
+    h.tokens.invalidate = () => (invalidated += 1);
+    h.docsApi.failNext("get", new DocsApiError(401, "Invalid Credentials"), {
+      docId: "docA",
+      token: "tok",
+    });
+    const summary = await updateTemplates(h);
+    assert.equal(summary.updated, 1);
+    assert.equal(summary.serviceAccountDocs, 1);
+    assert.equal(invalidated, 1);
+  });
+
+  it("says why a doc was not updated: no tab for the lesson, or a doc nobody can open", async () => {
+    const h = createHarness({
+      tabs: { docA: lessonDoc(oldSpec(), newSpec()).value },
+      gradingProfile: "ielts",
+    });
+    h.db._apply({
+      type: "set",
+      path: "lesson/l99",
+      data: { name: "BUỔI 99 - Lesson" },
+    });
+    assert.deepEqual(await updateTemplates(h, { lessonId: "l99" }), {
+      ...SUMMARY,
+      skipped: 1,
+      reasons: { tabMissing: 1 },
+      docs: [{ docId: "docA", status: "skipped", reason: "tabMissing" }],
+    });
+
+    // Gone for the teacher and for the service account alike.
+    h.docsApi.failNext(
+      "get",
+      new DocsApiError(404, "Requested entity was not found."),
+      {
+        docId: "docA",
+        times: 2,
+      },
+    );
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      skipped: 1,
+      reasons: { doc_not_found: 1 },
+      docs: [
+        {
+          docId: "docA",
+          status: "skipped",
+          reason: "doc_not_found",
+          message: "Requested entity was not found.",
+        },
+      ],
+    });
   });
 
   it("the doc moved meanwhile: read again, planned again, updated", async () => {

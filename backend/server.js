@@ -4227,9 +4227,13 @@ app.post("/ielts-template-updates", verifyGoogleToken, async (req, res) => {
     const lessons = Array.isArray(req.body.lessonIds)
       ? req.body.lessonIds.join(", ")
       : req.body.lessonId;
+    const reasons = Object.entries(summary.reasons || {})
+      .map(([reason, n]) => `${reason} ${n}`)
+      .join(", ");
     res.locals.auditDetail =
       `Mẫu IELTS · lớp ${req.body.classId} · buổi ${lessons} · ` +
-      `${summary.updated}/${summary.total} doc`;
+      `${summary.updated}/${summary.total} doc` +
+      (reasons ? ` · ${reasons}` : "");
     return res.json(summary);
   } catch (err) {
     if (err instanceof ReauthRequiredError) {
