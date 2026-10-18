@@ -431,6 +431,7 @@ function createHarness({
     push: 0,
     consume: 0,
     tokenCalls: 0,
+    indentExports: 0, // tableIndentsOf calls
     gradedItems: [], // every item handed to gradeItems
     ielts: 0, // gradeIelts calls
     ieltsInputs: [], // every validated IELTS submission graded
@@ -444,6 +445,7 @@ function createHarness({
     beforeConsume: null, // async ({docId}) => void, may throw
     afterConsume: null,
     tokenError: null, // () => Error | null, per getDocsAccessToken call
+    tableIndents: null, // (docId, tabId) => number[] | null — the export's
     noStoredToken: false, // the Google user never had a token stored
     // () => the grading-schedule service, when a test wires one in (the same
     // delegation server.js does through scheduleAwareOnFinished).
@@ -506,6 +508,10 @@ function createHarness({
         return Object.assign({}, ...modules, { hs });
       }),
     gradingProfileOfClass: async () => gradingProfile,
+    tableIndentsOf: async (docId, tabId) => {
+      counters.indentExports += 1;
+      return hooks.tableIndents?.(docId, tabId) ?? null;
+    },
     ieltsEnabled,
     hsEnabled,
     async gradeHs(items) {

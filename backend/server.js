@@ -25,6 +25,7 @@ const {
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const googleDocsApi = require("./lib/googleDocsApi.js");
+const { createTableIndents } = require("./lib/docTableIndents.js");
 const {
   createGoogleUserTokens,
   createTokenCipher,
@@ -4042,6 +4043,10 @@ const gradingJobs = createGradingJobs({
   db,
   admin,
   docsApi: googleDocsApi,
+  // The service account reads the export: a teacher's grant may lack scopes.
+  tableIndentsOf: createTableIndents({
+    getToken: getServiceAccountGoogleToken,
+  }).indentsOf,
   tokens: googleUserTokens,
   loadDocLib,
   gradeItems: gradeItemsCached,

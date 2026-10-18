@@ -1838,8 +1838,9 @@ function headingStyle(start, end, tabId, look) {
   };
 }
 
-/** A plain left-aligned, unbulleted paragraph over [start, end). */
-function plainParagraph(start, end, tabId) {
+/** A plain left-aligned, unbulleted paragraph over [start, end), indented
+ * `indent` pt (none by default). */
+function plainParagraph(start, end, tabId, indent = 0) {
   const range = { startIndex: start, endIndex: end, tabId };
   return [
     { deleteParagraphBullets: { range } },
@@ -1849,8 +1850,8 @@ function plainParagraph(start, end, tabId) {
         paragraphStyle: {
           namedStyleType: "NORMAL_TEXT",
           alignment: "START",
-          indentStart: { magnitude: 0, unit: "PT" },
-          indentFirstLine: { magnitude: 0, unit: "PT" },
+          indentStart: { magnitude: indent, unit: "PT" },
+          indentFirstLine: { magnitude: indent, unit: "PT" },
         },
         fields: "namedStyleType,alignment,indentStart,indentFirstLine",
       },
@@ -1871,11 +1872,14 @@ function plainParagraph(start, end, tabId) {
  * A new table takes the indent of the paragraph it goes into, and no request
  * moves a table afterwards: the lessons' paragraph below a writing table is
  * often indented 1 cm, which put the review table 1 cm right of the writing
- * table. So that paragraph is made plain BEFORE the table goes in. `widths`
- * (the writing table's fixed column widths, or null) — the review table is
- * as wide as it, so both edges line up.
+ * table. So that paragraph is given the writing table's own indent (`indent`
+ * pt — the Docs API does not tell it, lib/docTableIndents.js measures it;
+ * 0 when unknown) BEFORE the table goes in; the "Nhận xét chung" / "Lời
+ * khuyên cải thiện" lines below it start at that same edge. `widths` (the
+ * writing table's fixed column widths, or null) — the review table is as
+ * wide as it, so both edges line up.
  */
-function reviewTableRequests(at, tabId, look, count, widths) {
+function reviewTableRequests(at, tabId, look, count, widths, indent = 0) {
   const heads = Array.from({ length: count }, (_, r) => [
     `${CORRECTED_HEADING} ${r + 1}`,
     `${IMPROVED_ROW_HEADING} ${r + 1}`,
@@ -1888,16 +1892,19 @@ function reviewTableRequests(at, tabId, look, count, widths) {
         text: `${GENERAL_HEADING}\n${ADVICE_HEADING}\n`,
       },
     },
-    ...plainParagraph(at, at + 1, tabId),
+    ...plainParagraph(at, at + 1, tabId, indent),
     {
       insertTable: { rows: count, columns: 2, location: { index: at, tabId } },
     },
   ];
   if (widths) {
-    const total = widths.reduce((sum, w) => sum + w, 0);
+    // Widths go in rounded to 0.01 pt: the second column takes what the
+    // first leaves, so the two add up to the writing table's width.
+    const total = Math.round(widths.reduce((sum, w) => sum + w, 0) * 100);
+    const first = Math.round(total / 2);
     requests.push(
-      columnWidth(at + 1, tabId, 0, total / 2),
-      columnWidth(at + 1, tabId, 1, total / 2),
+      columnWidth(at + 1, tabId, 0, first / 100),
+      columnWidth(at + 1, tabId, 1, (total - first) / 100),
     );
   }
   for (let r = count - 1; r >= 0; r--) {
@@ -1923,8 +1930,13 @@ function reviewTableRequests(at, tabId, look, count, widths) {
   const adviceAt = generalAt + GENERAL_HEADING.length + 1;
   return [
     ...requests,
-    ...plainParagraph(at, at + 1, tabId),
-    ...plainParagraph(generalAt, adviceAt + ADVICE_HEADING.length + 1, tabId),
+    ...plainParagraph(at, at + 1, tabId, indent),
+    ...plainParagraph(
+      generalAt,
+      adviceAt + ADVICE_HEADING.length + 1,
+      tabId,
+      indent,
+    ),
     ...styles,
     headingStyle(generalAt, generalAt + GENERAL_HEADING.length, tabId, look),
     headingStyle(adviceAt, adviceAt + ADVICE_HEADING.length, tabId, look),
@@ -1961,7 +1973,7 @@ function pairDeletion(body, at, tabId) {
  *   groups: Array<{start, requests}>}} skip: "graded" (some feedback holds
  *   text: left as it is), "layout", "noTable".
  */
-function planReviewExercise(body, tables, tabId) {
+function planReviewExercise(body, tables, tabId, indentOf = () => 0) {
   if (tables.some((at) => resolveReviewTable(body[at].table))) {
     return { done: true };
   }
@@ -2055,6 +2067,7 @@ function planReviewExercise(body, tables, tabId) {
       textLookOf(last.table),
       essays.length,
       fixedWidths(last.table),
+      indentOf(lastAt),
     ),
   );
   groups.push({ start: last.endIndex, requests: insert });
@@ -2205,11 +2218,15 @@ function sentenceColumnRequests(block, tabId, look) {
  * is a no-op. Groups run from the end of the tab up, so no change moves the
  * next one's indexes.
  *
+ * `tableIndents` — the left indent (pt) of each table of the tab, in order
+ * (lib/docTableIndents.js): a review table starts where its writing table
+ * does. Without it, at the margin.
+ *
  * @returns {{changes: Array<{exercise, kind, tableIdx, written}>,
  *   skipped: Array<{exercise, reason}>, requests: object[]}}
  *   reason: "graded" | "noTable" | "merged" | "layout".
  */
-export function planIeltsTemplateUpdate(tab) {
+export function planIeltsTemplateUpdate(tab, { tableIndents } = {}) {
   const tabId = tab?.tabProperties?.tabId;
   const body = tab?.documentTab?.body?.content || [];
   const changes = [];
@@ -2282,7 +2299,12 @@ export function planIeltsTemplateUpdate(tab) {
       continue;
     }
 
-    const plan = planReviewExercise(body, tables, tabId);
+    const plan = planReviewExercise(
+      body,
+      tables,
+      tabId,
+      (at) => tableIndents?.[tableIdxAt.get(at)] || 0,
+    );
     if (plan.skip) {
       skipped.push({ exercise: name, reason: plan.skip });
       continue;

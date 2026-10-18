@@ -75,6 +75,8 @@ const MAX_DOCS = 200;
 const READ_CONCURRENCY = 5;
 /** Plan-and-write rounds of an IELTS template update (a doc may move). */
 const MAX_TEMPLATE_ROUNDS = 3;
+/** Lesson tabs whose table indents are remembered (updateTemplates). */
+const MAX_INDENT_CACHE = 500;
 /** What Google says when the teacher's token may not touch a doc, which the
  * service account then does instead (updateTemplates). */
 const TEMPLATE_FALLBACK_KINDS = new Set(["auth", "forbidden", "not_found"]);
@@ -167,6 +169,8 @@ const info = (...args) => console.log("[GRADING-JOB]", ...args);
  *                             {results: Map<row, {verdict, feedback}>}
  *                             (lib/ieltsSentences.js)
  * @param deps.fetchImage      (contentUri, accessToken) => Promise<{mime, buffer}>
+ * @param deps.tableIndentsOf  (docId, tabId) => Promise<number[]|null> each
+ *   table's left indent in a tab (lib/docTableIndents.js)
  * @param deps.ieltsEnabled    false refuses IELTS jobs up front (no model set)
  * @param deps.gradeHs         (items, {useCache, requestId}) =>
  *                             Map<hsItemIdentity, {verdict, warning?}>
@@ -188,6 +192,7 @@ function createGradingJobs(deps) {
     gradeIelts,
     gradeIeltsSentences,
     fetchImage,
+    tableIndentsOf = async () => null,
     ieltsEnabled = true,
     gradeHs,
     hsEnabled = true,
@@ -784,11 +789,55 @@ function createGradingJobs(deps) {
    *   the update was refused; data: the doc as last read (the next lesson
    *   plans on it); access: the one that wrote (the next lesson writes so).
    */
+  /**
+   * Each table's left indent in a lesson tab, so the review table the update
+   * adds starts where its writing table does. Measured from the doc's export
+   * (slow, rate-limited): every student's doc is a copy of the course's, so
+   * one measure serves the lesson's tab of every doc with the same tables.
+   * Null when it cannot be had (the review table then starts at the margin).
+   */
+  const indentCache = new Map();
+  function tableIndents(docId, tab) {
+    const tables = (tab.documentTab?.body?.content || []).filter(
+      (b) => b.table,
+    );
+    const key = JSON.stringify([
+      tab.tabProperties?.title,
+      tables.map(({ table }) => [
+        table.rows,
+        table.columns,
+        (table.tableStyle?.tableColumnProperties || []).map(
+          (c) => c.width?.magnitude || 0,
+        ),
+      ]),
+    ]);
+    if (!indentCache.has(key)) {
+      if (indentCache.size >= MAX_INDENT_CACHE) {
+        indentCache.delete(indentCache.keys().next().value);
+      }
+      const measured = tableIndentsOf(docId, tab.tabProperties?.tabId)
+        .catch(() => null)
+        .then((indents) => {
+          if (indents?.length === tables.length) return indents;
+          indentCache.delete(key); // the next doc tries again
+          return null;
+        });
+      indentCache.set(key, measured);
+    }
+    return indentCache.get(key);
+  }
+
   async function updateIeltsTemplate(lib, job, docId, access, data, fallback) {
     let changed = 0;
     for (let attempt = 0; attempt < MAX_TEMPLATE_ROUNDS; attempt++) {
       const tab = findLessonTab(lib, job, data);
-      const plan = lib.planIeltsTemplateUpdate(tab);
+      let plan = lib.planIeltsTemplateUpdate(tab);
+      if (plan.requests.some((r) => r.insertTable)) {
+        const indents = await tableIndents(docId, tab);
+        if (indents) {
+          plan = lib.planIeltsTemplateUpdate(tab, { tableIndents: indents });
+        }
+      }
       const noTable = plan.skipped.filter((s) => s.reason === "noTable").length;
       if (!plan.requests.length) {
         return { changed, noTable, failed: false, data, access };

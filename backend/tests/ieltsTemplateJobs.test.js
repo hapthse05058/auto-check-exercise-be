@@ -228,7 +228,7 @@ describe("the review table lines up with the writing table above it", () => {
     );
   });
 
-  it("is as wide as a fixed-width writing table, half each column", async () => {
+  it("is as wide as a fixed-width writing table, half each column, adding up to it", async () => {
     const lib = await loadLib();
     const { tab, essay } = lessonTab([740.67]);
     const widths = lib
@@ -244,8 +244,76 @@ describe("the review table lines up with the writing table above it", () => {
       ]);
     assert.deepEqual(widths, [
       [0, 370.34],
-      [1, 370.34],
+      [1, 370.33],
     ]);
+  });
+
+  it("starts where an indented writing table starts, and so do the lines below it", async () => {
+    const lib = await loadLib();
+    const { tab, essay } = lessonTab([756.75]);
+    // Tables: the writing table (0), the sentence table (1).
+    const { requests } = lib.planIeltsTemplateUpdate(tab, {
+      tableIndents: [28.5, 0],
+    });
+    const insert = requests.findIndex((r) => r.insertTable);
+    const plain = requests.findIndex(
+      (r) => r.updateParagraphStyle?.range.startIndex === essay.endIndex,
+    );
+    assert.ok(plain < insert);
+    assert.deepEqual(
+      requests[plain].updateParagraphStyle.paragraphStyle.indentStart,
+      { magnitude: 28.5, unit: "PT" },
+    );
+    // Before the table, the blank line Docs adds, and "Nhận xét chung" /
+    // "Lời khuyên cải thiện" (one range over both lines).
+    const styles = requests.filter((r) => r.updateParagraphStyle);
+    assert.equal(styles.length, 3);
+    const headings = styles.at(-1).updateParagraphStyle;
+    assert.equal(
+      headings.range.endIndex - headings.range.startIndex,
+      "Nhận xét chung\nLời khuyên cải thiện\n".length,
+    );
+    for (const { updateParagraphStyle: s } of styles) {
+      assert.equal(s.paragraphStyle.indentStart.magnitude, 28.5);
+      assert.equal(s.paragraphStyle.indentFirstLine.magnitude, 28.5);
+    }
+  });
+
+  it("the indent is measured once per lesson, for every doc with the same tables", async () => {
+    const docA = lessonDoc(oldSpec(), newSpec());
+    const docB = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: docA.value, docB: docB.value },
+      gradingProfile: "ielts",
+    });
+    h.hooks.tableIndents = () => [28.5, 0];
+    const summary = await updateTemplates(h);
+    assert.equal(summary.updated, 2);
+    assert.equal(h.counters.indentExports, 1);
+    for (const doc of [docA, docB]) {
+      const indent = doc.batches[0].find(
+        (r) => r.updateParagraphStyle?.paragraphStyle.indentStart.magnitude,
+      );
+      assert.equal(
+        indent.updateParagraphStyle.paragraphStyle.indentStart.magnitude,
+        28.5,
+      );
+    }
+  });
+
+  it("an export that cannot be had: the review table starts at the margin", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    const summary = await updateTemplates(h); // tableIndents: null
+    assert.equal(summary.updated, 1);
+    assert.ok(
+      !doc.batches[0].some(
+        (r) => r.updateParagraphStyle?.paragraphStyle.indentStart.magnitude,
+      ),
+    );
   });
 
   it("an auto-width writing table: the review table is auto-width too", async () => {
