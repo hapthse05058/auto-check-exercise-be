@@ -192,6 +192,71 @@ const SUMMARY = {
   serviceAccountDocs: 0,
 };
 
+describe("the review table lines up with the writing table above it", () => {
+  /** The lesson with its writing table at `widths` (fixed) — or auto. */
+  function lessonTab(widths) {
+    const tab = renderTab(oldSpec());
+    const essay = tab.documentTab.body.content[3];
+    if (widths) {
+      essay.table.tableStyle = {
+        tableColumnProperties: widths.map((magnitude) => ({
+          widthType: "FIXED_WIDTH",
+          width: { magnitude, unit: "PT" },
+        })),
+      };
+    }
+    return { tab, essay };
+  }
+
+  it("the paragraph it goes into is made plain first: a table takes that paragraph's indent", async () => {
+    const lib = await loadLib();
+    const { tab, essay } = lessonTab([771]);
+    const { requests } = lib.planIeltsTemplateUpdate(tab);
+    const at = essay.endIndex;
+    const insert = requests.findIndex((r) => r.insertTable);
+    assert.equal(requests[insert].insertTable.location.index, at);
+    const plain = requests.findIndex(
+      (r) => r.updateParagraphStyle?.range.startIndex === at,
+    );
+    assert.ok(
+      plain >= 0 && plain < insert,
+      "indent cleared before insertTable",
+    );
+    assert.deepEqual(
+      requests[plain].updateParagraphStyle.paragraphStyle.indentStart,
+      { magnitude: 0, unit: "PT" },
+    );
+  });
+
+  it("is as wide as a fixed-width writing table, half each column", async () => {
+    const lib = await loadLib();
+    const { tab, essay } = lessonTab([740.67]);
+    const widths = lib
+      .planIeltsTemplateUpdate(tab)
+      .requests.filter(
+        (r) =>
+          r.updateTableColumnProperties?.tableStartLocation.index ===
+          essay.endIndex + 1,
+      )
+      .map((r) => [
+        r.updateTableColumnProperties.columnIndices[0],
+        r.updateTableColumnProperties.tableColumnProperties.width.magnitude,
+      ]);
+    assert.deepEqual(widths, [
+      [0, 370.34],
+      [1, 370.34],
+    ]);
+  });
+
+  it("an auto-width writing table: the review table is auto-width too", async () => {
+    const lib = await loadLib();
+    const { tab } = lessonTab(null);
+    const { requests } = lib.planIeltsTemplateUpdate(tab);
+    assert.ok(requests.some((r) => r.insertTable));
+    assert.ok(!requests.some((r) => r.updateTableColumnProperties));
+  });
+});
+
 describe("IELTS template update (its own button)", () => {
   it("updates the lesson in one guarded batch; grading then fills the writing and the sentences", async () => {
     const lib = await loadLib();

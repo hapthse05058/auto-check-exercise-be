@@ -189,6 +189,49 @@ describe("stored refresh tokens", () => {
   });
 });
 
+describe("reusing the stored token for a login without consent", () => {
+  it("hands back the stored token once Google accepts it", async () => {
+    const { tokens, oauth } = setup();
+    await tokens.saveRefreshToken("teacher@x.com", REFRESH);
+    assert.equal(await tokens.reusableRefreshToken("Teacher@x.com"), REFRESH);
+    assert.equal(oauth.calls, 1);
+  });
+
+  it("hands back the newest token when Google rotates it", async () => {
+    const { tokens } = setup({
+      refresh: async () => ({
+        credentials: { access_token: "a", refresh_token: "rotated" },
+      }),
+    });
+    await tokens.saveRefreshToken("teacher@x.com", REFRESH);
+    assert.equal(await tokens.reusableRefreshToken("teacher@x.com"), "rotated");
+  });
+
+  it("is null with nothing stored, or for a revoked grant", async () => {
+    const { tokens } = setup({
+      refresh: async () => {
+        const err = new Error("invalid_grant");
+        err.response = { data: { error: "invalid_grant" } };
+        throw err;
+      },
+    });
+    assert.equal(await tokens.reusableRefreshToken("teacher@x.com"), null);
+    assert.equal(await tokens.reusableRefreshToken("stranger@x.com"), null);
+    await tokens.saveRefreshToken("teacher@x.com", REFRESH);
+    assert.equal(await tokens.reusableRefreshToken("teacher@x.com"), null);
+  });
+
+  it("still hands the token back when Google merely hiccups", async () => {
+    const { tokens } = setup({
+      refresh: async () => {
+        throw new Error("socket hang up");
+      },
+    });
+    await tokens.saveRefreshToken("teacher@x.com", REFRESH);
+    assert.equal(await tokens.reusableRefreshToken("teacher@x.com"), REFRESH);
+  });
+});
+
 describe("the refresh token never leaks", () => {
   it("not through the error of a failed refresh, nor the console", async () => {
     const { tokens } = setup({

@@ -1867,8 +1867,15 @@ function plainParagraph(start, end, tabId) {
  * 5, its end 1 — so cell (r, c)'s paragraph is at at + 4 + 5r + 2c, and the
  * table ends at at + 3 + 5·count. Headings go in from the last cell up, so
  * no insert moves the next.
+ *
+ * A new table takes the indent of the paragraph it goes into, and no request
+ * moves a table afterwards: the lessons' paragraph below a writing table is
+ * often indented 1 cm, which put the review table 1 cm right of the writing
+ * table. So that paragraph is made plain BEFORE the table goes in. `widths`
+ * (the writing table's fixed column widths, or null) — the review table is
+ * as wide as it, so both edges line up.
  */
-function reviewTableRequests(at, tabId, look, count) {
+function reviewTableRequests(at, tabId, look, count, widths) {
   const heads = Array.from({ length: count }, (_, r) => [
     `${CORRECTED_HEADING} ${r + 1}`,
     `${IMPROVED_ROW_HEADING} ${r + 1}`,
@@ -1881,10 +1888,18 @@ function reviewTableRequests(at, tabId, look, count) {
         text: `${GENERAL_HEADING}\n${ADVICE_HEADING}\n`,
       },
     },
+    ...plainParagraph(at, at + 1, tabId),
     {
       insertTable: { rows: count, columns: 2, location: { index: at, tabId } },
     },
   ];
+  if (widths) {
+    const total = widths.reduce((sum, w) => sum + w, 0);
+    requests.push(
+      columnWidth(at + 1, tabId, 0, total / 2),
+      columnWidth(at + 1, tabId, 1, total / 2),
+    );
+  }
   for (let r = count - 1; r >= 0; r--) {
     for (let c = 1; c >= 0; c--) {
       requests.push({
@@ -2039,6 +2054,7 @@ function planReviewExercise(body, tables, tabId) {
       tabId,
       textLookOf(last.table),
       essays.length,
+      fixedWidths(last.table),
     ),
   );
   groups.push({ start: last.endIndex, requests: insert });

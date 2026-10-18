@@ -2936,6 +2936,15 @@ app.post("/auth/google", async (req, res) => {
         tokens.email,
         tokens.refresh_token,
       );
+    } else if (!tokens.refresh_token) {
+      // A returning user signed in without the consent screen, so Google sent
+      // no refresh token: reuse the stored one, or ask the website to come
+      // back through consent.
+      const stored = tokens.email
+        ? await googleUserTokens.reusableRefreshToken(tokens.email)
+        : null;
+      if (stored) tokens.refresh_token = stored;
+      else tokens.needs_consent = true;
     }
 
     res.json(tokens);
