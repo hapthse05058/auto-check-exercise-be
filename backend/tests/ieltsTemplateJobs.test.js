@@ -187,7 +187,143 @@ const SUMMARY = {
   failed: 0,
   tables: 0,
   noTable: 0,
+  reasons: {},
+  docs: [],
+  serviceAccountDocs: 0,
 };
+
+describe("the review table lines up with the writing table above it", () => {
+  /** The lesson with its writing table at `widths` (fixed) — or auto. */
+  function lessonTab(widths) {
+    const tab = renderTab(oldSpec());
+    const essay = tab.documentTab.body.content[3];
+    if (widths) {
+      essay.table.tableStyle = {
+        tableColumnProperties: widths.map((magnitude) => ({
+          widthType: "FIXED_WIDTH",
+          width: { magnitude, unit: "PT" },
+        })),
+      };
+    }
+    return { tab, essay };
+  }
+
+  it("the paragraph it goes into is made plain first: a table takes that paragraph's indent", async () => {
+    const lib = await loadLib();
+    const { tab, essay } = lessonTab([771]);
+    const { requests } = lib.planIeltsTemplateUpdate(tab);
+    const at = essay.endIndex;
+    const insert = requests.findIndex((r) => r.insertTable);
+    assert.equal(requests[insert].insertTable.location.index, at);
+    const plain = requests.findIndex(
+      (r) => r.updateParagraphStyle?.range.startIndex === at,
+    );
+    assert.ok(
+      plain >= 0 && plain < insert,
+      "indent cleared before insertTable",
+    );
+    assert.deepEqual(
+      requests[plain].updateParagraphStyle.paragraphStyle.indentStart,
+      { magnitude: 0, unit: "PT" },
+    );
+  });
+
+  it("is as wide as a fixed-width writing table, half each column, adding up to it", async () => {
+    const lib = await loadLib();
+    const { tab, essay } = lessonTab([740.67]);
+    const widths = lib
+      .planIeltsTemplateUpdate(tab)
+      .requests.filter(
+        (r) =>
+          r.updateTableColumnProperties?.tableStartLocation.index ===
+          essay.endIndex + 1,
+      )
+      .map((r) => [
+        r.updateTableColumnProperties.columnIndices[0],
+        r.updateTableColumnProperties.tableColumnProperties.width.magnitude,
+      ]);
+    assert.deepEqual(widths, [
+      [0, 370.34],
+      [1, 370.33],
+    ]);
+  });
+
+  it("starts where an indented writing table starts, and so do the lines below it", async () => {
+    const lib = await loadLib();
+    const { tab, essay } = lessonTab([756.75]);
+    // Tables: the writing table (0), the sentence table (1).
+    const { requests } = lib.planIeltsTemplateUpdate(tab, {
+      tableIndents: [28.5, 0],
+    });
+    const insert = requests.findIndex((r) => r.insertTable);
+    const plain = requests.findIndex(
+      (r) => r.updateParagraphStyle?.range.startIndex === essay.endIndex,
+    );
+    assert.ok(plain < insert);
+    assert.deepEqual(
+      requests[plain].updateParagraphStyle.paragraphStyle.indentStart,
+      { magnitude: 28.5, unit: "PT" },
+    );
+    // Before the table, the blank line Docs adds, and "Nhận xét chung" /
+    // "Lời khuyên cải thiện" (one range over both lines).
+    const styles = requests.filter((r) => r.updateParagraphStyle);
+    assert.equal(styles.length, 3);
+    const headings = styles.at(-1).updateParagraphStyle;
+    assert.equal(
+      headings.range.endIndex - headings.range.startIndex,
+      "Nhận xét chung\nLời khuyên cải thiện\n".length,
+    );
+    for (const { updateParagraphStyle: s } of styles) {
+      assert.equal(s.paragraphStyle.indentStart.magnitude, 28.5);
+      assert.equal(s.paragraphStyle.indentFirstLine.magnitude, 28.5);
+    }
+  });
+
+  it("the indent is measured once per lesson, for every doc with the same tables", async () => {
+    const docA = lessonDoc(oldSpec(), newSpec());
+    const docB = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: docA.value, docB: docB.value },
+      gradingProfile: "ielts",
+    });
+    h.hooks.tableIndents = () => [28.5, 0];
+    const summary = await updateTemplates(h);
+    assert.equal(summary.updated, 2);
+    assert.equal(h.counters.indentExports, 1);
+    for (const doc of [docA, docB]) {
+      const indent = doc.batches[0].find(
+        (r) => r.updateParagraphStyle?.paragraphStyle.indentStart.magnitude,
+      );
+      assert.equal(
+        indent.updateParagraphStyle.paragraphStyle.indentStart.magnitude,
+        28.5,
+      );
+    }
+  });
+
+  it("an export that cannot be had: the review table starts at the margin", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    const summary = await updateTemplates(h); // tableIndents: null
+    assert.equal(summary.updated, 1);
+    assert.ok(
+      !doc.batches[0].some(
+        (r) => r.updateParagraphStyle?.paragraphStyle.indentStart.magnitude,
+      ),
+    );
+  });
+
+  it("an auto-width writing table: the review table is auto-width too", async () => {
+    const lib = await loadLib();
+    const { tab } = lessonTab(null);
+    const { requests } = lib.planIeltsTemplateUpdate(tab);
+    assert.ok(requests.some((r) => r.insertTable));
+    assert.ok(!requests.some((r) => r.updateTableColumnProperties));
+  });
+});
 
 describe("IELTS template update (its own button)", () => {
   it("updates the lesson in one guarded batch; grading then fills the writing and the sentences", async () => {
@@ -270,7 +406,111 @@ describe("IELTS template update (its own button)", () => {
       new DocsApiError(400, "Invalid requests"),
       { docId: "docA" },
     );
-    assert.deepEqual(await updateTemplates(h), { ...SUMMARY, failed: 1 });
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      failed: 1,
+      reasons: { update_rejected: 1 },
+      docs: [{ docId: "docA", status: "failed", reason: "update_rejected" }],
+    });
+  });
+
+  it("a doc not shared with the teacher's Google account is read and updated with the service account", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    h.docsApi.failNext(
+      "get",
+      new DocsApiError(403, "The caller does not have permission"),
+      { docId: "docA", token: "tok" },
+    );
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      updated: 1,
+      tables: 2,
+      serviceAccountDocs: 1,
+    });
+    assert.equal(doc.batches.length, 1);
+  });
+
+  it("a teacher who may only view the doc: the service account writes the update", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    h.docsApi.failNext(
+      "batchUpdate",
+      new DocsApiError(403, "The caller does not have permission"),
+      { docId: "docA", token: "tok" },
+    );
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      updated: 1,
+      tables: 2,
+      serviceAccountDocs: 1,
+    });
+    assert.equal(doc.batches.length, 1);
+  });
+
+  it("a stale Google grant: the token is dropped and the service account does the update", async () => {
+    const doc = lessonDoc(oldSpec(), newSpec());
+    const h = createHarness({
+      tabs: { docA: doc.value },
+      gradingProfile: "ielts",
+    });
+    let invalidated = 0;
+    h.tokens.invalidate = () => (invalidated += 1);
+    h.docsApi.failNext("get", new DocsApiError(401, "Invalid Credentials"), {
+      docId: "docA",
+      token: "tok",
+    });
+    const summary = await updateTemplates(h);
+    assert.equal(summary.updated, 1);
+    assert.equal(summary.serviceAccountDocs, 1);
+    assert.equal(invalidated, 1);
+  });
+
+  it("says why a doc was not updated: no tab for the lesson, or a doc nobody can open", async () => {
+    const h = createHarness({
+      tabs: { docA: lessonDoc(oldSpec(), newSpec()).value },
+      gradingProfile: "ielts",
+    });
+    h.db._apply({
+      type: "set",
+      path: "lesson/l99",
+      data: { name: "BUỔI 99 - Lesson" },
+    });
+    assert.deepEqual(await updateTemplates(h, { lessonId: "l99" }), {
+      ...SUMMARY,
+      skipped: 1,
+      reasons: { tabMissing: 1 },
+      docs: [{ docId: "docA", status: "skipped", reason: "tabMissing" }],
+    });
+
+    // Gone for the teacher and for the service account alike.
+    h.docsApi.failNext(
+      "get",
+      new DocsApiError(404, "Requested entity was not found."),
+      {
+        docId: "docA",
+        times: 2,
+      },
+    );
+    assert.deepEqual(await updateTemplates(h), {
+      ...SUMMARY,
+      skipped: 1,
+      reasons: { doc_not_found: 1 },
+      docs: [
+        {
+          docId: "docA",
+          status: "skipped",
+          reason: "doc_not_found",
+          message: "Requested entity was not found.",
+        },
+      ],
+    });
   });
 
   it("the doc moved meanwhile: read again, planned again, updated", async () => {

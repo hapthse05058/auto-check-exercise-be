@@ -236,7 +236,42 @@ function createGoogleUserTokens({
     accessCache.delete(String(email || "").toLowerCase());
   }
 
-  return { getDocsAccessToken, hasRefreshToken, invalidate, saveRefreshToken };
+  /**
+   * The stored refresh token, for a login that did not get one of its own.
+   *
+   * Google only issues a refresh token when the consent screen is shown, and
+   * an unverified app's consent screen carries the "Google hasn't verified
+   * this app" warning. So the website skips consent for returning users and
+   * hands them back the token stored at their first login. Null when there is
+   * none or Google no longer accepts it — the website then asks for consent.
+   * Never throws.
+   */
+  async function reusableRefreshToken(email) {
+    try {
+      const key = String(email || "").toLowerCase();
+      const refreshToken = await loadRefreshToken(key);
+      if (!refreshToken) return null;
+      try {
+        // Proves the token still works (and keeps the newest if rotated).
+        await getDocsAccessToken(key, "google");
+      } catch (err) {
+        if (err instanceof ReauthRequiredError) return null;
+        // A Google hiccup says nothing about the token: hand it back.
+      }
+      return (await loadRefreshToken(key)) || refreshToken;
+    } catch (err) {
+      console.error("[GOOGLE-TOKEN] reuse failed:", describeError(err));
+      return null;
+    }
+  }
+
+  return {
+    getDocsAccessToken,
+    hasRefreshToken,
+    invalidate,
+    reusableRefreshToken,
+    saveRefreshToken,
+  };
 }
 
 module.exports = {

@@ -242,13 +242,16 @@ function createFakeDocs(tabsByDocId) {
           : { tab: value, rev: 1 },
     ]),
   );
-  const faults = []; // { op, docId, phase, error, times }
+  const faults = []; // { op, docId, token, phase, error, times }
   const calls = { get: 0, batchUpdate: 0, applied: 0 };
 
-  function fault(op, docId, phase) {
+  function fault(op, docId, phase, token) {
     const hit = faults.find(
       (f) =>
-        f.op === op && f.phase === phase && (!f.docId || f.docId === docId),
+        f.op === op &&
+        f.phase === phase &&
+        (!f.docId || f.docId === docId) &&
+        (!f.token || f.token === token),
     );
     if (!hit) return;
     hit.times -= 1;
@@ -268,9 +271,10 @@ function createFakeDocs(tabsByDocId) {
   return {
     docs,
     calls,
-    /** Makes the next `times` calls of `op` fail. phase "after" = applied, then lost. */
-    failNext(op, error, { docId, phase = "before", times = 1 } = {}) {
-      faults.push({ op, docId, phase, error, times });
+    /** Makes the next `times` calls of `op` fail. phase "after" = applied,
+     * then lost; `token` = only calls made with that access token. */
+    failNext(op, error, { docId, token, phase = "before", times = 1 } = {}) {
+      faults.push({ op, docId, token, phase, error, times });
     },
     /** A teacher typing in the doc: changes it and its revision. */
     edit(docId, fn) {
@@ -278,10 +282,10 @@ function createFakeDocs(tabsByDocId) {
       fn(doc.doc || doc.tab);
       doc.rev += 1;
     },
-    async getDocument(docId) {
+    async getDocument(docId, token) {
       calls.get += 1;
       await new Promise((r) => setImmediate(r));
-      fault("get", docId, "before");
+      fault("get", docId, "before", token);
       const doc = entry(docId);
       if (doc.doc) {
         return {
@@ -298,10 +302,10 @@ function createFakeDocs(tabsByDocId) {
       await new Promise((r) => setImmediate(r));
       return `r${entry(docId).rev}`;
     },
-    async batchUpdate(docId, requests, _token, { requiredRevisionId } = {}) {
+    async batchUpdate(docId, requests, token, { requiredRevisionId } = {}) {
       calls.batchUpdate += 1;
       await new Promise((r) => setImmediate(r));
-      fault("batchUpdate", docId, "before");
+      fault("batchUpdate", docId, "before", token);
       const doc = entry(docId);
       if (requiredRevisionId && requiredRevisionId !== `r${doc.rev}`) {
         throw new DocsApiError(400, "The document was modified");
@@ -312,7 +316,7 @@ function createFakeDocs(tabsByDocId) {
       else applyInserts(doc.tab, requests);
       doc.rev += 1;
       calls.applied += 1;
-      fault("batchUpdate", docId, "after");
+      fault("batchUpdate", docId, "after", token);
       return `r${doc.rev}`;
     },
     /** Every non-empty feedback cell's text, by docId. */
@@ -427,6 +431,7 @@ function createHarness({
     push: 0,
     consume: 0,
     tokenCalls: 0,
+    indentExports: 0, // tableIndentsOf calls
     gradedItems: [], // every item handed to gradeItems
     ielts: 0, // gradeIelts calls
     ieltsInputs: [], // every validated IELTS submission graded
@@ -440,6 +445,7 @@ function createHarness({
     beforeConsume: null, // async ({docId}) => void, may throw
     afterConsume: null,
     tokenError: null, // () => Error | null, per getDocsAccessToken call
+    tableIndents: null, // (docId, tabId) => number[] | null — the export's
     noStoredToken: false, // the Google user never had a token stored
     // () => the grading-schedule service, when a test wires one in (the same
     // delegation server.js does through scheduleAwareOnFinished).
@@ -475,11 +481,13 @@ function createHarness({
   const tokens = {
     hasRefreshToken: async () => !hooks.noStoredToken,
     invalidate: () => {},
-    async getDocsAccessToken() {
+    async getDocsAccessToken(_email, authKind) {
       counters.tokenCalls += 1;
       const err = hooks.tokenError?.(counters.tokenCalls);
       if (err) throw err;
-      return { token: "tok", isServiceAccount: false };
+      return authKind === "jwt"
+        ? { token: "sa", isServiceAccount: true }
+        : { token: "tok", isServiceAccount: false };
     },
   };
 
@@ -500,6 +508,10 @@ function createHarness({
         return Object.assign({}, ...modules, { hs });
       }),
     gradingProfileOfClass: async () => gradingProfile,
+    tableIndentsOf: async (docId, tabId) => {
+      counters.indentExports += 1;
+      return hooks.tableIndents?.(docId, tabId) ?? null;
+    },
     ieltsEnabled,
     hsEnabled,
     async gradeHs(items) {
@@ -607,6 +619,7 @@ function createHarness({
     db,
     admin,
     docsApi,
+    tokens,
     queue,
     counters,
     hooks,

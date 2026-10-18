@@ -25,6 +25,7 @@ const {
 const { admin, db, serviceAccountPath } = require("./lib/firestore.js");
 const { findDuplicateDocs } = require("./lib/googleDoc.js");
 const googleDocsApi = require("./lib/googleDocsApi.js");
+const { createTableIndents } = require("./lib/docTableIndents.js");
 const {
   createGoogleUserTokens,
   createTokenCipher,
@@ -2936,6 +2937,15 @@ app.post("/auth/google", async (req, res) => {
         tokens.email,
         tokens.refresh_token,
       );
+    } else if (!tokens.refresh_token) {
+      // A returning user signed in without the consent screen, so Google sent
+      // no refresh token: reuse the stored one, or ask the website to come
+      // back through consent.
+      const stored = tokens.email
+        ? await googleUserTokens.reusableRefreshToken(tokens.email)
+        : null;
+      if (stored) tokens.refresh_token = stored;
+      else tokens.needs_consent = true;
     }
 
     res.json(tokens);
@@ -4033,6 +4043,10 @@ const gradingJobs = createGradingJobs({
   db,
   admin,
   docsApi: googleDocsApi,
+  // The service account reads the export: a teacher's grant may lack scopes.
+  tableIndentsOf: createTableIndents({
+    getToken: getServiceAccountGoogleToken,
+  }).indentsOf,
   tokens: googleUserTokens,
   loadDocLib,
   gradeItems: gradeItemsCached,
@@ -4227,9 +4241,13 @@ app.post("/ielts-template-updates", verifyGoogleToken, async (req, res) => {
     const lessons = Array.isArray(req.body.lessonIds)
       ? req.body.lessonIds.join(", ")
       : req.body.lessonId;
+    const reasons = Object.entries(summary.reasons || {})
+      .map(([reason, n]) => `${reason} ${n}`)
+      .join(", ");
     res.locals.auditDetail =
       `Mẫu IELTS · lớp ${req.body.classId} · buổi ${lessons} · ` +
-      `${summary.updated}/${summary.total} doc`;
+      `${summary.updated}/${summary.total} doc` +
+      (reasons ? ` · ${reasons}` : "");
     return res.json(summary);
   } catch (err) {
     if (err instanceof ReauthRequiredError) {
