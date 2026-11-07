@@ -220,8 +220,8 @@ describe("scoreOf (R2)", () => {
 });
 
 describe("verdictsOf", () => {
-  test("blank answers count as wrong in the denominator", () => {
-    // 10 questions: 6 right, 2 wrong, 2 blank → 6/10 → 3.
+  test("blank answers are skipped: not wrong, not in the denominator", () => {
+    // 10 questions: 6 right, 2 wrong, 2 blank → 6/8 → 75% → 3.
     const rows = [];
     for (let i = 1; i <= 10; i++) {
       const answer = i <= 6 ? "right good" : i <= 8 ? "wrong" : null;
@@ -236,13 +236,14 @@ describe("verdictsOf", () => {
     ];
     const { questions } = L.itemsFromGrading(page);
     const r = L.verdictsOf(questions, gradeAll(questions), lib);
-    assert.equal(r.counted, 10);
+    assert.equal(r.counted, 8);
     assert.equal(r.correct, 6);
     assert.equal(r.score, 3);
     const blank = questions.find((q) => q.cls === "blank");
     assert.deepEqual(r.verdicts.get(blank.key), {
-      review: "Chưa làm",
+      review: "",
       isCorrect: false,
+      blank: true,
     });
   });
 
@@ -257,12 +258,13 @@ describe("verdictsOf", () => {
   });
 
   test("the score counts every graded assignment together", () => {
-    // Writing 3/5 (1 blank) + word order wrong + spelling right → 4/7 → 2.
+    // Writing 3/4 (1 blank, skipped) + word order wrong + spelling right
+    // → 4/6 → 67% → 3.
     const { questions } = L.itemsFromGrading(sessionPage());
     const r = L.verdictsOf(questions, gradeAll(questions), lib);
-    assert.equal(r.counted, 7);
+    assert.equal(r.counted, 6);
     assert.equal(r.correct, 4);
-    assert.equal(r.score, 2);
+    assert.equal(r.score, 3);
   });
 
   test("a missing feedback is an error, not a silent pass", () => {
@@ -288,7 +290,7 @@ describe("buildDraftPayload", () => {
       body.map((b) => b.assignmentId),
       [1472, 1473, 1474],
     );
-    assert.ok(body.every((b) => b.score === 2 && b.review === body[0].review));
+    assert.ok(body.every((b) => b.score === 3 && b.review === body[0].review));
     const order = body[1].questionReviews[0];
     assert.equal(order.isCorrect, 0);
     assert.match(L.tiptapToText(order.review), /Sai thì/);
@@ -310,11 +312,13 @@ describe("buildDraftPayload", () => {
     assert.equal(L.tiptapToText(reviews["q-w1"].review), "✅ Đúng");
     assert.equal(reviews["q-w1"].isCorrect, 1);
     assert.equal(reviews["q-w3"].isCorrect, 0);
+    // Blank row: skipped — left empty and unmarked (clears an old "Chưa làm").
     assert.equal(reviews["q-w5"].isCorrect, 0);
-    assert.equal(L.tiptapToText(reviews["q-w5"].review), "Chưa làm");
+    assert.equal(reviews["q-w5"].review, "");
+    assert.equal(reviews["q-w5"].gradedAt, null);
     assert.equal(reviews["q-w1"].gradedAt, "2026-11-06 10:00:00");
     assert.equal(reviews["q-w1"].gradingLateFlag, false);
-    // 3 right of 5 counted (1 blank) → 60% → 3.
+    // 3 right of 4 counted (the blank is skipped) → 75% → 3.
     assert.equal(body[0].score, 3);
     // Headings are never part of questionReviews.
     assert.equal(body[0].questionReviews.length, 7);

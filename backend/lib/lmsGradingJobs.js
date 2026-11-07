@@ -471,7 +471,8 @@ function createLmsGradingJobs(deps) {
       assignmentLogIds: logIdsOf(grading, assignmentIds),
       writtenKeys,
     };
-    if (!written.length) {
+    // Blank questions are skipped, so only answered ones make a score.
+    if (!written.some((q) => q.cls === L.QUESTION_CLASS.SUPPORTED)) {
       return { ...common, status: S.SKIPPED, reason: "nothingToGrade" };
     }
 
@@ -503,7 +504,16 @@ function createLmsGradingJobs(deps) {
       // (our old reviews are what gets replaced — R6 accepts them).
       if (rec.answerHash === L.hashAnswers(grading, [id])) ownDrafts.add(id);
     }
-    if (ownDrafts.size === assignmentIds.length) {
+    // A draft from the first version wrote "Chưa làm" on blank questions and
+    // counted them wrong: its reviews are reused, but the blanks are cleared
+    // and the score worked out again, so it is offered for saving again.
+    const legacyBlanks = written.some(
+      (q) =>
+        q.cls === L.QUESTION_CLASS.BLANK &&
+        ownDrafts.has(String(q.assignmentId)) &&
+        q.existingReview === L.BLANK_REVIEW,
+    );
+    if (ownDrafts.size === assignmentIds.length && !legacyBlanks) {
       return {
         ...common,
         status: S.DRAFT_SAVED,
@@ -683,7 +693,8 @@ function createLmsGradingJobs(deps) {
             question: q.question,
             answer: q.answer,
             ...(v ? { review: v.review, isCorrect: v.isCorrect } : {}),
-            ...(v && ownDrafts.has(String(q.assignmentId))
+            ...(v?.blank ? { blank: true } : {}),
+            ...(v && !v.blank && ownDrafts.has(String(q.assignmentId))
               ? { reused: true }
               : {}),
           };
@@ -884,7 +895,10 @@ function createLmsGradingJobs(deps) {
       const verdicts = new Map(
         (st.questions || [])
           .filter((q) => q.review !== undefined)
-          .map((q) => [q.key, { review: q.review, isCorrect: q.isCorrect }]),
+          .map((q) => [
+            q.key,
+            { review: q.review, isCorrect: q.isCorrect, blank: q.blank },
+          ]),
       );
       const payload = L.buildDraftPayload(
         reread,

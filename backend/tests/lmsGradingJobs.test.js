@@ -162,10 +162,11 @@ describe("prepare", () => {
     assert.equal(st[103].status, S.SKIPPED);
     assert.equal(st[103].reason, "notSubmitted");
     assert.equal(st[104].status, S.TEACHER_GRADED);
-    // 101: writing 3 right, 1 wrong, 1 blank + word order wrong → 3/6 → 2.
-    // Spelling was not submitted: not graded, not counted. 102 all right → 5.
-    assert.equal(st[101].score, 2);
-    assert.equal(st[101].counted, 6);
+    // 101: writing 3 right, 1 wrong, 1 blank (skipped) + word order wrong
+    // → 3/5 → 60% → 3. Spelling was not submitted: not graded, not counted.
+    // 102 all right → 5.
+    assert.equal(st[101].score, 3);
+    assert.equal(st[101].counted, 5);
     assert.deepEqual(st[101].counts, {
       supported: 5,
       blank: 1,
@@ -299,8 +300,8 @@ describe("write (Lưu nháp)", () => {
     assert.equal(job.charged, 2);
     // The LMS page now carries the draft: the shared score on both.
     const page = h.lms.state.pages.get("101");
-    assert.equal(page[0].score, 2);
-    assert.equal(page[1].score, 2);
+    assert.equal(page[0].score, 3);
+    assert.equal(page[1].score, 3);
     assert.equal(page[2].score, 0); // spelling untouched
     const listening =
       page[3].gradingList.questionGroupList[0].questionGroup[0].questionList[0];
@@ -605,8 +606,8 @@ describe("assignments submitted later (word order / spelling)", () => {
         .filter((q) => q.assignmentId === 1472 && q.review)
         .every((q) => q.reused),
     );
-    // Score now covers both: writing 3/5 + word order wrong → 3/6 → 2.
-    assert.equal(st.score, 2);
+    // Score now covers both: writing 3/4 + word order wrong → 3/5 → 3.
+    assert.equal(st.score, 3);
 
     await writeAll(h, second, ["101"]);
     assert.equal((await studentsOf(h, second))[101].status, S.DRAFT_SAVED);
@@ -619,9 +620,65 @@ describe("assignments submitted later (word order / spelling)", () => {
     // Writing reviews identical (bold kept); word order now reviewed.
     assert.deepEqual(reviewsOf(page, 0), writingReviews);
     assert.match(reviewsOf(page, 1)[0], /\*\*clearly\*\*/);
-    assert.equal(page[0].score, 2);
+    assert.equal(page[0].score, 3);
     // One student, one session: charged once.
     assert.equal(await balance(h), paid);
+  });
+
+  test("a draft that marked blanks 'Chưa làm' is offered again: blanks cleared, score redone, no new AI call or charge", async () => {
+    const rows = [reportRow(101, "An", 4, { ordering: null })];
+    const h = harness({ rows, pages: { 101: sessionPage() } });
+    const first = await gradedJob(h);
+    await writeAll(h, first, ["101"]);
+    // Make the saved draft look like the first version's: "Chưa làm" on the
+    // blank question, and its hash recorded as ours.
+    const questionsOf = (pg) =>
+      pg[0].gradingList.questionGroupList.flatMap((g) =>
+        g.questionGroup.flatMap((x) => x.questionList),
+      );
+    const page = h.lms.state.pages.get("101");
+    questionsOf(page).find((q) => q.id === "q-w5").review = L.reviewToTiptap(
+      L.BLANK_REVIEW,
+    );
+    const keys = L.itemsFromGrading(page)
+      .questions.filter((q) => L.isWritten(q) && q.assignmentId === 1472)
+      .map((q) => q.key);
+    const draftDoc = h.db.collection("lmsDrafts").doc("7_477_101");
+    const rec = (await draftDoc.get()).data();
+    rec.assignments["1472"].reviewHash = L.hashReviews(page, keys);
+    await draftDoc.set(rec);
+    const paid = await balance(h);
+    const aiCalls = h.graded.length;
+
+    const newJob = async () => {
+      const { jobId } = await h.jobs.createJob({
+        teacher: TEACHER,
+        email: TEACHER.gmail,
+        classId: 7,
+        sessionId: 477,
+        unitPriceVnd: PRICE,
+      });
+      await h.drain();
+      return jobId;
+    };
+    const second = await newJob();
+    const st = (await studentsOf(h, second))[101];
+    assert.equal(st.status, S.GRADED);
+    assert.deepEqual(st.reusedAssignmentIds, ["1472"]);
+    assert.equal(h.graded.length, aiCalls);
+    assert.equal(st.counted, 4); // 3 right of 4 answered, the blank skipped
+    assert.equal(st.score, 3);
+
+    await writeAll(h, second, ["101"]);
+    assert.equal((await studentsOf(h, second))[101].status, S.DRAFT_SAVED);
+    const after = h.lms.state.pages.get("101");
+    const cleared = questionsOf(after).find((q) => q.id === "q-w5");
+    assert.equal(L.tiptapToText(cleared.review), "");
+    assert.equal(await balance(h), paid);
+
+    // The run after that sees the corrected draft as done.
+    const third = await newJob();
+    assert.equal((await studentsOf(h, third))[101].status, S.DRAFT_SAVED);
   });
 
   test("a third run finds everything drafted and grades nothing", async () => {

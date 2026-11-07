@@ -18,7 +18,8 @@
  *
  * Question classes (plan R1):
  *   supported  answered                               → AI, counts in score
- *   blank      not answered                           → "Chưa làm", counts wrong
+ *   blank      not answered                           → skipped: not counted,
+ *                                                       review left empty
  *   excluded   formula rows (HTĐ / B1: / B2:)         → untouched, not counted
  *   uncertain  no readable prompt (image, audio, …)   → untouched, not counted
  */
@@ -85,7 +86,11 @@ const FORMULA_STEP = /\bB\s*[12]\s*:/u;
 const TENSE_ABBREVIATION =
   /^(HTĐ|HTTD|HTHT|HTHTTD|QKĐ|QKTD|QKHT|QKHTTD|TLĐ|TLTD|TLHT|TLHTTD|TLG|TLGĐ)$/iu;
 
-/** Review written on a question left blank. */
+/**
+ * Review the first version wrote on a question left blank (it counted those
+ * as wrong). Blank questions are now skipped; this text marks an older draft
+ * whose blanks must be cleared and whose score must be worked out again.
+ */
 const BLANK_REVIEW = "Chưa làm";
 
 /** Score thresholds (plan R2): share of correct answers → 1..5. */
@@ -304,7 +309,10 @@ function itemsFromGrading(grading, { submittedIds = null } = {}) {
   return { targets, questions, counts };
 }
 
-/** Questions the tool writes to: supported (graded) and blank ("Chưa làm"). */
+/**
+ * Questions the tool writes to: supported (graded) and blank (kept empty, so
+ * an older "Chưa làm" is cleared; never counted).
+ */
 const isWritten = (q) =>
   q.cls === QUESTION_CLASS.SUPPORTED || q.cls === QUESTION_CLASS.BLANK;
 
@@ -466,9 +474,8 @@ function verdictsOf(questions, feedbackByKey, lib) {
   for (const q of questions) {
     if (!isWritten(q)) continue;
     if (q.cls === QUESTION_CLASS.BLANK) {
-      verdicts.set(q.key, { review: BLANK_REVIEW, isCorrect: false });
-      counted += 1;
-      forOverall.push({ aiFeedback: BLANK_REVIEW });
+      // Skipped: left as an unmarked question, outside the score.
+      verdicts.set(q.key, { review: "", isCorrect: false, blank: true });
       continue;
     }
     const feedback = feedbackByKey.get(q.key);
@@ -524,7 +531,16 @@ function buildDraftPayload(grading, result, opts = {}) {
           if (question?.type === QUESTION_TYPE.SOURCE_ONLY) continue;
           const key = questionKey(assignment.assignmentId, question.id);
           const verdict = target ? result.verdicts.get(key) : undefined;
-          if (verdict) {
+          if (verdict?.blank) {
+            // Left blank by the student: the empty, unmarked state.
+            questionReviews.push({
+              questionId: question.id,
+              review: "",
+              gradingLateFlag: null,
+              gradedAt: null,
+              isCorrect: 0,
+            });
+          } else if (verdict) {
             questionReviews.push({
               questionId: question.id,
               review: reviewToTiptap(verdict.review),
