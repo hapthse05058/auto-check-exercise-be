@@ -240,8 +240,12 @@ describe("lmsAccounts", () => {
     current: "v1",
   });
 
-  function setup({ loginImpl, now = () => 1000 } = {}) {
-    const db = new FakeFirestore();
+  function setup({
+    loginImpl,
+    now = () => 1000,
+    db = new FakeFirestore(),
+    useCipher = cipher,
+  } = {}) {
     const logins = [];
     const fakeClient = {
       login: async (phone, password) => {
@@ -258,7 +262,7 @@ describe("lmsAccounts", () => {
     const accounts = createLmsAccounts({
       db,
       admin: createFakeAdmin(),
-      cipher,
+      cipher: useCipher,
       client: fakeClient,
       now,
     });
@@ -318,6 +322,24 @@ describe("lmsAccounts", () => {
       (e) => e instanceof LmsReloginRequired,
     );
     assert.equal(logins.length, before);
+  });
+
+  test("a password the current key cannot decrypt → needs_relogin", async () => {
+    const { db, accounts } = setup();
+    await accounts.link("t1", { phone: "0900000000", password: "pw" });
+    const rotated = setup({
+      db,
+      useCipher: createTokenCipher({
+        keys: new Map([["v2", Buffer.alloc(32, 9)]]),
+        current: "v2",
+      }),
+    });
+    await assert.rejects(
+      rotated.accounts.tokenSource("t1").get(),
+      (e) => e instanceof LmsReloginRequired,
+    );
+    assert.equal((await rotated.accounts.status("t1")).status, "needs_relogin");
+    assert.equal(rotated.logins.length, 0);
   });
 
   test("unlink deletes the record", async () => {

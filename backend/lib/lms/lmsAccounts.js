@@ -97,8 +97,19 @@ function createLmsAccounts({ db, admin, cipher, client, now = Date.now }) {
       const snap = await ref(teacherId).get();
       if (!snap.exists) throw new LmsReloginRequired("not_linked");
       const data = snap.data();
+      // Mark the account so the settings page asks for the password again
+      // (status() would otherwise keep saying "linked").
+      const requireRelogin = async (reason) => {
+        await ref(teacherId).update({
+          status: "needs_relogin",
+          token: null,
+          updatedAt: serverTime(),
+        });
+        throw new LmsReloginRequired(reason);
+      };
+      // Undecryptable: the encryption key was rotated away or changed.
       const password = cipher.decrypt(data.password);
-      if (!password) throw new LmsReloginRequired("undecryptable");
+      if (!password) return requireRelogin("undecryptable");
       let session;
       try {
         session = await client.login(data.phone, password);
@@ -107,12 +118,7 @@ function createLmsAccounts({ db, admin, cipher, client, now = Date.now }) {
           err instanceof LmsError &&
           (err.code === "captcha_required" || err.code === "bad_credentials")
         ) {
-          await ref(teacherId).update({
-            status: "needs_relogin",
-            token: null,
-            updatedAt: serverTime(),
-          });
-          throw new LmsReloginRequired(err.code);
+          return requireRelogin(err.code);
         }
         throw err;
       }
