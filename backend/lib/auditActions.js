@@ -179,6 +179,37 @@ const AUDIT_ACTIONS = [
     resourceType: "grading",
     severity: "INFO",
   },
+  // SEC LMS (lib/lmsGradingJobs.js). The password in PUT /lms/account is
+  // redacted by key name like every other password.
+  {
+    method: "PUT",
+    pattern: /^\/lms\/account$/,
+    action: "lms.accountLink",
+    resourceType: "lms",
+    severity: "WARN",
+  },
+  {
+    method: "DELETE",
+    pattern: /^\/lms\/account$/,
+    action: "lms.accountUnlink",
+    resourceType: "lms",
+    severity: "WARN",
+  },
+  {
+    method: "POST",
+    pattern: /^\/lms\/grading-jobs$/,
+    action: "lms.jobStart",
+    resourceType: "lms",
+    severity: "INFO",
+  },
+  // Saves drafts ON the LMS: each student write also gets its own SYSTEM row.
+  {
+    method: "POST",
+    pattern: /^\/lms\/grading-jobs\/[^/]+\/write$/,
+    action: "lms.draftWrite",
+    resourceType: "lms",
+    severity: "WARN",
+  },
   // Weekly auto-grading of a class (lib/gradingSchedules.js). Each week's
   // outcome is a SYSTEM "grading.scheduleEvent" row. The admin's grading
   // times first: "settings" would match the class pattern below.
@@ -389,6 +420,10 @@ const SYSTEM_ACTIONS = {
   },
   // One per week of a grading schedule: reminded, cancelled, missed, done.
   "grading.scheduleEvent": { resourceType: "grading", severity: "INFO" },
+  // One per student whose draft was saved on the SEC LMS (lmsGradingJobs).
+  "lms.draftSaved": { resourceType: "lms", severity: "WARN" },
+  // One per "Lưu nháp lên LMS" round: drafts saved, money charged.
+  "lms.roundSummary": { resourceType: "lms", severity: "INFO" },
 };
 
 /**

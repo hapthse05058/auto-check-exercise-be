@@ -42,6 +42,13 @@ const {
   createGradingSchedules,
   scheduleAwareOnFinished,
 } = require("./lib/gradingSchedules.js");
+const { LmsError, createLmsClient } = require("./lib/lms/lmsClient.js");
+const {
+  LmsReloginRequired,
+  createLmsAccounts,
+} = require("./lib/lms/lmsAccounts.js");
+const { createLmsGradingJobs } = require("./lib/lmsGradingJobs.js");
+const { createLmsExtraGrader } = require("./lib/lms/lmsExtraGrader.js");
 const {
   TASK_PARAGRAPH,
   TASK_TYPES,
@@ -4188,8 +4195,13 @@ const taskQueue =
         handler: (payload) => handleQueuedTask(payload),
       });
 
-/** One queue carries both grading-job steps and grading-schedule steps. */
+/**
+ * One queue carries grading-job steps, grading-schedule steps and SEC LMS job
+ * steps (kind "lms", lib/lmsGradingJobs.js — a separate module; the doc job
+ * path below is unchanged).
+ */
 function handleQueuedTask(payload) {
+  if (payload?.kind === "lms") return lmsGradingJobs.handleTask(payload);
   return payload?.kind === "schedule"
     ? gradingSchedules.handleTask(payload)
     : gradingJobs.handleTask(payload);
@@ -4380,6 +4392,396 @@ app.post("/internal/tasks/grading", verifyTaskRequest, async (req, res) => {
     return res.status(500).json({ error: "task_failed" });
   }
 });
+
+// ---------------------------------------------------------------------------
+// SEC LMS grading (lib/lmsGradingJobs.js) — KTN classes, "BÀI TẬP VIẾT CÂU",
+// drafts only. The teacher reviews and submits on the LMS themselves.
+//
+// Env:
+//   LMS_CRED_ENC_KEYS / LMS_CRED_ENC_KEY_CURRENT  encryption of LMS logins
+//   LMS_GRADING_TEACHERS  comma-separated emails allowed (admins always; "*" all)
+//   LMS_WRITE_ENABLED     "true" to allow saving drafts (kill switch, off by default)
+//   LMS_DRAFT_MODE        "targets" (default: send only the writing assignment)
+//                         or "all" (every assignment, as the LMS UI does)
+//   LMS_API_BASE_URL      override of https://lms-api.anhngusec.edu.vn
+// ---------------------------------------------------------------------------
+
+const lmsCipher = (() => {
+  const spec = process.env.LMS_CRED_ENC_KEYS;
+  if (!spec) {
+    console.warn(
+      "WARNING: LMS_CRED_ENC_KEYS not set. LMS grading is disabled.",
+    );
+    return null;
+  }
+  const keys = parseKeys(spec);
+  return createTokenCipher({
+    keys,
+    current: process.env.LMS_CRED_ENC_KEY_CURRENT || [...keys.keys()][0],
+  });
+})();
+
+const lmsClient = createLmsClient(
+  process.env.LMS_API_BASE_URL ? { baseUrl: process.env.LMS_API_BASE_URL } : {},
+);
+const lmsAccounts = createLmsAccounts({
+  db,
+  admin,
+  cipher: lmsCipher,
+  client: lmsClient,
+});
+const lmsWriteEnabled = () => process.env.LMS_WRITE_ENABLED === "true";
+
+/** The audit row of one LMS-side event (SYSTEM, like grading summaries). */
+async function recordLmsAudit(job, { id, action, detail, entityId }) {
+  const actor = await auditLog.resolveActor(db, job.createdByEmail);
+  await auditLog.recordAudit(db, admin, {
+    id,
+    requestId: job.id,
+    actorEmail: job.createdByEmail,
+    actorName: actor.name,
+    actorId: actor.id,
+    actorResolvedFrom: "token",
+    action,
+    resourceType: "lms",
+    severity: action === "lms.draftSaved" ? "WARN" : "INFO",
+    method: "SYSTEM",
+    path: "/system/lms-grading-job",
+    entityId: entityId || job.id,
+    success: true,
+    detail,
+  });
+}
+
+const lmsWhere = (job) => `Lớp ${job.classCode} · ${job.sessionName}`;
+
+/**
+ * Word order + spelling (lib/lms/lmsExtraGrader.js): same model, its own
+ * prompts and cache. Created lazily: isCorrectFeedback lives in lib/doc (ESM).
+ */
+let lmsExtraGraderPromise = null;
+const gradeLmsExtra = async (items) => {
+  lmsExtraGraderPromise ??= loadDocLib().then((lib) =>
+    createLmsExtraGrader({
+      callAi: (system, input) => callGrader(system, input, AI_MODEL),
+      db,
+      isCorrectFeedback: lib.isCorrectFeedback,
+    }),
+  );
+  return (await lmsExtraGraderPromise).grade(items);
+};
+
+const lmsGradingJobs = createLmsGradingJobs({
+  db,
+  admin,
+  lmsClient,
+  lmsAccounts,
+  loadDocLib,
+  gradeItems: gradeItemsCached,
+  gradeExtra: gradeLmsExtra,
+  consumePoints: consumePointsForDocs,
+  readBalanceVnd: (teacherId) => teacherPoints.readBalanceVnd(db, teacherId),
+  enqueue: (name, payload, options) =>
+    taskQueue.enqueue(name, payload, options),
+  writeEnabled: lmsWriteEnabled,
+  draftOptions:
+    process.env.LMS_DRAFT_MODE === "all"
+      ? { onlyTargets: false, shareOverall: true }
+      : { onlyTargets: true, shareOverall: true },
+  hooks: {
+    async onPrepared(job) {
+      await notifications.createNotification(db, admin, {
+        id: notifications.notificationId("lms.job", job.id, "prepared"),
+        type: "lms.jobGraded",
+        severity: "INFO",
+        title: "Đã chấm thử xong trên LMS",
+        body:
+          `${lmsWhere(job)}: chấm được ${job.gradedCount || 0} bài. ` +
+          "Mở trang Chấm bài LMS để xem và lưu nháp.",
+        data: {
+          jobId: job.id,
+          lmsClassId: job.lmsClassId,
+          sessionId: job.sessionId,
+        },
+        recipients: [job.createdByEmail],
+        sourceRequestId: job.id,
+      });
+    },
+    async onDraftSaved(job, student) {
+      await recordLmsAudit(job, {
+        id: `lms-draft-${job.id}-${student.studentId}-${job.writeRound || 0}`,
+        action: "lms.draftSaved",
+        entityId: `${job.lmsClassId}:${job.sessionId}:${student.studentId}`,
+        detail:
+          `Lưu nháp lên LMS · ${lmsWhere(job)} · HV: ${student.fullName || "?"}` +
+          ` · Điểm ${student.score}/5` +
+          (student.unpaid ? " · CHƯA TRỪ TIỀN (không đủ số dư)" : ""),
+      });
+    },
+    async onRoundFinished(job, round) {
+      const stats = job.roundStats || {};
+      const saved = stats.draft_saved || 0;
+      await recordLmsAudit(job, {
+        id: `lms-round-${job.id}-${round}`,
+        action: "lms.roundSummary",
+        detail:
+          `${lmsWhere(job)} · Đã lưu nháp ${saved}/${stats.requested || 0} bài` +
+          ` · Tổng đã trừ trong job: ${billing.formatVnd(job.chargedVnd || 0)}`,
+      });
+      await notifications.createNotification(db, admin, {
+        id: notifications.notificationId("lms.job", job.id, `round-${round}`),
+        type: "lms.draftsSaved",
+        severity: saved < (stats.requested || 0) ? "WARN" : "INFO",
+        title: "Đã lưu nháp lên LMS",
+        body:
+          `${lmsWhere(job)}: đã lưu nháp ${saved}/${stats.requested || 0} bài. ` +
+          "Vào LMS kiểm tra rồi bấm Nộp.",
+        data: {
+          jobId: job.id,
+          lmsClassId: job.lmsClassId,
+          sessionId: job.sessionId,
+        },
+        recipients: [job.createdByEmail],
+        sourceRequestId: job.id,
+      });
+    },
+  },
+});
+
+/** LMS grading is opt-in per teacher while it is piloted. */
+function lmsAllowed(email) {
+  const e = (email || "").toLowerCase();
+  if (ADMIN_EMAILS.includes(e)) return true;
+  const list = (process.env.LMS_GRADING_TEACHERS || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes("*") || list.includes(e);
+}
+
+/** Gate for every /lms route (after verifyGoogleToken). */
+async function requireLms(req, res, next) {
+  if (!lmsAllowed(req.userEmail)) {
+    return res.status(403).json({ error: "lms_not_enabled" });
+  }
+  if (!lmsCipher) return res.status(503).json({ error: "lms_not_configured" });
+  try {
+    const teacher = await findTeacherByEmail(req.userEmail);
+    if (!teacher) return res.status(403).json({ error: "teacher_not_found" });
+    req.lmsTeacher = teacher;
+    return next();
+  } catch (err) {
+    console.error("[LMS] teacher lookup failed:", err.message);
+    return res.status(500).json({ error: "lms_failed" });
+  }
+}
+
+function sendLmsError(res, err, where) {
+  if (err instanceof JobError) {
+    return res.status(err.status).json({ error: err.code, ...err.params });
+  }
+  if (err instanceof LmsReloginRequired) {
+    return res.status(409).json({ error: "lms_relogin_required" });
+  }
+  if (err instanceof LmsError) {
+    const status =
+      err.code === "bad_credentials"
+        ? 400
+        : err.code === "captcha_required"
+          ? 409
+          : err.code === "forbidden" || err.code === "not_found"
+            ? 404
+            : 502;
+    return res.status(status).json({ error: `lms_${err.code}` });
+  }
+  if (err?.code === "lms_not_configured") {
+    return res.status(503).json({ error: "lms_not_configured" });
+  }
+  console.error(`[LMS] ${where}:`, err?.code || err?.message);
+  return res.status(500).json({ error: "lms_failed" });
+}
+
+const isAdminEmail = (email) =>
+  ADMIN_EMAILS.includes((email || "").toLowerCase());
+
+/** What the website needs to decide whether to show the LMS screens. */
+app.get("/lms/config", verifyGoogleToken, (req, res) => {
+  res.json({
+    enabled: lmsAllowed(req.userEmail) && Boolean(lmsCipher),
+    writeEnabled: lmsWriteEnabled(),
+    unitPriceVnd: billing.PRICE_MANUAL_VND,
+  });
+});
+
+app.get("/lms/account", verifyGoogleToken, requireLms, async (req, res) => {
+  try {
+    return res.json(await lmsAccounts.status(req.lmsTeacher.id));
+  } catch (err) {
+    return sendLmsError(res, err, "account status");
+  }
+});
+
+app.put("/lms/account", verifyGoogleToken, requireLms, async (req, res) => {
+  const phone = String(req.body?.phone || "").trim();
+  const password = String(req.body?.password || "");
+  if (!/^\d{9,12}$/.test(phone) || !password) {
+    return res.status(400).json({ error: "invalid_lms_credentials" });
+  }
+  try {
+    return res.json(
+      await lmsAccounts.link(req.lmsTeacher.id, { phone, password }),
+    );
+  } catch (err) {
+    return sendLmsError(res, err, "account link");
+  }
+});
+
+app.delete("/lms/account", verifyGoogleToken, requireLms, async (req, res) => {
+  try {
+    await lmsAccounts.unlink(req.lmsTeacher.id);
+    return res.json({ linked: false });
+  } catch (err) {
+    return sendLmsError(res, err, "account unlink");
+  }
+});
+
+app.get("/lms/classes", verifyGoogleToken, requireLms, async (req, res) => {
+  try {
+    return res.json({
+      classes: await lmsGradingJobs.listClasses(req.lmsTeacher.id),
+    });
+  } catch (err) {
+    return sendLmsError(res, err, "classes");
+  }
+});
+
+app.get(
+  "/lms/classes/:classId/sessions",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    try {
+      return res.json({
+        sessions: await lmsGradingJobs.listSessions(
+          req.lmsTeacher.id,
+          req.params.classId,
+        ),
+      });
+    } catch (err) {
+      return sendLmsError(res, err, "sessions");
+    }
+  },
+);
+
+app.get(
+  "/lms/classes/:classId/sessions/:sessionId/preview",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    try {
+      return res.json(
+        await lmsGradingJobs.preview(
+          req.lmsTeacher.id,
+          req.params.classId,
+          req.params.sessionId,
+          billing.PRICE_MANUAL_VND,
+        ),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "preview");
+    }
+  },
+);
+
+app.post(
+  "/lms/grading-jobs",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    const classId = String(req.body?.classId || "");
+    const sessionId = String(req.body?.sessionId || "");
+    if (!/^\d+$/.test(classId) || !/^\d+$/.test(sessionId)) {
+      return res.status(400).json({ error: "invalid_class_or_session" });
+    }
+    res.locals.auditDetail = `LMS lớp ${classId} · buổi ${sessionId}`;
+    try {
+      const { jobId } = await lmsGradingJobs.createJob({
+        teacher: {
+          id: req.lmsTeacher.id,
+          name: req.lmsTeacher.name || "",
+          gmail: req.lmsTeacher.gmail || req.userEmail,
+        },
+        email: req.userEmail,
+        classId,
+        sessionId,
+        unitPriceVnd: billing.PRICE_MANUAL_VND,
+      });
+      return res.status(202).json({ jobId });
+    } catch (err) {
+      return sendLmsError(res, err, "create job");
+    }
+  },
+);
+
+app.get(
+  "/lms/grading-jobs/latest",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    try {
+      const found = await lmsGradingJobs.latestJob(
+        String(req.query.classId || ""),
+        String(req.query.sessionId || ""),
+        { email: req.userEmail, isAdmin: isAdminEmail(req.userEmail) },
+      );
+      return res.json(found || { job: null, students: [] });
+    } catch (err) {
+      return sendLmsError(res, err, "latest job");
+    }
+  },
+);
+
+app.get(
+  "/lms/grading-jobs/:id",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    try {
+      return res.json(
+        await lmsGradingJobs.getJob(req.params.id, {
+          email: req.userEmail,
+          isAdmin: isAdminEmail(req.userEmail),
+        }),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "get job");
+    }
+  },
+);
+
+app.post(
+  "/lms/grading-jobs/:id/write",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    const studentIds = Array.isArray(req.body?.studentIds)
+      ? req.body.studentIds.map(String).slice(0, 300)
+      : [];
+    res.locals.auditDetail = `Lưu nháp ${studentIds.length} học viên lên LMS · job ${req.params.id}`;
+    try {
+      return res.status(202).json(
+        await lmsGradingJobs.startWrite({
+          jobId: req.params.id,
+          email: req.userEmail,
+          isAdmin: isAdminEmail(req.userEmail),
+          studentIds,
+        }),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "start write");
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Scheduled grading (lib/gradingSchedules.js)
