@@ -4434,11 +4434,13 @@ const lmsWriteEnabled = () => process.env.LMS_WRITE_ENABLED === "true";
 
 /** The audit row of one LMS-side event (SYSTEM, like grading summaries). */
 async function recordLmsAudit(job, { id, action, detail, entityId }) {
-  const actor = await auditLog.resolveActor(db, job.createdByEmail);
+  // Draft events: whoever pressed Lưu nháp, not who ran the grading.
+  const actorEmail = job.lastWriteByEmail || job.createdByEmail;
+  const actor = await auditLog.resolveActor(db, actorEmail);
   await auditLog.recordAudit(db, admin, {
     id,
     requestId: job.id,
-    actorEmail: job.createdByEmail,
+    actorEmail,
     actorName: actor.name,
     actorId: actor.id,
     actorResolvedFrom: "token",
@@ -4535,13 +4537,13 @@ const lmsGradingJobs = createLmsGradingJobs({
         title: "Đã lưu nháp lên LMS",
         body:
           `${lmsWhere(job)}: đã lưu nháp ${saved}/${stats.requested || 0} bài. ` +
-          "Vào LMS kiểm tra rồi bấm Nộp.",
+          'Vào LMS kiểm tra rồi bấm "Lưu & Chấm bài".',
         data: {
           jobId: job.id,
           lmsClassId: job.lmsClassId,
           sessionId: job.sessionId,
         },
-        recipients: [job.createdByEmail],
+        recipients: [job.lastWriteByEmail || job.createdByEmail],
         sourceRequestId: job.id,
       });
     },
@@ -4772,7 +4774,11 @@ app.get(
       const found = await lmsGradingJobs.latestJob(
         String(req.query.classId || ""),
         String(req.query.sessionId || ""),
-        { email: req.userEmail, isAdmin: isAdminEmail(req.userEmail) },
+        {
+          email: req.userEmail,
+          isAdmin: isAdminEmail(req.userEmail),
+          teacherId: req.lmsTeacher.id,
+        },
       );
       return res.json(found || { job: null, students: [] });
     } catch (err) {
@@ -4791,6 +4797,7 @@ app.get(
         await lmsGradingJobs.getJob(req.params.id, {
           email: req.userEmail,
           isAdmin: isAdminEmail(req.userEmail),
+          teacherId: req.lmsTeacher.id,
         }),
       );
     } catch (err) {
@@ -4814,6 +4821,8 @@ app.post(
           jobId: req.params.id,
           email: req.userEmail,
           isAdmin: isAdminEmail(req.userEmail),
+          teacherId: req.lmsTeacher.id,
+          teacher: req.lmsTeacher,
           studentIds,
         }),
       );

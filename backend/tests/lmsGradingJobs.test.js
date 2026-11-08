@@ -73,10 +73,15 @@ function harness({
   const jobs = createLmsGradingJobs({
     db,
     admin,
-    lmsClient: { forTeacher: () => lms.api },
+    lmsClient: {
+      forTeacher: (source) =>
+        source.teacherId === "t-no-class"
+          ? { ...lms.api, listClasses: async () => [] }
+          : lms.api,
+    },
     lmsAccounts: {
       status: async () => accountStatus,
-      tokenSource: () => ({}),
+      tokenSource: (teacherId) => ({ teacherId }),
     },
     loadDocLib,
     gradeItems: async (items) => {
@@ -143,10 +148,12 @@ async function gradedJob(h) {
 
 const studentsOf = async (h, jobId) =>
   Object.fromEntries(
-    (await h.jobs.getJob(jobId, { email: TEACHER.gmail })).students.map((s) => [
-      s.studentId,
-      s,
-    ]),
+    (
+      await h.jobs.getJob(jobId, {
+        email: TEACHER.gmail,
+        teacherId: TEACHER.id,
+      })
+    ).students.map((s) => [s.studentId, s]),
   );
 
 const balance = (h) => readBalanceVnd(h.db, TEACHER.id);
@@ -810,5 +817,155 @@ describe("read-only views", () => {
     assert.match(wrong.review, /\*\*am learning\*\*/);
     assert.ok(writing.questions.some((q) => q.isCorrect === true));
     assert.equal(h.lms.state.puts.length, puts); // read-only
+  });
+});
+
+describe("a session shared by the class's teachers", () => {
+  const OTHER = { id: "t-b", name: "GV B", gmail: "b@example.com" };
+  const asOther = { email: OTHER.gmail, teacherId: OTHER.id };
+  const fund = (h, teacher, balanceVnd) =>
+    h.db
+      .collection("TeacherPoint")
+      .doc(teacher.id)
+      .set({ teacherId: teacher.id, balanceVnd });
+  const balanceOf = (h, teacher) => readBalanceVnd(h.db, teacher.id);
+  const saveAs = async (h, jobId, teacher, studentIds) => {
+    await h.jobs.startWrite({
+      jobId,
+      email: teacher.gmail,
+      teacherId: teacher.id,
+      teacher,
+      studentIds,
+    });
+    await h.drain();
+  };
+  const newJob = async (h, teacher) => {
+    const { jobId } = await h.jobs.createJob({
+      teacher,
+      email: teacher.gmail,
+      classId: 7,
+      sessionId: 477,
+      unitPriceVnd: PRICE,
+    });
+    await h.drain();
+    return jobId;
+  };
+
+  test("another teacher of the class sees the results, and pays for what they save", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    await fund(h, OTHER, 5000);
+    const before = await balance(h);
+
+    const seen = await h.jobs.latestJob("7", "477", asOther);
+    assert.equal(seen.job.id, jobId);
+    assert.equal(
+      seen.students.find((x) => x.studentId === "101").status,
+      S.GRADED,
+    );
+
+    await saveAs(h, jobId, OTHER, ["101"]);
+    const st = await studentsOf(h, jobId);
+    assert.equal(st[101].status, S.DRAFT_SAVED);
+    assert.equal(await balanceOf(h, OTHER), 5000 - PRICE);
+    assert.equal(await balance(h), before); // the teacher who ran it: untouched
+  });
+
+  test("a student already paid for is not billed again when another teacher saves", async () => {
+    const h = harness();
+    const first = await gradedJob(h);
+    await saveAs(h, first, TEACHER, ["101"]);
+    const paid = await balance(h);
+    await fund(h, OTHER, 5000);
+    // Saved by an older grader: the next run grades it again.
+    const draftDoc = h.db.collection("lmsDrafts").doc("7_477_101");
+    const rec = (await draftDoc.get()).data();
+    assert.equal(rec.paidBy.id, TEACHER.id);
+    delete rec.graderVersion;
+    await draftDoc.set(rec);
+
+    const second = await newJob(h, OTHER);
+    assert.equal((await studentsOf(h, second))[101].status, S.GRADED);
+    await saveAs(h, second, OTHER, ["101"]);
+    assert.equal((await studentsOf(h, second))[101].status, S.DRAFT_SAVED);
+    assert.equal(await balanceOf(h, OTHER), 5000);
+    assert.equal(await balance(h), paid);
+  });
+
+  test("the same, for a draft saved before paidBy was recorded", async () => {
+    const h = harness();
+    const first = await gradedJob(h);
+    await saveAs(h, first, TEACHER, ["101"]);
+    const paid = await balance(h);
+    await fund(h, OTHER, 5000);
+    const draftDoc = h.db.collection("lmsDrafts").doc("7_477_101");
+    const rec = (await draftDoc.get()).data();
+    delete rec.graderVersion;
+    delete rec.paidBy;
+    await draftDoc.set(rec);
+
+    const second = await newJob(h, OTHER);
+    await saveAs(h, second, OTHER, ["101"]);
+    assert.equal(await balanceOf(h, OTHER), 5000);
+    assert.equal(await balance(h), paid);
+  });
+
+  test("a teacher the LMS does not list on the class sees nothing", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    const outsider = { email: "x@example.com", teacherId: "t-no-class" };
+    await assert.rejects(
+      h.jobs.getJob(jobId, outsider),
+      (e) => e.code === "forbidden",
+    );
+    assert.equal(await h.jobs.latestJob("7", "477", outsider), null);
+    await assert.rejects(
+      h.jobs.startWrite({ jobId, ...outsider, studentIds: ["101"] }),
+      (e) => e.code === "forbidden",
+    );
+  });
+
+  test("a new run that fails puts the previous results back, still savable", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    await fund(h, OTHER, 0);
+
+    const failed = await newJob(h, OTHER);
+    const { job } = await h.jobs.getJob(failed, asOther);
+    assert.equal(job.status, "failed");
+    assert.equal(job.error, "not_enough_points");
+    assert.equal(job.restoredJobId, jobId);
+
+    const back = await h.jobs.latestJob("7", "477", { email: TEACHER.gmail });
+    assert.equal(back.job.id, jobId);
+    assert.equal(back.job.status, "graded");
+    await saveAs(h, jobId, TEACHER, ["101"]);
+    assert.equal((await studentsOf(h, jobId))[101].status, S.DRAFT_SAVED);
+  });
+
+  test("the preview counts students the tool has drafted apart from those to grade", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    const before = await h.jobs.preview(TEACHER.id, 7, 477, PRICE);
+    assert.equal(before.counts.candidate, 2);
+    assert.equal(before.counts.toolDraft, 0);
+    await saveAs(h, jobId, TEACHER, ["101"]);
+    const after = await h.jobs.preview(TEACHER.id, 7, 477, PRICE);
+    assert.equal(after.counts.candidate, 1);
+    assert.equal(after.counts.toolDraft, 1);
+    assert.equal(after.estimatedVnd, PRICE);
+  });
+
+  test("a draft from an older grader still counts as to grade", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    await saveAs(h, jobId, TEACHER, ["101"]);
+    const draftDoc = h.db.collection("lmsDrafts").doc("7_477_101");
+    const rec = (await draftDoc.get()).data();
+    delete rec.graderVersion;
+    await draftDoc.set(rec);
+    const { counts } = await h.jobs.preview(TEACHER.id, 7, 477, PRICE);
+    assert.equal(counts.candidate, 2);
+    assert.equal(counts.toolDraft, 0);
   });
 });

@@ -50,6 +50,7 @@ const PREPARE_DEADLINE_SECONDS = 30 * 60;
 const MAX_PREPARE_ATTEMPTS = 5;
 const MAX_WRITE_ATTEMPTS = 5;
 const READ_CONCURRENCY = 5;
+const CLASS_ACCESS_TTL_MS = 5 * 60 * 1000;
 /** Job data (answers, reviews) is deleted by a Firestore TTL policy after… */
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** KTN only in this version. */
@@ -165,6 +166,12 @@ function ownDraftOf(draft, target) {
   return null;
 }
 
+/** A saved draft that already covers all this student has handed in. */
+function draftCovers(draft, row) {
+  if ((draft?.graderVersion ?? 1) !== GRADER_VERSION) return false;
+  return [...submittedIdsOf(row)].every((id) => draft.assignments?.[id]);
+}
+
 /**
  * @param deps.db, deps.admin
  * @param deps.lmsClient      createLmsClient(...)
@@ -209,6 +216,7 @@ function createLmsGradingJobs(deps) {
   const apiFor = (teacherId) =>
     lmsClient.forTeacher(lmsAccounts.tokenSource(teacherId));
   const isStale = (job) => now() - (job.progressAt || 0) > JOB_STALE_MS;
+  const classAccess = new Map(); // "teacher:class" -> allowed until (ms)
   const callHook = (name, ...args) =>
     Promise.resolve()
       .then(() => hooks[name]?.(...args))
@@ -266,12 +274,32 @@ function createLmsGradingJobs(deps) {
     const counts = {
       total: rows.length,
       candidate: 0,
+      toolDraft: 0,
       notSubmitted: 0,
       partial: 0,
       teacherGraded: 0,
       noWritingAssignment: 0,
     };
-    for (const row of rows) counts[triage(row)] += 1;
+    const candidates = [];
+    for (const row of rows) {
+      const state = triage(row);
+      counts[state] += 1;
+      if (state === "candidate") candidates.push(row);
+    }
+    // Already drafted by the tool, the way a new run would treat them
+    // (answers are not compared here: that needs every student's page).
+    for (let i = 0; i < candidates.length; i += 100) {
+      const chunk = candidates.slice(i, i + 100);
+      const snaps = await db.getAll(
+        ...chunk.map((row) => draftRef(classId, sessionId, row.studentId)),
+      );
+      snaps.forEach((snap, j) => {
+        if (snap.exists && draftCovers(snap.data(), chunk[j])) {
+          counts.candidate -= 1;
+          counts.toolDraft += 1;
+        }
+      });
+    }
     return {
       counts,
       unitPriceVnd,
@@ -350,12 +378,14 @@ function createLmsGradingJobs(deps) {
           return { conflict: previous.id };
         }
         if (prev.status !== "failed" && prev.status !== "superseded") {
-          // A finished or abandoned job: its results may no longer be saved.
+          // A finished or abandoned job: its results may no longer be saved
+          // (unless this run fails: see restorePrevious).
           tx.update(previous.ref, {
             status: "superseded",
             supersededBy: jobId,
             progressAt: at,
           });
+          if (prev.status === "graded") job.previousJobId = previous.id;
         }
       }
       tx.set(jobRef(jobId), job);
@@ -379,11 +409,7 @@ function createLmsGradingJobs(deps) {
         { dispatchDeadlineSeconds: PREPARE_DEADLINE_SECONDS },
       );
     } catch (err) {
-      await jobRef(jobId).update({
-        status: "failed",
-        error: "enqueue_failed",
-        progressAt: now(),
-      });
+      await failJob(jobId, "enqueue_failed");
       console.error("[LMS-JOB] enqueue prepare failed:", err.message);
       throw new JobError(503, "enqueue_failed");
     }
@@ -405,10 +431,12 @@ function createLmsGradingJobs(deps) {
       if (job.status === "preparing" && !leaseFree) return { busy: true };
       if (!leaseFree) return { skip: job.status };
       if ((job.prepareAttempts || 0) >= MAX_PREPARE_ATTEMPTS) {
+        const restore = await restorePrevious(tx, jobId, job);
         tx.update(snap.ref, {
           status: "failed",
           error: "prepare_failed",
           progressAt: now(),
+          ...restore(),
         });
         return { skip: "failed" };
       }
@@ -424,6 +452,41 @@ function createLmsGradingJobs(deps) {
     });
   }
 
+  /**
+   * A run that fails must not cost the results it was about to replace (no
+   * balance, LMS down…): the graded job before it becomes current again.
+   * Reads now; the returned function does the writes and gives the failed
+   * job's extra fields, so a transaction keeps its reads before its writes.
+   */
+  async function restorePrevious(tx, jobId, job) {
+    const none = () => ({});
+    if (!job.previousJobId) return none;
+    const lock = lockRef(job.lmsClassId, job.sessionId);
+    const lockSnap = await tx.get(lock);
+    const prevSnap = await tx.get(jobRef(job.previousJobId));
+    if (
+      lockSnap.data()?.jobId !== jobId ||
+      !prevSnap.exists ||
+      prevSnap.data().status !== "superseded" ||
+      prevSnap.data().supersededBy !== jobId
+    ) {
+      return none;
+    }
+    return () => {
+      tx.update(prevSnap.ref, {
+        status: "graded",
+        supersededBy: null,
+        progressAt: now(),
+      });
+      tx.update(lock, {
+        jobId: prevSnap.id,
+        teacherId: prevSnap.data().teacherId,
+        expiresAt: now() + JOB_STALE_MS,
+      });
+      return { restoredJobId: prevSnap.id };
+    };
+  }
+
   async function failJob(jobId, error, epoch = null) {
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(jobRef(jobId));
@@ -431,7 +494,13 @@ function createLmsGradingJobs(deps) {
       const job = snap.data();
       if (epoch !== null && job.prepareEpoch !== epoch) return;
       if (job.status !== "preparing" && job.status !== "queued") return;
-      tx.update(snap.ref, { status: "failed", error, progressAt: now() });
+      const restore = await restorePrevious(tx, jobId, job);
+      tx.update(snap.ref, {
+        status: "failed",
+        error,
+        progressAt: now(),
+        ...restore(),
+      });
     });
   }
 
@@ -753,17 +822,33 @@ function createLmsGradingJobs(deps) {
   // write ("Lưu nháp lên LMS")
   // ---------------------------------------------------------------------------
 
-  async function startWrite({ jobId, email, isAdmin = false, studentIds }) {
+  async function startWrite({
+    jobId,
+    email,
+    isAdmin = false,
+    teacherId = null,
+    teacher = null,
+    studentIds,
+  }) {
     if (!writeEnabled()) throw new JobError(503, "lms_write_disabled");
     const ids = [...new Set((studentIds || []).map(String))];
     if (!ids.length) throw new JobError(400, "no_students_selected");
+    const first = await jobRef(jobId).get();
+    if (!first.exists) throw new JobError(404, "job_not_found");
+    await assertJobAccess(first.data(), { email, isAdmin, teacherId });
+    // Whoever saves pays, and writes with their own LMS login.
+    const savedBy = teacher?.id
+      ? {
+          id: teacher.id,
+          name: teacher.name || "",
+          gmail: teacher.gmail || email,
+          email,
+        }
+      : null;
     const outcome = await db.runTransaction(async (tx) => {
       const snap = await tx.get(jobRef(jobId));
       if (!snap.exists) return { error: [404, "job_not_found"] };
       const job = snap.data();
-      if (!isAdmin && job.createdByEmail !== email) {
-        return { error: [403, "forbidden"] };
-      }
       const lockSnap = await tx.get(lockRef(job.lmsClassId, job.sessionId));
       if (job.status === "superseded" || lockSnap.data()?.jobId !== jobId) {
         return { error: [409, "job_superseded"] };
@@ -786,10 +871,12 @@ function createLmsGradingJobs(deps) {
           writeRound: round,
           writeAttempts: 0,
           reason: null,
+          savedBy,
         });
       }
       tx.update(snap.ref, {
         status: "writing",
+        lastWriteByEmail: email,
         writeRound: round,
         writePending: eligible.length,
         roundStats: { requested: eligible.length },
@@ -875,7 +962,13 @@ function createLmsGradingJobs(deps) {
       writeAttempts: (st.writeAttempts || 0) + 1,
     });
 
-    const api = apiFor(job.teacherId);
+    const saver = st.savedBy || {
+      id: job.payerTeacherId,
+      name: job.payerName,
+      gmail: job.payerGmail,
+      email: job.createdByEmail,
+    };
+    const api = apiFor(saver.id);
     let reread;
     try {
       reread = await api.getGrading(job.lmsClassId, job.sessionId, studentId);
@@ -902,8 +995,11 @@ function createLmsGradingJobs(deps) {
 
     const docId = `lms:${job.lmsClassId}:${job.sessionId}:${studentId}`;
     let finalPage = reread;
+    const { payer, alreadyPaid } = await payerOf(job, studentId, saver);
     if (!alreadySaved) {
-      const balance = await readBalanceVnd(job.payerTeacherId);
+      const balance = alreadyPaid
+        ? job.unitPriceVnd
+        : await readBalanceVnd(payer.id);
       if (balance < job.unitPriceVnd) {
         return end(S.INSUFFICIENT, { reason: "not_enough_points" });
       }
@@ -955,15 +1051,11 @@ function createLmsGradingJobs(deps) {
     // grading a late-submitted assignment of the same session is not a new
     // charge, and a retried step settles through the same receipt.
     const charge = await consumePoints({
-      payer: {
-        id: job.payerTeacherId,
-        name: job.payerName,
-        gmail: job.payerGmail,
-      },
+      payer,
       docIds: [docId],
       classId: `lms:${job.lmsClassId}`,
       lessonId: `lms-session:${job.sessionId}`,
-      chargedByEmail: job.createdByEmail,
+      chargedByEmail: saver.email,
       unitPriceVnd: job.unitPriceVnd,
       jobId,
       chargeScope: "lms-session",
@@ -985,6 +1077,7 @@ function createLmsGradingJobs(deps) {
       savedAt: now(),
       teacherId: job.teacherId,
       graderVersion: GRADER_VERSION,
+      paidBy: { id: payer.id, name: payer.name, gmail: payer.gmail },
     });
     const unpaid = Boolean(charge?.need);
     await callHook("onDraftSaved", job, { ...st, studentId, unpaid });
@@ -1000,13 +1093,63 @@ function createLmsGradingJobs(deps) {
   // reads
   // ---------------------------------------------------------------------------
 
-  async function getJob(jobId, { email, isAdmin = false } = {}) {
+  /**
+   * Who may see and save a job: its creator, an admin, or any teacher the LMS
+   * lists on that class (asked with their own login; remembered briefly, as
+   * the page polls a running job).
+   */
+  async function assertJobAccess(job, { email, isAdmin, teacherId } = {}) {
+    if (isAdmin || job.createdByEmail === email) return;
+    if (!teacherId) throw new JobError(403, "forbidden");
+    const key = `${teacherId}:${job.lmsClassId}`;
+    if ((classAccess.get(key) || 0) > now()) return;
+    try {
+      await requireClass(teacherId, job.lmsClassId);
+    } catch (err) {
+      if (err instanceof JobError && err.status === 404) {
+        throw new JobError(403, "forbidden");
+      }
+      throw err;
+    }
+    classAccess.set(key, now() + CLASS_ACCESS_TTL_MS);
+  }
+
+  /**
+   * Who pays for this student's save. A session is paid once per student,
+   * but receipts are per payer: when a teacher has already paid, the charge
+   * goes through their receipt (nothing new is billed) instead of billing
+   * the next teacher who saves.
+   */
+  async function payerOf(job, studentId, saver) {
+    const snap = await draftRef(job.lmsClassId, job.sessionId, studentId).get();
+    const draft = snap.exists ? snap.data() : null;
+    if (draft?.paidBy?.id) return { payer: draft.paidBy, alreadyPaid: true };
+    if (draft?.jobId) {
+      // A draft from before paidBy was recorded: its job knows.
+      const prev = await jobRef(draft.jobId).get();
+      if (prev.exists && prev.data().payerTeacherId) {
+        const p = prev.data();
+        return {
+          payer: {
+            id: p.payerTeacherId,
+            name: p.payerName,
+            gmail: p.payerGmail,
+          },
+          alreadyPaid: true,
+        };
+      }
+    }
+    return {
+      payer: { id: saver.id, name: saver.name, gmail: saver.gmail },
+      alreadyPaid: false,
+    };
+  }
+
+  async function getJob(jobId, { email, isAdmin = false, teacherId } = {}) {
     const snap = await jobRef(jobId).get();
     if (!snap.exists) throw new JobError(404, "job_not_found");
     const job = snap.data();
-    if (!isAdmin && job.createdByEmail !== email) {
-      throw new JobError(403, "forbidden");
-    }
+    await assertJobAccess(job, { email, isAdmin, teacherId });
     const studentsSnap = await jobRef(jobId).collection("students").get();
     const students = studentsSnap.docs
       .map((d) => {
@@ -1016,6 +1159,7 @@ function createLmsGradingJobs(deps) {
         delete s.draftHash;
         delete s.assignmentLogIds;
         delete s.writtenKeys;
+        delete s.savedBy;
         return {
           ...s,
           lmsUrl: lmsGradingPageUrl(job.lmsClassId, job.sessionId, s.studentId),
