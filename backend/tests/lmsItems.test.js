@@ -113,7 +113,7 @@ describe("itemsFromGrading — classification (R1)", () => {
     assert.equal(byId["q-f1"].cls, "excluded");
     assert.equal(byId["q-f2"].cls, "excluded");
     assert.equal(byId["q-w5"].cls, "blank");
-    assert.equal(byId["q-w1"].section, "HTĐ");
+    assert.equal(byId["q-w1"].section, "HTĐ – Hiện tại đơn (V / V-s/es)");
     assert.equal(byId["q-w4"].section, "DANH TỪ SỐ ÍT SANG SỐ NHIỀU");
     assert.equal(byId["q-w1"].taskType, "vi_en");
   });
@@ -216,6 +216,26 @@ describe("scoreOf (R2)", () => {
     assert.equal(L.scoreOf(6, 10), 3);
     assert.equal(L.scoreOf(4, 5), 4);
     assert.equal(L.scoreOf(2, 5), 2);
+  });
+});
+
+describe("spellOutTense", () => {
+  test("a tense abbreviation heading is spelled out with its form", () => {
+    assert.equal(
+      L.spellOutTense("HTHTTD"),
+      "HTHTTD – Hiện tại hoàn thành tiếp diễn (have/has been + V-ing)",
+    );
+    assert.equal(
+      L.spellOutTense(" HTHT "),
+      "HTHT – Hiện tại hoàn thành (have/has + V3/ed)",
+    );
+  });
+  test("other headings are left as they are", () => {
+    assert.equal(
+      L.spellOutTense("DANH TỪ SỐ ÍT SANG SỐ NHIỀU"),
+      "DANH TỪ SỐ ÍT SANG SỐ NHIỀU",
+    );
+    assert.equal(L.spellOutTense(""), "");
   });
 });
 

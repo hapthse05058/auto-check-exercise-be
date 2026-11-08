@@ -87,6 +87,36 @@ const TENSE_ABBREVIATION =
   /^(HTĐ|HTTD|HTHT|HTHTTD|QKĐ|QKTD|QKHT|QKHTTD|TLĐ|TLTD|TLHT|TLHTTD|TLG|TLGĐ)$/iu;
 
 /**
+ * LMS group headings name the tense by its abbreviation only ("HTHTTD"). The
+ * Basic prompt makes a [CHỦ ĐIỂM] that names a structure binding, but the
+ * model does not read the abbreviation as one: "She has read 30 books" under
+ * HTHTTD came back ✅. Spelled out with its form, the rule applies.
+ */
+const TENSE_NAMES = Object.freeze({
+  HTĐ: "Hiện tại đơn (V / V-s/es)",
+  HTTD: "Hiện tại tiếp diễn (am/is/are + V-ing)",
+  HTHT: "Hiện tại hoàn thành (have/has + V3/ed)",
+  HTHTTD: "Hiện tại hoàn thành tiếp diễn (have/has been + V-ing)",
+  QKĐ: "Quá khứ đơn (V2/ed)",
+  QKTD: "Quá khứ tiếp diễn (was/were + V-ing)",
+  QKHT: "Quá khứ hoàn thành (had + V3/ed)",
+  QKHTTD: "Quá khứ hoàn thành tiếp diễn (had been + V-ing)",
+  TLĐ: "Tương lai đơn (will + V)",
+  TLTD: "Tương lai tiếp diễn (will be + V-ing)",
+  TLHT: "Tương lai hoàn thành (will have + V3/ed)",
+  TLHTTD: "Tương lai hoàn thành tiếp diễn (will have been + V-ing)",
+  TLG: "Tương lai gần (am/is/are going to + V)",
+});
+
+/** "HTHTTD" → "HTHTTD – Hiện tại hoàn thành tiếp diễn (…)"; others as is. */
+function spellOutTense(section) {
+  const text = String(section || "").trim();
+  if (!TENSE_ABBREVIATION.test(text)) return text;
+  const name = TENSE_NAMES[text.toUpperCase()];
+  return name ? `${text} – ${name}` : text;
+}
+
+/**
  * Review the first version wrote on a question left blank (it counted those
  * as wrong). Blank questions are now skipped; this text marks an older draft
  * whose blanks must be cleared and whose score must be worked out again.
@@ -284,7 +314,9 @@ function itemsFromGrading(grading, { submittedIds = null } = {}) {
       if (question?.type !== QUESTION_TYPE.ESSAY) continue;
       const { cls, reason } = classifyQuestion(entry, kind);
       counts[cls] += 1;
-      const section = firstLine(heading) || firstLine(groupTitle);
+      const rawSection = firstLine(heading) || firstLine(groupTitle);
+      const section =
+        kind === KIND.WRITING ? spellOutTense(rawSection) : rawSection;
       questions.push({
         key: questionKey(assignment.assignmentId, question.id),
         assignmentId: assignment.assignmentId,
@@ -602,6 +634,7 @@ function hashDraft(grading, result) {
 
 module.exports = {
   BLANK_REVIEW,
+  spellOutTense,
   GRADING_STATUS,
   KIND,
   QUESTION_CLASS,
