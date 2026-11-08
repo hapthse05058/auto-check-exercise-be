@@ -54,6 +54,14 @@ const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** KTN only in this version. */
 const COURSE_CODE = "KTN";
 
+/**
+ * Version of the grading itself (prompts, inputs). A draft saved by an older
+ * one is still recognised as ours (never "teacher started"), but its reviews
+ * are graded again instead of reused. Bump when a fix changes verdicts:
+ *   2 — tense abbreviations spelled out in [CHỦ ĐIỂM] (HTHTTD …)
+ */
+const GRADER_VERSION = 2;
+
 /** Student states (plan R5). */
 const S = Object.freeze({
   GRADED: "graded",
@@ -500,9 +508,15 @@ function createLmsGradingJobs(deps) {
       if (!rec || rec.reviewHash !== reviewHash) {
         return { ...common, status: S.SKIPPED, reason: "teacherStarted" };
       }
-      // Ours. Unchanged answers: keep our reviews. Changed: grade it again
-      // (our old reviews are what gets replaced — R6 accepts them).
-      if (rec.answerHash === L.hashAnswers(grading, [id])) ownDrafts.add(id);
+      // Ours. Unchanged answers, same grader: keep our reviews. Changed
+      // answers or an older grader: grade it again (our old reviews are what
+      // gets replaced — R6 accepts them).
+      if (
+        rec.answerHash === L.hashAnswers(grading, [id]) &&
+        (draft?.graderVersion ?? 1) === GRADER_VERSION
+      ) {
+        ownDrafts.add(id);
+      }
     }
     // A draft from the first version wrote "Chưa làm" on blank questions and
     // counted them wrong: its reviews are reused, but the blanks are cleared
@@ -969,6 +983,7 @@ function createLmsGradingJobs(deps) {
       assignments,
       savedAt: now(),
       teacherId: job.teacherId,
+      graderVersion: GRADER_VERSION,
     });
     const unpaid = Boolean(charge?.need);
     await callHook("onDraftSaved", job, { ...st, studentId, unpaid });
@@ -1041,6 +1056,7 @@ function createLmsGradingJobs(deps) {
 }
 
 module.exports = {
+  GRADER_VERSION,
   COURSE_CODE,
   JOB_STALE_MS,
   STUDENT_STATUS: S,

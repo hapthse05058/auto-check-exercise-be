@@ -3,6 +3,7 @@ const { describe, test } = require("node:test");
 
 const {
   createLmsGradingJobs,
+  GRADER_VERSION,
   STUDENT_STATUS: S,
 } = require("../lib/lmsGradingJobs.js");
 const { RetryLater } = require("../lib/gradingJobs.js");
@@ -583,6 +584,7 @@ describe("assignments submitted later (word order / spelling)", () => {
       jobId: rec.jobId,
       draftHash: rec.assignments["1472"].reviewHash,
       answerHash: rec.assignments["1472"].answerHash,
+      graderVersion: GRADER_VERSION, // the record format is what is tested
     });
     const paid = await balance(h);
 
@@ -679,6 +681,36 @@ describe("assignments submitted later (word order / spelling)", () => {
     // The run after that sees the corrected draft as done.
     const third = await newJob();
     assert.equal((await studentsOf(h, third))[101].status, S.DRAFT_SAVED);
+  });
+
+  test("a draft from an older grader is ours but graded again, charged once", async () => {
+    const h = harness({
+      rows: [reportRow(101, "An", 4)],
+      pages: { 101: sessionPage() },
+    });
+    const first = await gradedJob(h);
+    await writeAll(h, first, ["101"]);
+    const draftDoc = h.db.collection("lmsDrafts").doc("7_477_101");
+    const rec = (await draftDoc.get()).data();
+    delete rec.graderVersion; // saved before versions existed
+    await draftDoc.set(rec);
+    const paid = await balance(h);
+    const aiCalls = [h.graded.length, h.extraGraded.length];
+    const { jobId } = await h.jobs.createJob({
+      teacher: TEACHER,
+      email: TEACHER.gmail,
+      classId: 7,
+      sessionId: 477,
+      unitPriceVnd: PRICE,
+    });
+    await h.drain();
+    const st = (await studentsOf(h, jobId))[101];
+    assert.equal(st.status, S.GRADED); // not "teacherStarted", not reused
+    assert.deepEqual(st.reusedAssignmentIds, []);
+    assert.ok(h.graded.length > aiCalls[0]);
+    await writeAll(h, jobId, ["101"]);
+    assert.equal((await studentsOf(h, jobId))[101].status, S.DRAFT_SAVED);
+    assert.equal(await balance(h), paid);
   });
 
   test("a third run finds everything drafted and grades nothing", async () => {
