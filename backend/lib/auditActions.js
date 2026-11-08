@@ -210,6 +210,23 @@ const AUDIT_ACTIONS = [
     resourceType: "lms",
     severity: "WARN",
   },
+  // A teacher's own save from the tool: to a draft, or final (students see it).
+  {
+    method: "PUT",
+    pattern:
+      /^\/lms\/classes\/[^/]+\/sessions\/[^/]+\/students\/[^/]+\/review$/,
+    action: "lms.teacherReview",
+    resourceType: "lms",
+    severity: "WARN",
+  },
+  {
+    method: "POST",
+    pattern:
+      /^\/lms\/classes\/[^/]+\/sessions\/[^/]+\/students\/[^/]+\/finalize$/,
+    action: "lms.teacherFinalize",
+    resourceType: "lms",
+    severity: "WARN",
+  },
   // Weekly auto-grading of a class (lib/gradingSchedules.js). Each week's
   // outcome is a SYSTEM "grading.scheduleEvent" row. The admin's grading
   // times first: "settings" would match the class pattern below.

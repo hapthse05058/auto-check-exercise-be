@@ -63,12 +63,22 @@ function markOf(question) {
 /** One student's grading page, every assignment, for reading. */
 function studentWork(grading) {
   return (Array.isArray(grading) ? grading : []).map((assignment) => {
+    const kind = L.assignmentKind(assignment);
     const questions = L.walkQuestions(assignment).map(
       ({ question, groupTitle, heading }) => {
         const prompt = L.contentText(question.content);
+        const { cls } = L.classifyQuestion(
+          { question, groupTitle, heading },
+          kind,
+        );
         const section = L.firstLine(heading) || L.firstLine(groupTitle);
         return {
           id: question.id,
+          key: L.questionKey(assignment.assignmentId, question.id),
+          // The questions a teacher marks; only these have reviews on the LMS.
+          editable: question.type === L.QUESTION_TYPE.ESSAY,
+          // What the 1-5 suggestion counts (blanks and formula rows do not).
+          counted: Boolean(kind) && cls === L.QUESTION_CLASS.SUPPORTED,
           serialNumber: question.serialNumber ?? null,
           section,
           question: prompt.text,
@@ -85,7 +95,7 @@ function studentWork(grading) {
     return {
       assignmentId: assignment.assignmentId,
       name: assignment.name || "",
-      kind: L.assignmentKind(assignment),
+      kind,
       status: workStatus(assignment.gradingStatus),
       gradingStatus: assignment.gradingStatus ?? null,
       score: num(assignment.score),

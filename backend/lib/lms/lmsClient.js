@@ -251,6 +251,18 @@ function createLmsClient({
         if (!Array.isArray(data)) throw new LmsError("bad_response");
         return data;
       },
+      /**
+       * "Lưu & Chấm bài": same body as the draft save, but the student sees
+       * the result at once. Only ever called for a teacher's explicit click.
+       */
+      async submitGrading(classId, sessionId, studentId, payload) {
+        return authed(
+          "PUT",
+          `/api/score-report/v1/class/${id(classId)}/session/${id(sessionId)}` +
+            `/grading/${id(studentId)}/assignment/submit`,
+          { body: payload, idempotent: false },
+        );
+      },
       /** "Lưu nháp" — the LMS UI's draft save. NOT the submit endpoint. */
       async saveDraft(classId, sessionId, studentId, payload) {
         return authed(

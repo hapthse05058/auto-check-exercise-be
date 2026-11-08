@@ -44,6 +44,7 @@ function harness({
   pages,
   balanceVnd = 100000,
   writeEnabled = true,
+  submitEnabled = false,
   hooks = {},
   accountStatus = { linked: true, status: "ok" },
 } = {}) {
@@ -69,7 +70,7 @@ function harness({
   const queue = [];
   const graded = [];
   const extraGraded = [];
-  const state = { writeEnabled };
+  const state = { writeEnabled, submitEnabled };
   const jobs = createLmsGradingJobs({
     db,
     admin,
@@ -109,6 +110,7 @@ function harness({
       return { created: true };
     },
     writeEnabled: () => state.writeEnabled,
+    submitEnabled: () => state.submitEnabled,
     now: () => Date.UTC(2026, 10, 6, 3),
   });
   async function drain(max = 50) {
@@ -967,5 +969,186 @@ describe("a session shared by the class's teachers", () => {
     const { counts } = await h.jobs.preview(TEACHER.id, 7, 477, PRICE);
     assert.equal(counts.candidate, 2);
     assert.equal(counts.toolDraft, 0);
+  });
+});
+
+describe("a teacher's own review, saved from the tool", () => {
+  const L = require("../lib/lms/lmsItems.js");
+  const who = { teacher: TEACHER, email: TEACHER.gmail };
+  const where = { classId: 7, sessionId: 477, studentId: 101 };
+  const questionOf = (page, id) =>
+    page
+      .flatMap((a) => a.gradingList.questionGroupList)
+      .flatMap((g) => g.questionGroup.flatMap((x) => x.questionList))
+      .find((q) => q.id === id);
+  const open = (h) => h.jobs.studentWork(TEACHER.id, 7, 477, 101);
+  const save = (h, w, extra) =>
+    h.jobs.saveTeacherReview({
+      ...who,
+      ...where,
+      answerHash: w.answerHash,
+      reviewHash: w.reviewHash,
+      score: 4,
+      overall: "Cố gắng hơn nhé.",
+      ...extra,
+    });
+
+  test("without a grading run: saved as a draft, free, recognised later", async () => {
+    const h = harness();
+    await h.seed();
+    const w = await open(h);
+    assert.equal(w.editable, true);
+    assert.equal(w.proposal, null);
+    const before = await balance(h);
+    const r = await save(h, w, {
+      edits: [{ key: "1472:q-w3", review: "I **am** fine.", isCorrect: false }],
+    });
+    assert.equal(r.status, "draft_saved");
+    const page = h.lms.state.pages.get("101");
+    const q = questionOf(page, "q-w3");
+    assert.equal(
+      L.tiptapToText(q.review, { markBold: true }),
+      "I **am** fine.",
+    );
+    assert.equal(q.selectedAnswer[0].isCorrect, 0);
+    // Every assignment gets the one score, as the LMS page sends it.
+    assert.ok(h.lms.state.puts.at(-1).body.every((a) => a.score === 4));
+    assert.equal(page[0].gradingStatus, 4); // still a draft
+    assert.equal(await balance(h), before);
+    assert.ok(
+      (await h.db.collection("lmsDrafts").doc("7_477_101").get()).exists,
+    );
+  });
+
+  test("the AI's proposal opens the editor; saving it pays once", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    const w = await open(h);
+    assert.ok(w.proposal);
+    assert.equal(w.proposal.score, 3);
+    const before = await balance(h);
+    const edits = Object.entries(w.proposal.questions).map(([key, v]) => ({
+      key,
+      ...v,
+    }));
+    await save(h, w, { edits, score: w.proposal.score });
+    assert.equal(await balance(h), before - PRICE);
+    const st = (await studentsOf(h, jobId))[101];
+    assert.equal(st.status, S.DRAFT_SAVED);
+    // Saving again (a second edit) is not a second charge.
+    const again = await open(h);
+    await save(h, again, {
+      edits: [{ key: "1472:q-w1", review: "Tốt.", isCorrect: true }],
+    });
+    assert.equal(await balance(h), before - PRICE);
+  });
+
+  test("Chấm xong is refused while switched off", async () => {
+    const h = harness();
+    await h.seed();
+    const w = await open(h);
+    await assert.rejects(save(h, w, { action: "submit", edits: [] }), (e) =>
+      /lms_submit_disabled/.test(e.code),
+    );
+    assert.equal(h.lms.state.submits || 0, 0);
+  });
+
+  test("Chấm xong marks it on the LMS; it is then read-only", async () => {
+    const h = harness({ submitEnabled: true });
+    const jobId = await gradedJob(h);
+    const w = await open(h);
+    await save(h, w, {
+      action: "submit",
+      edits: [{ key: "1472:q-w1", review: "✅ Đúng", isCorrect: true }],
+    });
+    assert.equal(h.lms.state.submits, 1);
+    assert.ok(h.lms.state.pages.get("101").every((a) => a.gradingStatus === 2));
+    assert.equal((await studentsOf(h, jobId))[101].status, S.TEACHER_GRADED);
+    const after = await open(h);
+    assert.equal(after.editable, false);
+    await assert.rejects(save(h, after, { edits: [] }), (e) =>
+      /lms_already_graded/.test(e.code),
+    );
+  });
+
+  test("Chấm xong needs a score from 1 to 5", async () => {
+    const h = harness({ submitEnabled: true });
+    await h.seed();
+    const w = await open(h);
+    await assert.rejects(
+      save(h, w, { action: "submit", score: 0, edits: [] }),
+      (e) => /invalid_score/.test(e.code),
+    );
+    assert.equal(h.lms.state.submits || 0, 0);
+  });
+
+  test("a page that changed since it was opened is not overwritten", async () => {
+    const h = harness();
+    await h.seed();
+    const w = await open(h);
+    // Someone edits a review on the LMS meanwhile.
+    questionOf(h.lms.state.pages.get("101"), "q-w2").review =
+      L.reviewToTiptap("Sửa trên LMS");
+    const puts = h.lms.state.puts.length;
+    await assert.rejects(
+      save(h, w, {
+        edits: [{ key: "1472:q-w1", review: "x", isCorrect: true }],
+      }),
+      (e) => /lms_reviews_changed/.test(e.code),
+    );
+    assert.equal(h.lms.state.puts.length, puts);
+  });
+
+  test("an unknown question is refused", async () => {
+    const h = harness();
+    await h.seed();
+    const w = await open(h);
+    await assert.rejects(
+      save(h, w, {
+        edits: [{ key: "1472:nope", review: "x", isCorrect: true }],
+      }),
+      (e) => /invalid_review/.test(e.code),
+    );
+  });
+
+  test("Chấm xong on a draft the tool saved, unchanged", async () => {
+    const h = harness({ submitEnabled: true });
+    const jobId = await gradedJob(h);
+    await h.jobs.startWrite({
+      jobId,
+      ...who,
+      teacherId: TEACHER.id,
+      studentIds: ["101"],
+    });
+    await h.drain();
+    const reviewsBefore = JSON.stringify(
+      questionOf(h.lms.state.pages.get("101"), "q-w3").review,
+    );
+    await h.jobs.finalizeDraft({ ...who, ...where });
+    const page = h.lms.state.pages.get("101");
+    assert.ok(page.every((a) => a.gradingStatus === 2));
+    assert.equal(
+      JSON.stringify(questionOf(page, "q-w3").review),
+      reviewsBefore,
+    );
+    assert.equal(page[0].score, 3);
+  });
+
+  test("Chấm xong on a tool draft someone has edited since: refused", async () => {
+    const h = harness({ submitEnabled: true });
+    const jobId = await gradedJob(h);
+    await h.jobs.startWrite({
+      jobId,
+      ...who,
+      teacherId: TEACHER.id,
+      studentIds: ["101"],
+    });
+    await h.drain();
+    questionOf(h.lms.state.pages.get("101"), "q-w3").review =
+      L.reviewToTiptap("Sửa trên LMS");
+    await assert.rejects(h.jobs.finalizeDraft({ ...who, ...where }), (e) =>
+      /lms_reviews_changed/.test(e.code),
+    );
+    assert.equal(h.lms.state.submits || 0, 0);
   });
 });

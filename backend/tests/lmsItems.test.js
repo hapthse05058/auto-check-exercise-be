@@ -489,3 +489,59 @@ describe("reusing our own review", () => {
     );
   });
 });
+
+describe("buildTeacherPayload", () => {
+  const NOW = Date.UTC(2026, 10, 6, 3, 0, 0);
+  const qs = (body) =>
+    Object.fromEntries(
+      body.flatMap((a) => a.questionReviews).map((r) => [r.questionId, r]),
+    );
+
+  test("only edited questions change; every assignment gets the score", () => {
+    const page = sessionPage();
+    const body = L.buildTeacherPayload(
+      page,
+      {
+        edits: new Map([
+          ["1472:q-w3", { review: "I **am** ok.", isCorrect: true }],
+        ]),
+        score: 4,
+        overall: "Tốt",
+      },
+      { now: NOW },
+    );
+    assert.equal(body.length, page.length);
+    assert.ok(body.every((a) => a.score === 4));
+    const r = qs(body);
+    assert.equal(
+      L.tiptapToText(r["q-w3"].review, { markBold: true }),
+      "I **am** ok.",
+    );
+    assert.equal(r["q-w3"].isCorrect, 1);
+    assert.equal(r["q-w3"].gradedAt, "2026-11-06 10:00:00");
+    assert.equal(r["q-w1"].gradedAt, null); // untouched
+  });
+
+  test("an edit equal to what is there is not a change", () => {
+    const page = sessionPage();
+    const body = L.buildTeacherPayload(
+      page,
+      {
+        edits: new Map([["1472:q-w1", { review: "", isCorrect: false }]]),
+        score: 3,
+      },
+      { now: NOW },
+    );
+    assert.equal(qs(body)["q-w1"].gradedAt, null);
+  });
+
+  test("finalize dates every question, as the LMS does", () => {
+    const body = L.buildTeacherPayload(
+      sessionPage(),
+      { edits: new Map(), score: 3 },
+      { now: NOW, finalize: true },
+    );
+    // Undated questions get today; already dated ones keep their date.
+    assert.ok(Object.values(qs(body)).every((r) => r.gradedAt));
+  });
+});

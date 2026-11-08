@@ -4431,6 +4431,8 @@ const lmsAccounts = createLmsAccounts({
   client: lmsClient,
 });
 const lmsWriteEnabled = () => process.env.LMS_WRITE_ENABLED === "true";
+// "Lưu & Chấm bài" from the tool: students see the result at once.
+const lmsSubmitEnabled = () => process.env.LMS_SUBMIT_ENABLED === "true";
 
 /** The audit row of one LMS-side event (SYSTEM, like grading summaries). */
 async function recordLmsAudit(job, { id, action, detail, entityId }) {
@@ -4486,6 +4488,7 @@ const lmsGradingJobs = createLmsGradingJobs({
   enqueue: (name, payload, options) =>
     taskQueue.enqueue(name, payload, options),
   writeEnabled: lmsWriteEnabled,
+  submitEnabled: lmsSubmitEnabled,
   draftOptions:
     process.env.LMS_DRAFT_MODE === "all"
       ? { onlyTargets: false, shareOverall: true }
@@ -4496,7 +4499,7 @@ const lmsGradingJobs = createLmsGradingJobs({
         id: notifications.notificationId("lms.job", job.id, "prepared"),
         type: "lms.jobGraded",
         severity: "INFO",
-        title: "Đã chấm thử xong trên LMS",
+        title: "Đã chấm bài xong trên LMS",
         body:
           `${lmsWhere(job)}: chấm được ${job.gradedCount || 0} bài. ` +
           "Mở trang Chấm bài LMS để xem và lưu nháp.",
@@ -4611,6 +4614,7 @@ app.get("/lms/config", verifyGoogleToken, (req, res) => {
   res.json({
     enabled: lmsAllowed(req.userEmail) && Boolean(lmsCipher),
     writeEnabled: lmsWriteEnabled(),
+    submitEnabled: lmsSubmitEnabled(),
     unitPriceVnd: billing.PRICE_MANUAL_VND,
   });
 });
@@ -4710,6 +4714,65 @@ app.get(
       );
     } catch (err) {
       return sendLmsError(res, err, "overview");
+    }
+  },
+);
+
+// A teacher's own review of one student: saved as a draft or, with
+// action "submit", final (only on that explicit click).
+app.put(
+  "/lms/classes/:classId/sessions/:sessionId/students/:studentId/review",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    const { action, answerHash, reviewHash, edits, score, overall } =
+      req.body || {};
+    res.locals.auditDetail =
+      `${action === "submit" ? "Chấm xong" : "Lưu nháp"} · lớp ${req.params.classId}` +
+      ` · buổi ${req.params.sessionId} · HV ${req.params.studentId} · điểm ${score ?? "-"}`;
+    try {
+      return res.json(
+        await lmsGradingJobs.saveTeacherReview({
+          teacher: req.lmsTeacher,
+          email: req.userEmail,
+          classId: req.params.classId,
+          sessionId: req.params.sessionId,
+          studentId: req.params.studentId,
+          action,
+          answerHash,
+          reviewHash,
+          edits,
+          score,
+          overall,
+        }),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "teacher review");
+    }
+  },
+);
+
+// "Chấm xong" on a draft the tool already saved, unchanged.
+app.post(
+  "/lms/classes/:classId/sessions/:sessionId/students/:studentId/finalize",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    res.locals.auditDetail =
+      `Chấm xong bản nháp · lớp ${req.params.classId}` +
+      ` · buổi ${req.params.sessionId} · HV ${req.params.studentId}`;
+    try {
+      return res.json(
+        await lmsGradingJobs.finalizeDraft({
+          teacher: req.lmsTeacher,
+          email: req.userEmail,
+          classId: req.params.classId,
+          sessionId: req.params.sessionId,
+          studentId: req.params.studentId,
+        }),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "finalize");
     }
   },
 );

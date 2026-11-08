@@ -609,6 +609,58 @@ function buildDraftPayload(grading, result, opts = {}) {
 }
 
 /**
+ * The PUT body for a teacher's own save from the tool ("Lưu nháp" or
+ * "Lưu & Chấm bài"). As the LMS's grading page does, it sends every assignment
+ * on the page with one score and overall comment; questions the teacher did
+ * not change keep their review and mark.
+ *
+ * @param content.edits   Map<questionKey, {review, isCorrect}>
+ * @param opts.finalize   true for "Lưu & Chấm bài": every question gets a
+ *                        grading date, as on the LMS
+ */
+function buildTeacherPayload(grading, content, opts = {}) {
+  const { edits, score, overall } = content;
+  const { now = Date.now(), finalize = false } = opts;
+  const nowText = lmsTimestamp(now);
+  const overallReview = overall ? reviewToTiptap(overall) : "";
+  return (Array.isArray(grading) ? grading : []).map((assignment) => {
+    const deadline = lmsDeadlineText(assignment.checkDeadline);
+    const late = Boolean(deadline && nowText > deadline);
+    const questionReviews = [];
+    for (const { question } of walkQuestions(assignment)) {
+      const edit = edits.get(questionKey(assignment.assignmentId, question.id));
+      const wasCorrect = question.selectedAnswer?.[0]?.isCorrect === 1;
+      const wasReview = tiptapToText(question.review, { markBold: true });
+      const changed =
+        Boolean(edit) &&
+        (edit.review !== wasReview || edit.isCorrect !== wasCorrect);
+      const previousDate = question.gradedAt
+        ? lmsDeadlineText(question.gradedAt)
+        : null;
+      let review = question.review ?? "";
+      if (changed) review = edit.review ? reviewToTiptap(edit.review) : "";
+      let lateFlag = question.gradingLateFlag ?? null;
+      if (changed) lateFlag = late;
+      else if (finalize && !late) lateFlag = false;
+      questionReviews.push({
+        questionId: question.id,
+        review,
+        gradingLateFlag: lateFlag,
+        gradedAt:
+          changed || (finalize && !previousDate) ? nowText : previousDate,
+        isCorrect: (changed ? edit.isCorrect : wasCorrect) ? 1 : 0,
+      });
+    }
+    return {
+      assignmentId: assignment.assignmentId,
+      score: score || 0,
+      review: overallReview,
+      questionReviews,
+    };
+  });
+}
+
+/**
  * Hash of the reviews a draft would leave on the written questions — compared
  * against hashReviews(reread, keys) to recognise our own draft (plan R6).
  */
@@ -644,6 +696,7 @@ module.exports = {
   answerText,
   assignmentKind,
   buildDraftPayload,
+  buildTeacherPayload,
   canonical,
   classifyQuestion,
   contentText,

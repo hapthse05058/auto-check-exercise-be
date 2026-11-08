@@ -382,6 +382,18 @@ function createFakeLms({ rows, pages, classes, sessions, hooks = {} }) {
       if (!page) throw new LmsError("not_found", { status: 404 });
       return deepCopy(page);
     },
+    async submitGrading(classId, sessionId, studentId, body) {
+      state.submits = (state.submits || 0) + 1;
+      state.puts.push({
+        studentId: String(studentId),
+        body: deepCopy(body),
+        submit: true,
+      });
+      const page = state.pages.get(String(studentId));
+      applyDraft(page, body);
+      for (const a of page) a.gradingStatus = 2;
+      return null;
+    },
     async saveDraft(classId, sessionId, studentId, body) {
       await hooks.beforePut?.(String(studentId), body, state);
       state.puts.push({ studentId: String(studentId), body: deepCopy(body) });

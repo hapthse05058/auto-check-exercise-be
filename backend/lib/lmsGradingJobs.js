@@ -51,6 +51,7 @@ const MAX_PREPARE_ATTEMPTS = 5;
 const MAX_WRITE_ATTEMPTS = 5;
 const READ_CONCURRENCY = 5;
 const CLASS_ACCESS_TTL_MS = 5 * 60 * 1000;
+const MAX_REVIEW_CHARS = 5000;
 /** Job data (answers, reviews) is deleted by a Firestore TTL policy after… */
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** KTN only in this version. */
@@ -202,6 +203,7 @@ function createLmsGradingJobs(deps) {
     enqueue,
     writeEnabled = () => false,
     draftOptions = {},
+    submitEnabled = () => false,
     hooks = {},
     now = Date.now,
   } = deps;
@@ -1265,25 +1267,323 @@ function createLmsGradingJobs(deps) {
       studentId,
     );
     const draft = await draftRef(classId, sessionId, studentId).get();
+    const current = await currentJobStudent(classId, sessionId, studentId);
+    const assignments = V.studentWork(grading);
     return {
       session: { id: session.id, name: session.name },
       studentId: String(studentId),
       fullName: grading?.[0]?.fullName || "",
       toolDraft: draft.exists,
       lmsUrl: lmsGradingPageUrl(classId, sessionId, studentId),
-      assignments: V.studentWork(grading),
+      // A teacher can still change it until it is marked on the LMS.
+      editable: !pageMarked(grading),
+      ...pageHashes(grading),
+      proposal: proposalOf(current),
+      assignments,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // A teacher's own review, saved from the tool (no LMS screen needed)
+  // ---------------------------------------------------------------------------
+
+  const pageMarked = (page) => page.some((a) => isTeacherDone(a.gradingStatus));
+
+  /** What a teacher loaded: a save is refused if the page has moved since. */
+  function pageHashes(page) {
+    const ids = page.map((a) => String(a.assignmentId));
+    const keys = page.flatMap((a) =>
+      L.walkQuestions(a)
+        .filter(({ question }) => question.type === L.QUESTION_TYPE.ESSAY)
+        .map(({ question }) => L.questionKey(a.assignmentId, question.id)),
+    );
+    return {
+      answerHash: L.hashAnswers(page, ids),
+      reviewHash: L.hashReviews(page, keys),
+    };
+  }
+
+  /** The current run's row for a student, when there is one. */
+  async function currentJobStudent(classId, sessionId, studentId) {
+    const lock = await lockRef(classId, sessionId).get();
+    const jobId = lock.exists ? lock.data().jobId : null;
+    if (!jobId) return null;
+    const [jobSnap, stSnap] = await Promise.all([
+      jobRef(jobId).get(),
+      studentRef(jobId, studentId).get(),
+    ]);
+    if (!jobSnap.exists || !stSnap.exists) return null;
+    return { jobId, job: jobSnap.data(), student: stSnap.data() };
+  }
+
+  /** AI grading not on the LMS yet: what the editor opens with. */
+  function proposalOf(current) {
+    if (!current || !WRITABLE.has(current.student.status)) return null;
+    const { student } = current;
+    return {
+      score: student.score ?? null,
+      overall: student.overall || "",
+      questions: Object.fromEntries(
+        (student.questions || [])
+          .filter((q) => q.review !== undefined && !q.blank)
+          .map((q) => [q.key, { review: q.review, isCorrect: q.isCorrect }]),
+      ),
+    };
+  }
+
+  /** Saves on the LMS, confirms it landed, then settles the bookkeeping. */
+  async function applyTeacherReview({
+    teacher,
+    email,
+    classId,
+    sessionId,
+    studentId,
+    finalize,
+    guard,
+    content,
+  }) {
+    if (!writeEnabled()) throw new JobError(503, "lms_write_disabled");
+    if (finalize && !submitEnabled()) {
+      throw new JobError(503, "lms_submit_disabled");
+    }
+    await requireSession(teacher.id, classId, sessionId);
+    const api = apiFor(teacher.id);
+    const page = await api.getGrading(classId, sessionId, studentId);
+    if (!page.length) throw new JobError(404, "lms_nothing_to_grade");
+    if (pageMarked(page)) throw new JobError(409, "lms_already_graded");
+    await guard(page);
+    const { edits, score, overall } = content(page);
+    if (finalize && !(Number.isInteger(score) && score >= 1 && score <= 5)) {
+      throw new JobError(400, "invalid_score");
+    }
+
+    const known = new Set(
+      page.flatMap((a) =>
+        L.walkQuestions(a).map(({ question }) =>
+          L.questionKey(a.assignmentId, question.id),
+        ),
+      ),
+    );
+    for (const key of edits.keys()) {
+      if (!known.has(key)) throw new JobError(400, "invalid_review");
+    }
+
+    const current = await currentJobStudent(classId, sessionId, studentId);
+    if (current?.job.status === "writing" && !isStale(current.job)) {
+      throw new JobError(409, "write_in_progress");
+    }
+    // AI grading that reaches the LMS is what is paid for; a teacher's own
+    // marking, or a draft already saved, is free.
+    const billable = Boolean(current && WRITABLE.has(current.student.status));
+    const saver = {
+      id: teacher.id,
+      name: teacher.name || "",
+      gmail: teacher.gmail || email,
+      email,
+    };
+    let payer = null;
+    if (billable) {
+      const found = await payerOf(current.job, studentId, saver);
+      payer = found.payer;
+      if (
+        !found.alreadyPaid &&
+        (await readBalanceVnd(payer.id)) < current.job.unitPriceVnd
+      ) {
+        throw new JobError(409, "not_enough_points");
+      }
+    }
+
+    const body = L.buildTeacherPayload(
+      page,
+      { edits, score, overall },
+      { now: now(), finalize },
+    );
+    try {
+      if (finalize)
+        await api.submitGrading(classId, sessionId, studentId, body);
+      else await api.saveDraft(classId, sessionId, studentId, body);
+    } catch (err) {
+      if (err instanceof LmsError && err.code === "write_uncertain") {
+        // It may have landed: the teacher reloads and looks, never a blind retry.
+        throw new JobError(502, "lms_write_uncertain");
+      }
+      throw err;
+    }
+
+    const confirm = await api.getGrading(classId, sessionId, studentId);
+    if (
+      edits.size &&
+      L.hashReviews(confirm, [...edits.keys()]) !==
+        L.hashDraft(page, { verdicts: edits })
+    ) {
+      throw new JobError(502, "lms_verify_mismatch");
+    }
+    if (finalize && !confirm.every((a) => isTeacherDone(a.gradingStatus))) {
+      throw new JobError(502, "lms_submit_unconfirmed");
+    }
+
+    let unpaid = false;
+    if (billable) {
+      const charge = await consumePoints({
+        payer,
+        docIds: [`lms:${classId}:${sessionId}:${studentId}`],
+        classId: `lms:${classId}`,
+        lessonId: `lms-session:${sessionId}`,
+        chargedByEmail: email,
+        unitPriceVnd: current.job.unitPriceVnd,
+        jobId: current.jobId,
+        chargeScope: "lms-session",
+      });
+      unpaid = Boolean(charge?.need);
+    }
+
+    if (!finalize) {
+      // Recognised as ours later: reused, never graded over.
+      const written = L.itemsFromGrading(confirm).questions.filter(L.isWritten);
+      const assignments = {};
+      for (const a of confirm) {
+        const id = String(a.assignmentId);
+        const keys = written
+          .filter((q) => String(q.assignmentId) === id)
+          .map((q) => q.key);
+        if (!keys.length) continue;
+        assignments[id] = {
+          reviewHash: L.hashReviews(confirm, keys),
+          answerHash: L.hashAnswers(confirm, [id]),
+        };
+      }
+      await draftRef(classId, sessionId, studentId).set(
+        {
+          ...(current ? { jobId: current.jobId } : {}),
+          assignments,
+          savedAt: now(),
+          teacherId: teacher.id,
+          graderVersion: GRADER_VERSION,
+          ...(payer
+            ? { paidBy: { id: payer.id, name: payer.name, gmail: payer.gmail } }
+            : {}),
+        },
+        { merge: true },
+      );
+    }
+
+    if (current) {
+      const { student, jobId, job } = current;
+      const update = {
+        status: finalize ? S.TEACHER_GRADED : S.DRAFT_SAVED,
+        reason: null,
+        score: score || null,
+        overall: overall || "",
+        draftHash: L.hashReviews(confirm, student.writtenKeys || []),
+      };
+      if (student.questions) {
+        update.questions = student.questions.map((q) => {
+          const e = edits.get(q.key);
+          if (!e) return q;
+          const { blank, ...rest } = q;
+          return { ...rest, review: e.review, isCorrect: e.isCorrect };
+        });
+        const marked = update.questions.filter(
+          (q) => q.review !== undefined && !q.blank,
+        );
+        update.counted = marked.length;
+        update.correct = marked.filter((q) => q.isCorrect).length;
+      }
+      await studentRef(jobId, studentId).update(update);
+      if (billable) {
+        await jobRef(jobId).update({
+          written: (job.written || 0) + 1,
+          progressAt: now(),
+        });
+      }
+    }
+    return { status: finalize ? "graded" : "draft_saved", score, unpaid };
+  }
+
+  /** The editor's "Lưu nháp" / "Chấm xong", with what the teacher changed. */
+  async function saveTeacherReview(p) {
+    const list = Array.isArray(p.edits) ? p.edits : [];
+    const valid =
+      list.length <= 1000 &&
+      list.every(
+        (e) =>
+          typeof e?.key === "string" &&
+          typeof e?.review === "string" &&
+          e.review.length <= MAX_REVIEW_CHARS &&
+          typeof e?.isCorrect === "boolean",
+      ) &&
+      typeof (p.overall ?? "") === "string" &&
+      (p.overall ?? "").length <= MAX_REVIEW_CHARS;
+    if (!valid) throw new JobError(400, "invalid_review");
+    const score = p.score === null || p.score === undefined ? 0 : p.score;
+    if (!(Number.isInteger(score) && score >= 0 && score <= 5)) {
+      throw new JobError(400, "invalid_score");
+    }
+    const edits = new Map(
+      list.map((e) => [e.key, { review: e.review, isCorrect: e.isCorrect }]),
+    );
+    return applyTeacherReview({
+      ...p,
+      finalize: p.action === "submit",
+      guard: (page) => {
+        const now_ = pageHashes(page);
+        if (now_.answerHash !== p.answerHash) {
+          throw new JobError(409, "lms_answers_changed");
+        }
+        if (now_.reviewHash !== p.reviewHash) {
+          throw new JobError(409, "lms_reviews_changed");
+        }
+      },
+      content: () => ({ edits, score, overall: p.overall || "" }),
+    });
+  }
+
+  /** "Chấm xong" on a draft the tool saved, exactly as it is on the LMS. */
+  async function finalizeDraft(p) {
+    return applyTeacherReview({
+      ...p,
+      finalize: true,
+      guard: async (page) => {
+        const snap = await draftRef(p.classId, p.sessionId, p.studentId).get();
+        const draft = snap.exists ? snap.data() : null;
+        const items = L.itemsFromGrading(page);
+        const written = items.questions.filter(L.isWritten);
+        let drafted = 0;
+        for (const target of items.targets) {
+          const rec = ownDraftOf(draft, target);
+          if (!rec) continue; // not handed in, or not the tool's to check
+          drafted += 1;
+          const keys = written
+            .filter((q) => q.assignmentId === target.assignmentId)
+            .map((q) => q.key);
+          if (rec.reviewHash !== L.hashReviews(page, keys)) {
+            throw new JobError(409, "lms_reviews_changed");
+          }
+        }
+        if (!drafted) throw new JobError(409, "lms_no_tool_draft");
+      },
+      content: (page) => {
+        const first = page.find((a) => L.isTargetAssignment(a)) || page[0];
+        return {
+          edits: new Map(),
+          score: Number(first.score),
+          overall: L.tiptapToText(first.review, { markBold: true }),
+        };
+      },
+    });
   }
 
   return {
     classOverview,
     createJob,
+    finalizeDraft,
     getJob,
     handleTask,
     latestJob,
     listClasses,
     listSessions,
     preview,
+    saveTeacherReview,
     startWrite,
     studentWork,
   };
