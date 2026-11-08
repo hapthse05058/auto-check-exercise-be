@@ -748,3 +748,67 @@ describe("assignments submitted later (word order / spelling)", () => {
     assert.equal(st.reason, "teacherStarted");
   });
 });
+
+describe("read-only views", () => {
+  test("class overview: held sessions only, status per assignment, tool drafts flagged", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    await h.jobs.startWrite({
+      jobId,
+      email: TEACHER.gmail,
+      studentIds: ["101"],
+    });
+    await h.drain();
+    const o = await h.jobs.classOverview(TEACHER.id, 7);
+    // Buổi 5 starts in 2099: not listed.
+    assert.deepEqual(
+      o.sessions.map((s) => s.id),
+      [477],
+    );
+    assert.deepEqual(
+      o.students.map((s) => s.fullName),
+      ["An Nguyễn", "Bình Trần", "Chi Lê", "Dũng Phạm"],
+    );
+    const cell = (id) => o.cells["477"][id];
+    const writing = (id) =>
+      cell(id).assignments.find((a) => a.assignmentId === 1472);
+    assert.equal(writing("101").status, "submitted");
+    assert.equal(writing("103").status, "notSubmitted");
+    assert.equal(writing("104").status, "graded");
+    assert.equal(cell("101").toolDraft, true);
+    assert.equal(cell("102").toolDraft, undefined);
+    assert.equal(h.lms.state.puts.length, 1); // the overview wrote nothing
+  });
+
+  test("class overview of a class that is not the teacher's KTN class: 404", async () => {
+    const h = harness();
+    await assert.rejects(h.jobs.classOverview(TEACHER.id, 9), (e) =>
+      /lms_class_not_found/.test(e.code || e.message),
+    );
+  });
+
+  test("student work: every assignment with answers, reviews (bold kept) and marks", async () => {
+    const h = harness();
+    const jobId = await gradedJob(h);
+    await h.jobs.startWrite({
+      jobId,
+      email: TEACHER.gmail,
+      studentIds: ["101"],
+    });
+    await h.drain();
+    const puts = h.lms.state.puts.length;
+    const w = await h.jobs.studentWork(TEACHER.id, 7, 477, 101);
+    assert.equal(w.toolDraft, true);
+    assert.match(w.lmsUrl, /\/session\/477\/grading\/101\/assignment$/);
+    const ids = w.assignments.map((a) => a.assignmentId);
+    assert.ok(ids.includes(1472) && ids.includes(1473));
+    const writing = w.assignments.find((a) => a.assignmentId === 1472);
+    assert.ok(writing.questions.length > 0);
+    const wrong = writing.questions.find(
+      (q) => q.isCorrect === false && q.review,
+    );
+    assert.match(wrong.review, /\*\*am learning\*\*/);
+    assert.ok(writing.questions.some((q) => q.isCorrect === true));
+    assert.equal(h.lms.state.puts.length, puts); // read-only
+  });
+});

@@ -646,6 +646,8 @@ module.exports = {
   buildDraftPayload,
   canonical,
   classifyQuestion,
+  contentText,
+  firstLine,
   hashAnswers,
   hashDraft,
   hashReviews,
@@ -659,4 +661,5 @@ module.exports = {
   scoreOf,
   tiptapToText,
   verdictsOf,
+  walkQuestions,
 };

@@ -4693,6 +4693,46 @@ app.get(
   },
 );
 
+// Read-only: the class's sessions × students (status / score per assignment).
+app.get(
+  "/lms/classes/:classId/overview",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    try {
+      return res.json(
+        await lmsGradingJobs.classOverview(
+          req.lmsTeacher.id,
+          req.params.classId,
+        ),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "overview");
+    }
+  },
+);
+
+// Read-only: one student's work in one session (every assignment).
+app.get(
+  "/lms/classes/:classId/sessions/:sessionId/students/:studentId/work",
+  verifyGoogleToken,
+  requireLms,
+  async (req, res) => {
+    try {
+      return res.json(
+        await lmsGradingJobs.studentWork(
+          req.lmsTeacher.id,
+          req.params.classId,
+          req.params.sessionId,
+          req.params.studentId,
+        ),
+      );
+    } catch (err) {
+      return sendLmsError(res, err, "studentWork");
+    }
+  },
+);
+
 app.post(
   "/lms/grading-jobs",
   verifyGoogleToken,

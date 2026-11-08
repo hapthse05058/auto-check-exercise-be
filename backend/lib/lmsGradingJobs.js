@@ -36,6 +36,7 @@ const crypto = require("crypto");
 const { LmsError, lmsGradingPageUrl } = require("./lms/lmsClient.js");
 const { LmsReloginRequired } = require("./lms/lmsAccounts.js");
 const L = require("./lms/lmsItems.js");
+const V = require("./lms/lmsView.js");
 const { JobError, RetryLater } = require("./gradingJobs.js");
 
 const JOBS = "lmsGradingJobs";
@@ -1043,7 +1044,95 @@ function createLmsGradingJobs(deps) {
     console.error("[LMS-JOB] unknown step", payload?.step);
   }
 
+  // ---------------------------------------------------------------------------
+  // Read-only views (no grading, no writes to the LMS)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Every session held so far × every student: per assignment its status and
+   * score, from the sessions' score reports. A cell the tool saved a draft
+   * for (still awaiting "Lưu & Chấm bài") is flagged toolDraft.
+   */
+  async function classOverview(teacherId, classId) {
+    const cls = await requireClass(teacherId, classId);
+    const sessions = (await listSessions(teacherId, classId)).filter(
+      (s) => s.started,
+    );
+    const api = apiFor(teacherId);
+    const reports = await mapLimit(sessions, READ_CONCURRENCY, (s) =>
+      api.listSubmissions(classId, s.id),
+    );
+    const students = new Map();
+    const cells = {};
+    const draftKeys = [];
+    sessions.forEach((s, i) => {
+      const bySession = {};
+      for (const raw of reports[i] || []) {
+        const row = V.overviewRow(raw);
+        if (!row.studentId) continue;
+        if (!students.has(row.studentId)) {
+          students.set(row.studentId, {
+            studentId: row.studentId,
+            fullName: row.fullName,
+          });
+        }
+        bySession[row.studentId] = { assignments: row.assignments };
+        const awaiting = row.assignments.some(
+          (a) => a.kind && a.status === V.WORK_STATUS.SUBMITTED,
+        );
+        if (awaiting) draftKeys.push([String(s.id), row.studentId]);
+      }
+      cells[String(s.id)] = bySession;
+    });
+    // Our drafts, read in chunks (a class is ~30 students × ~24 sessions).
+    for (let i = 0; i < draftKeys.length; i += 100) {
+      const chunk = draftKeys.slice(i, i + 100);
+      const snaps = await db.getAll(
+        ...chunk.map(([s, st]) => draftRef(classId, s, st)),
+      );
+      snaps.forEach((snap, j) => {
+        if (snap.exists) {
+          const [s, st] = chunk[j];
+          cells[s][st].toolDraft = true;
+        }
+      });
+    }
+    return {
+      classInfo: cls,
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        name: s.name,
+        startTime: s.startTime,
+        checkDeadline: s.checkDeadline,
+      })),
+      students: [...students.values()].sort((a, b) =>
+        a.fullName.localeCompare(b.fullName, "vi"),
+      ),
+      cells,
+    };
+  }
+
+  /** One student's work in one session, every assignment, for reading. */
+  async function studentWork(teacherId, classId, sessionId, studentId) {
+    const session = await requireSession(teacherId, classId, sessionId);
+    const grading = await apiFor(teacherId).getGrading(
+      classId,
+      sessionId,
+      studentId,
+    );
+    const draft = await draftRef(classId, sessionId, studentId).get();
+    return {
+      session: { id: session.id, name: session.name },
+      studentId: String(studentId),
+      fullName: grading?.[0]?.fullName || "",
+      toolDraft: draft.exists,
+      lmsUrl: lmsGradingPageUrl(classId, sessionId, studentId),
+      assignments: V.studentWork(grading),
+    };
+  }
+
   return {
+    classOverview,
     createJob,
     getJob,
     handleTask,
@@ -1052,6 +1141,7 @@ function createLmsGradingJobs(deps) {
     listSessions,
     preview,
     startWrite,
+    studentWork,
   };
 }
 
