@@ -130,12 +130,116 @@ describe("grading job: paragraph writing", () => {
       points: 10,
     });
     h.hooks.paragraphFeedback = null;
-    await runJob(h);
+    const jobId = await runJob(h);
 
     assert.equal(h.docsApi.paragraphFeedbackOf("docA"), "");
     assert.deepEqual(h.docsApi.feedbackOf("docA"), [
       "She has done it.\n(Sai thì.)",
     ]);
+    // …and says so: the doc is written, but not passed off as complete.
+    const record = h.docRecords(jobId).docA;
+    assert.equal(record.status, "written");
+    assert.equal(record.aiSkipped, 1);
+    assert.deepEqual(
+      record.warnings.filter((w) => w.code === "aiSkippedItems"),
+      [{ code: "aiSkippedItems", params: { docId: "docA", count: 1 } }],
+    );
+    assert.equal(h.job(jobId).incompleteDocs, 1);
+    const described = await h.jobs.getJob(jobId, { email: "teacher@x.com" });
+    assert.equal(described.incompleteDocs, 1);
+  });
+
+  it("counts no incomplete doc when the AI answered everything", async () => {
+    const h = createHarness({
+      tabs: {
+        docA: makeTab({
+          answers: ["I done it"],
+          paragraph: { student: STUDENT },
+        }),
+      },
+      points: 10,
+    });
+    const jobId = await runJob(h);
+
+    assert.equal(h.job(jobId).incompleteDocs, 0);
+    assert.equal(h.docRecords(jobId).docA.aiSkipped, undefined);
+    assert.deepEqual(h.docRecords(jobId).docA.warnings, []);
+  });
+
+  it("asks the grader to throw on a passing failure, not to drop items", async () => {
+    const h = createHarness({
+      tabs: { docA: makeTab({ answers: ["I done it"] }) },
+      points: 10,
+    });
+    await runJob(h);
+    assert.equal(h.counters.gradeOptions[0].strict, true);
+  });
+
+  it("retries prepare when the AI fails in passing, then writes and charges once", async () => {
+    const h = createHarness({
+      tabs: {
+        docA: makeTab({
+          answers: ["I done it", "ok answer"],
+          paragraph: { student: STUDENT },
+        }),
+        docB: makeTab({
+          answers: ["ok answer"],
+          paragraph: { student: `${STUDENT} More.` },
+        }),
+      },
+      points: 10,
+    });
+    // What server.js's strict gradeItemsCached throws for a 429 that outlived
+    // its retries. Twice, then the provider is back.
+    h.hooks.gradeFail = (call) =>
+      call <= 2
+        ? Object.assign(new Error("AI grading incomplete: 429"), {
+            status: 429,
+          })
+        : null;
+    const jobId = await runJob(h);
+
+    const job = h.job(jobId);
+    assert.equal(job.status, "done");
+    assert.equal(job.error ?? null, null);
+    assert.equal(h.counters.grade, 3);
+    assert.equal(job.prepareEpoch, 3);
+    // Nothing was written by the failed attempts; everything by the third.
+    assert.equal(job.written, 2);
+    assert.equal(job.incompleteDocs, 0);
+    assert.equal(h.docsApi.paragraphFeedbackOf("docA"), WRITTEN);
+    assert.equal(h.docsApi.paragraphFeedbackOf("docB"), WRITTEN);
+    assert.deepEqual(h.docsApi.feedbackOf("docA"), [
+      "She has done it.\n(Sai thì.)",
+      "✅ Đúng",
+    ]);
+    assert.equal(h.points(), 8);
+    assert.equal(h.ledger().length, 2);
+  });
+
+  it("fails the job, unwritten and unbilled, when the AI never comes back", async () => {
+    const h = createHarness({
+      tabs: {
+        docA: makeTab({
+          answers: ["I done it"],
+          paragraph: { student: STUDENT },
+        }),
+      },
+      points: 10,
+    });
+    h.hooks.gradeFail = () =>
+      Object.assign(new Error("AI grading incomplete: 429"), { status: 429 });
+    const jobId = await runJob(h);
+
+    const job = h.job(jobId);
+    assert.equal(job.status, "failed");
+    assert.equal(job.error, "prepare_failed");
+    assert.match(job.errorParams.msg, /429/);
+    assert.equal(job.written, 0);
+    assert.deepEqual(h.docsApi.feedbackOf("docA"), [""]);
+    assert.equal(h.docsApi.paragraphFeedbackOf("docA"), "");
+    assert.equal(h.points(), 10);
+    assert.equal(h.ledger().length, 0);
   });
 
   it("re-running after the paragraph was written grades nothing", async () => {

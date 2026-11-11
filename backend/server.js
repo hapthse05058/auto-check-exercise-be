@@ -58,6 +58,11 @@ const {
   normalizeTaskType,
 } = require("./lib/gradingKey.js");
 const {
+  createLimiter,
+  isTransientAiError,
+  withRetry,
+} = require("./lib/aiRetry.js");
+const {
   buildSentenceInput,
   correctionFitsAnswer,
   matchGradedRows,
@@ -398,6 +403,19 @@ const openai = new OpenAI({
   baseURL: AI_BASE_URL,
 });
 
+// How many grader requests this instance keeps in flight at once — across
+// every job, group and single re-grade. The provider counts the ACCOUNT's
+// requests and answers 429 past its limit (a limit it lowers as the balance
+// runs down), so the cap has to sit on the call itself: capping the groups of
+// one run (GRADE_GROUP_CONCURRENCY) left its single re-grades, and any second
+// run, free to add their own on top.
+const AI_MAX_CONCURRENCY = Number(
+  process.env.AI_MAX_CONCURRENCY || process.env.GRADE_GROUP_CONCURRENCY || 4,
+);
+const limitGraderCalls = createLimiter(AI_MAX_CONCURRENCY);
+/** Waits before a grader call is tried again; one call takes 30–120 s. */
+const AI_RETRY_DELAYS_MS = [5000, 20000, 60000];
+
 /**
  * Calls the AI grader via chat completions (DeepSeek / any OpenAI-compatible
  * provider) and returns the cleaned response text. The grading instruction is
@@ -421,7 +439,19 @@ async function callGrader(instruction, inputText, model) {
     params.temperature = 0.5;
     params.top_p = 0.14;
   }
-  const response = await openai.chat.completions.create(params);
+  // A 429 or a cut connection is tried again here, so one bad minute at the
+  // provider does not cost a group of students their feedback. The slot is
+  // held per attempt, not across the wait.
+  const response = await withRetry(
+    () => limitGraderCalls(() => openai.chat.completions.create(params)),
+    {
+      delays: AI_RETRY_DELAYS_MS,
+      onRetry: (err, attempt, waitMs) =>
+        console.warn(
+          `[AI] grader call failed (attempt ${attempt}), retrying in ${waitMs}ms: ${err.message}`,
+        ),
+    },
+  );
   return (response.choices?.[0]?.message?.content || "")
     .replace(/【.*?】|<br>|/g, "")
     .trim();
@@ -792,8 +822,10 @@ async function runWithConcurrency(taskFactories, limit) {
  * must hold; if it still fails its item stays null — not written, not
  * cached, retried on the next run.
  *
- * @returns {{feedbacks: Array<string|null>, single: Set<number>}} feedbacks
- *   aligned to `group` by index; `single`: the indexes graded on their own.
+ * @returns {{feedbacks: Array<string|null>, single: Set<number>,
+ *   failures: Error[]}} feedbacks aligned to `group` by index; `single`: the
+ *   indexes graded on their own; `failures`: the provider errors that left a
+ *   re-graded item without feedback (callGrader had already retried them).
  */
 async function gradeGroupWithOpenAI(group, instruction, model) {
   const ask = async (items, options) => {
@@ -806,6 +838,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
   };
   const { feedbacks, rejected } = await ask(group);
   const single = new Set();
+  const failures = [];
   await Promise.all(
     rejected.map(async ({ index, reason }) => {
       const item = group[index];
@@ -813,6 +846,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
       try {
         again = await ask([item], { checkFit: false });
       } catch (err) {
+        failures.push(err);
         console.warn("[GRADE-CACHED] single re-grade failed:", err.message);
       }
       const fb = again?.feedbacks[0] ?? null;
@@ -828,7 +862,7 @@ async function gradeGroupWithOpenAI(group, instruction, model) {
       feedbacks[index] = fb;
     }),
   );
-  return { feedbacks, single };
+  return { feedbacks, single, failures };
 }
 
 /** Raised by gradeItemsCached when there is nothing gradable in `items`. */
@@ -839,11 +873,22 @@ class NoItemsError extends Error {}
  * in front of the AI. Shared by /grade-cached (the website's old in-browser
  * flow) and background grading jobs (lib/gradingJobs.js).
  *
+ * `strict` (grading jobs): when a call is still failing for a reason that
+ * passes — the provider's 429, a cut connection — after callGrader's own
+ * retries, THROW instead of returning its items without feedback. What was
+ * graded is cached first, so the job's retry only asks for the rest. Without
+ * it a job writes the doc with those answers left blank and calls itself done
+ * (KTN749N buổi 08, 11/11/2026: 13 paragraphs).
+ *
  * @returns {Promise<Array<{question, answer, taskType, feedback}>>} one result
- *   per ORIGINAL item, echoing the raw question/answer it was sent with.
+ *   per ORIGINAL item, echoing the raw question/answer it was sent with. An
+ *   item the AI could not grade has `feedback: null`.
  * @throws {NoItemsError} when no item has both a question and an answer.
  */
-async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
+async function gradeItemsCached(
+  items,
+  { useCache = true, requestId, strict = false } = {},
+) {
   const model = AI_MODEL;
   if (!Array.isArray(items) || items.length === 0) throw new NoItemsError();
 
@@ -992,17 +1037,20 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     const groupErrors = [];
     const tasks = groups.map((group) => async () => {
       try {
-        const { feedbacks, single } =
-          group[0].taskType === TASK_PARAGRAPH
-            ? {
-                feedbacks: await gradeParagraphGroup(group, {
-                  instruction: paragraphInstruction,
-                  model,
-                  callGrader,
-                }),
-                single: new Set(),
-              }
-            : await gradeGroupWithOpenAI(group, instruction, model);
+        let feedbacks;
+        let single = new Set();
+        if (group[0].taskType === TASK_PARAGRAPH) {
+          feedbacks = await gradeParagraphGroup(group, {
+            instruction: paragraphInstruction,
+            model,
+            callGrader,
+            onFailure: (err) => groupErrors.push(err),
+          });
+        } else {
+          const graded = await gradeGroupWithOpenAI(group, instruction, model);
+          ({ feedbacks, single } = graded);
+          groupErrors.push(...graded.failures);
+        }
         group.forEach((it, i) => {
           const fb = feedbacks[i];
           if (fb !== null && fb !== undefined) {
@@ -1012,8 +1060,9 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
           }
         });
       } catch (err) {
-        // A failed group leaves its items uncached/unwritten; they retry on
-        // the next run. Never block the whole class on one group.
+        // A failed group leaves its items uncached/unwritten. The other
+        // groups still run, so what they grade is cached either way; a
+        // strict caller is told below.
         groupErrors.push(err);
         console.error("[GRADE-CACHED] group grading failed:", err.message);
       }
@@ -1039,8 +1088,8 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
     // If EVERY group failed (e.g. a misconfigured AI key/model in this
     // environment), the AI produced no feedback at all. Returning
     // success:true with all-null feedback hides a total outage, so surface
-    // it as a real error instead. Partial failures still pass through and
-    // retry on the next run.
+    // it as a real error instead. A partial failure goes on to step 5, so
+    // what WAS graded is cached before a strict caller is told.
     const graded = uncached.some(
       (it) => it._feedback !== null && it._feedback !== undefined,
     );
@@ -1079,6 +1128,19 @@ async function gradeItemsCached(items, { useCache = true, requestId } = {}) {
         });
         await batch.commit();
       }
+    }
+
+    // A failure that passes is the caller's cue to come back (see `strict`).
+    // One that will not pass — a request the provider refuses outright — must
+    // not block the rest of the class: its items stay null, and the job
+    // reports them.
+    const passing = groupErrors.find(isTransientAiError);
+    if (strict && passing) {
+      const err = new Error(
+        `AI grading incomplete, ${groupErrors.length} call(s) failed: ${passing.message || passing}`,
+      );
+      err.status = passing.status;
+      throw err;
     }
   }
 
@@ -4039,7 +4101,10 @@ function describeJobOutcome(job) {
     title: "Đã chấm xong",
     body:
       `${where}: ${progress}. ${charge}` +
-      (job.stopped ? " Dừng giữa chừng vì hết số dư." : ""),
+      (job.stopped ? " Dừng giữa chừng vì hết số dư." : "") +
+      (job.incompleteDocs > 0
+        ? ` Lưu ý: ${job.incompleteDocs} bài còn câu/đoạn văn AI chưa chấm được, ô GV sửa đang để trống — đoạn văn có thể bấm chấm lại, câu thì cần chấm tay.`
+        : ""),
   };
 }
 

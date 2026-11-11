@@ -86,6 +86,11 @@ const OPTIONAL_SECTION = /^b[aà]i\s*t[aậ]p\s*t[uự]\s*ch[oọ]n:?$/i;
  *
  * Hai nhãn dòng được neo CẢ Ô (^…$): một header bài câu kiểu "Học viên viết lại
  * câu sau" không được phép biến bảng đó thành bảng đoạn văn.
+ *
+ * Học viên gõ trong chính bảng này nên nhãn "Học viên viết" hay bị xoá mất
+ * (KTN749N buổi 02: ô nhãn trống trơn, bài vẫn nằm đúng ô). Khi đó bảng vẫn
+ * được nhận ra nhờ HAI dấu hiệu còn lại — tiêu đề "viết đoạn văn" và dòng
+ * "Đoạn văn mẫu" — và dòng học viên là dòng ngay dưới dòng mẫu.
  */
 const PARAGRAPH_TITLE = /vi[eế]t\s*đo[aạ]n\s*v[aă]n/i;
 const PARAGRAPH_SAMPLE_LABEL = /^\s*đo[aạ]n\s*v[aă]n\s*m[aẫ]u\s*:?\s*$/i;
@@ -274,20 +279,39 @@ function cellAfterLabel(row, labelIndex) {
  */
 function resolveParagraphTable(table) {
   const rows = table.tableRows || [];
-  const studentRowIdx = rows.findIndex((row) =>
+  const textsAbove = (rowIdx) =>
+    rows
+      .slice(0, rowIdx)
+      .flatMap((row) => row.tableCells || [])
+      .map((cell) => normalizeText(getCellText(cell)));
+
+  let studentRowIdx = rows.findIndex((row) =>
     PARAGRAPH_STUDENT_LABEL.test(rowLabel(row)?.text || ""),
   );
-  if (studentRowIdx === -1) return null;
+  let labelIndex;
+  if (studentRowIdx !== -1) {
+    labelIndex = rowLabel(rows[studentRowIdx]).index;
+  } else {
+    // Nhãn "Học viên viết" không còn: nhận theo tiêu đề + dòng mẫu, và lấy
+    // dòng ngay dưới dòng mẫu. Đòi CẢ HAI để một bảng câu không thể lọt vào.
+    const sampleRowIdx = rows.findIndex((row) =>
+      PARAGRAPH_SAMPLE_LABEL.test(rowLabel(row)?.text || ""),
+    );
+    if (sampleRowIdx === -1 || sampleRowIdx + 1 >= rows.length) return null;
+    if (!textsAbove(sampleRowIdx).some((text) => PARAGRAPH_TITLE.test(text))) {
+      return null;
+    }
+    studentRowIdx = sampleRowIdx + 1;
+    // Ô nhãn có thể trống nên không tự tìm được: nó cùng cột với nhãn mẫu.
+    labelIndex = rowLabel(rows[sampleRowIdx]).index;
+  }
 
-  const headerTexts = rows
-    .slice(0, studentRowIdx)
-    .flatMap((row) => row.tableCells || [])
-    .map((cell) => normalizeText(getCellText(cell)));
+  const headerTexts = textsAbove(studentRowIdx);
   if (!headerTexts.some((text) => FEEDBACK_HEADER.test(text))) return null;
 
   const studentRow = rows[studentRowIdx];
   const cells = studentRow.tableCells || [];
-  const qCell = cellAfterLabel(studentRow, rowLabel(studentRow).index);
+  const qCell = cellAfterLabel(studentRow, labelIndex);
   const fbCell = cells[cells.length - 1];
   if (!qCell || !fbCell || fbCell === qCell) return null;
   if (fbCell.content?.[0]?.startIndex === undefined) return null;

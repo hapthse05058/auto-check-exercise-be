@@ -1125,9 +1125,13 @@ function createGradingJobs(deps) {
           }
         }
       }
+      // strict: a provider failure that passes (429, a cut connection) throws
+      // here instead of leaving answers without feedback, so this prepare is
+      // retried; what was graded is cached, the retry asks for the rest.
       const graded = await gradeItems([...unique.values()], {
         useCache: job.useCache,
         requestId: jobId,
+        strict: true,
       });
       const feedbackByKey = new Map();
       for (const g of graded) {
@@ -1147,6 +1151,10 @@ function createGradingJobs(deps) {
 
       for (const doc of pending) {
         doc.gradingResults = [];
+        // Answers the AI gave nothing usable for. They are left blank in the
+        // doc — and SAID so: a blank among graded rows reads as "nothing to
+        // correct", and a later run skips a doc that already has feedback.
+        let aiSkipped = 0;
         for (const item of doc.qa) {
           const feedback = feedbackByKey.get(
             lib.makeAnswerKey(
@@ -1156,7 +1164,10 @@ function createGradingJobs(deps) {
               item.section,
             ),
           );
-          if (feedback === null || feedback === undefined) continue;
+          if (feedback === null || feedback === undefined) {
+            aiSkipped += 1;
+            continue;
+          }
           doc.gradingResults.push({
             rowKey: `${item.tableIdx}:${item.rowIdx}`,
             questionIndex: lib.extractQuestionIndex(item.question),
@@ -1164,6 +1175,12 @@ function createGradingJobs(deps) {
           });
         }
         delete doc.qa;
+        if (aiSkipped) {
+          doc.aiSkipped = aiSkipped;
+          doc.warnings.push(
+            warning("aiSkippedItems", { docId: doc.docId, count: aiSkipped }),
+          );
+        }
         if (doc.gradingResults.length) {
           doc.status = "ready";
         } else {
@@ -1203,6 +1220,7 @@ function createGradingJobs(deps) {
           reason: doc.reason || null,
           warnings: doc.warnings,
           gradingResults: doc.gradingResults || [],
+          ...(doc.aiSkipped ? { aiSkipped: doc.aiSkipped } : {}),
           attempts: 0,
           updatedAt: now(),
         });
@@ -1210,6 +1228,8 @@ function createGradingJobs(deps) {
       tx.update(jobRef(jobId), {
         status: ready.length ? "writing" : "preparing",
         skipped: docs.length - ready.length,
+        // Docs with answers the AI could not grade (see aiSkippedItems).
+        incompleteDocs: docs.filter((d) => d.aiSkipped).length,
         written: 0,
         failed: 0,
         notice,
@@ -1962,6 +1982,7 @@ function createGradingJobs(deps) {
       written: job.written,
       skipped: job.skipped,
       failed: job.failed,
+      incompleteDocs: job.incompleteDocs || 0,
       charged: job.charged,
       alreadyPaid: job.alreadyPaid || 0,
       unitPriceVnd: unitPriceOfJob(job),

@@ -112,17 +112,9 @@ function paragraphText(value) {
     .join("\n");
 }
 
-/**
- * Chấm MỘT nhóm đoạn văn bằng một lần gọi AI.
- *
- * @param {Array<{question: string, answer: string}>} group
- * @param {{instruction: string, model: string,
- *          callGrader: (instruction, inputText, model) => Promise<string>}} deps
- * @returns {Promise<Array<string|null>>} thẳng hàng với `group`; STT AI bỏ sót
- *   hoặc trả hỏng → null.
- */
-async function gradeParagraphGroup(group, { instruction, model, callGrader }) {
-  const dataset = group
+/** Một lần gọi AI cho `items`; kết quả thẳng hàng với `items`, hỏng → null. */
+async function askParagraphs(items, { instruction, model, callGrader }) {
+  const dataset = items
     .map(
       (item, i) =>
         `[STT]: ${i + 1}\n[ĐỀ + ĐOẠN MẪU]: ${paragraphText(item.question)}\n[ĐOẠN VĂN HỌC VIÊN]:\n${paragraphText(item.answer)}`,
@@ -132,7 +124,53 @@ async function gradeParagraphGroup(group, { instruction, model, callGrader }) {
 
   const response = await callGrader(instruction, inputText, model);
   const byStt = parseParagraphResponse(response);
-  return group.map((_, i) => formatParagraphFeedback(byStt.get(i + 1)));
+  return items.map((_, i) => formatParagraphFeedback(byStt.get(i + 1)));
+}
+
+/**
+ * Chấm MỘT nhóm đoạn văn bằng một lần gọi AI.
+ *
+ * Đoạn nào AI bỏ sót hoặc trả hỏng (thiếu STT, JSON cụt, correction thiếu
+ * trường) được hỏi lại MỘT MÌNH, một lần — như bài câu (gradeGroupWithOpenAI).
+ * Trả lời cho một đoạn thì ngắn hơn nhiều, nên hầu hết lần hỏng do nhóm quá
+ * dài đều qua được. Vẫn hỏng thì để `null`: không cache, không ghi doc.
+ *
+ * Lần gọi cả nhóm lỗi thì ném ra như cũ. Lần hỏi lại lỗi thì KHÔNG ném — các
+ * đoạn đã chấm xong của nhóm không được mất theo — mà báo qua `onFailure`.
+ *
+ * @param {Array<{question: string, answer: string}>} group
+ * @param {{instruction: string, model: string,
+ *          callGrader: (instruction, inputText, model) => Promise<string>,
+ *          onFailure?: (err: Error) => void}} deps
+ * @returns {Promise<Array<string|null>>} thẳng hàng với `group`; đoạn không
+ *   chấm được → null.
+ */
+async function gradeParagraphGroup(
+  group,
+  { instruction, model, callGrader, onFailure },
+) {
+  const deps = { instruction, model, callGrader };
+  const feedbacks = await askParagraphs(group, deps);
+  // Nhóm chỉ có một đoạn thì hỏi lại y hệt lần vừa rồi — vẫn đáng một lần,
+  // vì JSON hỏng thường là ngẫu nhiên chứ không do nội dung.
+  await Promise.all(
+    feedbacks.map(async (feedback, i) => {
+      if (feedback !== null) return;
+      try {
+        [feedbacks[i]] = await askParagraphs([group[i]], deps);
+      } catch (err) {
+        onFailure?.(err);
+      }
+      if (feedbacks[i] === null) {
+        console.warn(
+          `[PARAGRAPH] no usable feedback after a single re-grade: ${JSON.stringify(
+            String(group[i].answer ?? "").slice(0, 80),
+          )}`,
+        );
+      }
+    }),
+  );
+  return feedbacks;
 }
 
 module.exports = {

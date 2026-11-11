@@ -433,6 +433,7 @@ function createHarness({
     tokenCalls: 0,
     indentExports: 0, // tableIndentsOf calls
     gradedItems: [], // every item handed to gradeItems
+    gradeOptions: [], // the options of every gradeItems call
     ielts: 0, // gradeIelts calls
     ieltsInputs: [], // every validated IELTS submission graded
     sentenceInputs: [], // every validated IELTS short-sentence table graded
@@ -442,6 +443,7 @@ function createHarness({
   };
   const hooks = {
     gradeGate: null, // Promise the next grade call waits on
+    gradeFail: null, // (callNumber) => Error | null — gradeItems throws
     beforeConsume: null, // async ({docId}) => void, may throw
     afterConsume: null,
     tokenError: null, // () => Error | null, per getDocsAccessToken call
@@ -549,13 +551,16 @@ function createHarness({
       if (hooks.imageFail?.(uri)) throw new Error("image_http_403");
       return { mime: "image/png", buffer: Buffer.from(`png:${uri}`) };
     },
-    async gradeItems(items) {
+    async gradeItems(items, options = {}) {
       counters.grade += 1;
+      counters.gradeOptions.push(options);
       if (hooks.gradeGate) {
         const gate = hooks.gradeGate;
         hooks.gradeGate = null;
         await gate;
       }
+      const failure = hooks.gradeFail?.(counters.grade);
+      if (failure) throw failure;
       counters.gradedItems.push(...items);
       // "ok" answers are right; anything else gets a bold correction + reason.
       // A paragraph gets what lib/paragraphFeedback.js produces: already laid
